@@ -1,4 +1,6 @@
+import fs from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
 import { getRuntimeConfig } from "../../config/io.js";
 import { readJsonBody } from "../hooks.js";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
@@ -62,6 +64,106 @@ function normalizeString(v: unknown): string | null {
 function normalizeRole(v: unknown): AdminUserRole | null {
   if (v === "superadmin" || v === "admin" || v === "user") return v;
   return null;
+}
+
+type RecentSession = {
+  id: string;
+  timestamp: string;
+  firstMessage: string | null;
+};
+
+type WorkspaceSkill = {
+  name: string;
+  description: string | null;
+};
+
+async function readRecentSessions(sessionsDir: string, limit: number): Promise<RecentSession[]> {
+  let files: { name: string; mtime: number }[] = [];
+  try {
+    const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
+    const jsonlFiles = entries.filter(
+      (e) => e.isFile() && e.name.endsWith(".jsonl") && !e.name.includes(".bak-"),
+    );
+    const stats = await Promise.all(
+      jsonlFiles.map(async (e) => {
+        const stat = await fs.stat(path.join(sessionsDir, e.name)).catch(() => null);
+        return stat ? { name: e.name, mtime: stat.mtimeMs } : null;
+      }),
+    );
+    files = stats.filter(Boolean) as { name: string; mtime: number }[];
+    files.sort((a, b) => b.mtime - a.mtime);
+    files = files.slice(0, limit);
+  } catch {
+    return [];
+  }
+
+  const results: RecentSession[] = [];
+  for (const file of files) {
+    const filePath = path.join(sessionsDir, file.name);
+    try {
+      const content = await fs.readFile(filePath, "utf8");
+      const lines = content.split("\n").filter((l) => l.trim());
+      let sessionId = file.name.replace(".jsonl", "");
+      let sessionTimestamp = new Date(file.mtime).toISOString();
+      let firstMessage: string | null = null;
+
+      for (const line of lines.slice(0, 40)) {
+        try {
+          const evt = JSON.parse(line) as Record<string, unknown>;
+          if (evt.type === "session") {
+            if (typeof evt.id === "string") sessionId = evt.id;
+            if (typeof evt.timestamp === "string") sessionTimestamp = evt.timestamp;
+          }
+          if (evt.type === "message" && !firstMessage) {
+            const msg = evt.message as Record<string, unknown> | undefined;
+            if (msg?.role === "user") {
+              const content = msg.content as Array<{ type: string; text?: string }> | undefined;
+              const textPart = content?.find((c) => c.type === "text");
+              if (textPart?.text) {
+                // Strip the timestamp prefix [Day YYYY-MM-DD HH:MM TZ]
+                firstMessage = textPart.text.replace(/^\[[^\]]+\]\s*/, "").slice(0, 120);
+              }
+            }
+          }
+          if (firstMessage) break;
+        } catch {
+          continue;
+        }
+      }
+
+      results.push({ id: sessionId, timestamp: sessionTimestamp, firstMessage });
+    } catch {
+      continue;
+    }
+  }
+  return results;
+}
+
+async function readWorkspaceSkills(workspaceDir: string): Promise<WorkspaceSkill[]> {
+  const skills: WorkspaceSkill[] = [];
+  try {
+    const entries = await fs.readdir(workspaceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillDir = path.join(workspaceDir, entry.name);
+      // Check for SKILL.md or AGENT.md
+      for (const marker of ["SKILL.md", "AGENT.md"]) {
+        const markerPath = path.join(skillDir, marker);
+        try {
+          const content = await fs.readFile(markerPath, "utf8");
+          const firstLine = content.split("\n").find((l) => l.trim().length > 0) ?? "";
+          const description = firstLine.replace(/^#+\s*/, "").trim() || null;
+          skills.push({ name: entry.name, description });
+          break;
+        } catch {
+          continue;
+        }
+      }
+    }
+  } catch {
+    // workspace dir doesn't exist
+  }
+  return skills;
 }
 
 let initialized = false;
@@ -258,7 +360,36 @@ export async function handleAdminHttpRequest(
     const cfg = getRuntimeConfig();
     const { listGatewayAgentsBasic } = await import("../agent-list.js");
     const result = listGatewayAgentsBasic(cfg);
-    sendJson(res, 200, { agents: result.agents, defaultId: result.defaultId });
+    // Augment with identity info from config
+    const { resolveAgentConfig } = await import("../../agents/agent-scope-config.js");
+    const agents = result.agents.map((a) => {
+      const agentCfg = resolveAgentConfig(cfg, a.id);
+      return {
+        ...a,
+        emoji: agentCfg?.identity?.emoji ?? null,
+        theme: agentCfg?.identity?.theme ?? null,
+        model: agentCfg?.model ?? cfg.agents?.model ?? cfg.model ?? null,
+      };
+    });
+    sendJson(res, 200, { agents, defaultId: result.defaultId });
+    return true;
+  }
+
+  // GET /api/admin/agents/:id — agent detail (skills + recent sessions)
+  const agentDetailMatch = subPath.match(/^\/agents\/([^/]+)$/);
+  if (agentDetailMatch && req.method === "GET") {
+    const agentId = agentDetailMatch[1]!;
+    const cfg = getRuntimeConfig();
+    const { resolveAgentWorkspaceDir } = await import("../../agents/agent-scope-config.js");
+    const { resolveStateDir } = await import("../../config/paths.js");
+    const stateDir = resolveStateDir();
+    const sessionsDir = path.join(stateDir, "agents", agentId, "sessions");
+    const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
+    const [recentSessions, workspaceSkills] = await Promise.all([
+      readRecentSessions(sessionsDir, 5),
+      readWorkspaceSkills(workspaceDir),
+    ]);
+    sendJson(res, 200, { agentId, recentSessions, workspaceSkills });
     return true;
   }
 
