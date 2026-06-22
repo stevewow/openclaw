@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
@@ -19,7 +20,19 @@ import {
   updateUser,
   verifyPassword,
 } from "./user-store.js";
+import {
+  createResource,
+  deleteResource,
+  ensureResourcesDir,
+  getAllTags,
+  getResource,
+  listResources,
+  resolveResourceFilePath,
+  updateResource,
+} from "./resource-store.js";
 import type { AdminUserRole } from "./types.js";
+
+const MAX_BODY_BYTES_RESOURCE = 20 * 1024 * 1024; // 20 MB for file uploads (base64)
 
 const ADMIN_PATH_PREFIX = "/api/admin";
 const MAX_BODY_BYTES = 64 * 1024;
@@ -421,6 +434,139 @@ export async function handleAdminHttpRequest(
     const valid = await verifyPassword(currentPassword, userWithHash.passwordHash);
     if (!valid) { sendJson(res, 401, { error: "invalid_current_password" }); return true; }
     await updateUser(sessionUser.id, { password: newPassword });
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/resources — list resources
+  if (subPath === "/resources" && req.method === "GET") {
+    const search = url.searchParams.get("search") ?? undefined;
+    const tagsParam = url.searchParams.get("tags");
+    const tags = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const isUser = !isAdmin;
+    const resources = await listResources({
+      search,
+      tags: tags.length > 0 ? tags : undefined,
+      userAccessOnly: isUser ? true : undefined,
+    });
+    const allTags = await getAllTags();
+    sendJson(res, 200, { resources, allTags });
+    return true;
+  }
+
+  // GET /api/admin/resources/tags — all tags
+  if (subPath === "/resources/tags" && req.method === "GET") {
+    sendJson(res, 200, { tags: await getAllTags() });
+    return true;
+  }
+
+  // POST /api/admin/resources — create (admin only)
+  if (subPath === "/resources" && req.method === "POST") {
+    if (!isAdmin) { sendForbidden(res); return true; }
+    const body = await readJsonBody(req, MAX_BODY_BYTES_RESOURCE);
+    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    const data = body.value as Record<string, unknown>;
+    const title = normalizeString(data.title);
+    if (!title) { sendBadRequest(res, "title required"); return true; }
+    const type = data.type === "file" ? "file" : "link";
+    if (type === "link") {
+      const urlVal = normalizeString(data.url);
+      if (!urlVal) { sendBadRequest(res, "url required for link type"); return true; }
+      const resource = await createResource({
+        title,
+        description: normalizeString(data.description),
+        type: "link",
+        url: urlVal,
+        tags: Array.isArray(data.tags) ? (data.tags as string[]).filter((t) => typeof t === "string") : [],
+        aiAccess: data.aiAccess !== false,
+        userAccess: !!data.userAccess,
+        createdBy: sessionUser.id,
+      });
+      sendJson(res, 201, { resource });
+    } else {
+      const fileData = normalizeString(data.fileData);
+      const filename = normalizeString(data.filename);
+      if (!fileData || !filename) { sendBadRequest(res, "fileData and filename required for file type"); return true; }
+      await ensureResourcesDir();
+      const ext = path.extname(filename).toLowerCase();
+      const storedFilename = `${crypto.randomUUID()}${ext}`;
+      const buf = Buffer.from(fileData, "base64");
+      await import("node:fs/promises").then((fsp) =>
+        fsp.writeFile(resolveResourceFilePath(storedFilename), buf),
+      );
+      const mimetype = normalizeString(data.mimetype) ?? "application/octet-stream";
+      const resource = await createResource({
+        title,
+        description: normalizeString(data.description),
+        type: "file",
+        filename,
+        storedFilename,
+        mimetype,
+        filesize: buf.byteLength,
+        tags: Array.isArray(data.tags) ? (data.tags as string[]).filter((t) => typeof t === "string") : [],
+        aiAccess: data.aiAccess !== false,
+        userAccess: !!data.userAccess,
+        createdBy: sessionUser.id,
+      });
+      sendJson(res, 201, { resource });
+    }
+    return true;
+  }
+
+  // GET /api/admin/resources/:id/file — download file
+  const resourceFileMatch = subPath.match(/^\/resources\/([^/]+)\/file$/);
+  if (resourceFileMatch && req.method === "GET") {
+    const resourceId = resourceFileMatch[1]!;
+    const resource = await getResource(resourceId);
+    if (!resource || resource.type !== "file" || !resource.storedFilename) { sendNotFound(res); return true; }
+    if (!isAdmin && !resource.userAccess) { sendForbidden(res); return true; }
+    const filePath = resolveResourceFilePath(resource.storedFilename);
+    try {
+      const fileContent = await import("node:fs/promises").then((fsp) => fsp.readFile(filePath));
+      res.statusCode = 200;
+      res.setHeader("Content-Type", resource.mimetype ?? "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${resource.filename ?? "file"}"`);
+      res.setHeader("Content-Length", fileContent.byteLength);
+      res.end(fileContent);
+    } catch {
+      sendNotFound(res);
+    }
+    return true;
+  }
+
+  // PUT /api/admin/resources/:id — update (admin only)
+  const resourceEditMatch = subPath.match(/^\/resources\/([^/]+)$/);
+  if (resourceEditMatch && req.method === "PUT") {
+    if (!isAdmin) { sendForbidden(res); return true; }
+    const resourceId = resourceEditMatch[1]!;
+    const body = await readJsonBody(req, MAX_BODY_BYTES_RESOURCE);
+    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    const data = body.value as Record<string, unknown>;
+    const updates: Parameters<typeof updateResource>[1] = {};
+    const newTitle = normalizeString(data.title);
+    if (newTitle) updates.title = newTitle;
+    const newDesc = data.description !== undefined ? normalizeString(data.description) : undefined;
+    if (newDesc !== undefined) updates.description = newDesc;
+    const newUrl = normalizeString(data.url);
+    if (newUrl) updates.url = newUrl;
+    if (Array.isArray(data.tags)) {
+      updates.tags = (data.tags as string[]).filter((t) => typeof t === "string");
+    }
+    if (data.aiAccess !== undefined) updates.aiAccess = !!data.aiAccess;
+    if (data.userAccess !== undefined) updates.userAccess = !!data.userAccess;
+    const updated = await updateResource(resourceId, updates);
+    if (!updated) { sendNotFound(res); return true; }
+    sendJson(res, 200, { resource: updated });
+    return true;
+  }
+
+  // DELETE /api/admin/resources/:id — delete (admin only)
+  if (resourceEditMatch && req.method === "DELETE") {
+    if (!isAdmin) { sendForbidden(res); return true; }
+    const resourceId = resourceEditMatch[1]!;
+    const resource = await getResource(resourceId);
+    if (!resource) { sendNotFound(res); return true; }
+    await deleteResource(resourceId);
     sendJson(res, 200, { ok: true });
     return true;
   }

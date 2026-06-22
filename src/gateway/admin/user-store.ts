@@ -30,10 +30,29 @@ type PermissionsTable = {
   value: string;
 };
 
+type ResourcesTable = {
+  id: string;
+  title: string;
+  description: string | null;
+  type: string;
+  url: string | null;
+  filename: string | null;
+  stored_filename: string | null;
+  mimetype: string | null;
+  filesize: number | null;
+  tags: string;
+  ai_access: number;
+  user_access: number;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
   admin_user_permissions: PermissionsTable;
+  admin_resources: ResourcesTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -117,6 +136,24 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       value TEXT NOT NULL,
       PRIMARY KEY (user_id, permission_type, value)
     );
+    CREATE TABLE IF NOT EXISTS admin_resources (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      type TEXT NOT NULL CHECK(type IN ('link','file')),
+      url TEXT,
+      filename TEXT,
+      stored_filename TEXT,
+      mimetype TEXT,
+      filesize INTEGER,
+      tags TEXT NOT NULL DEFAULT '[]',
+      ai_access INTEGER NOT NULL DEFAULT 1,
+      user_access INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_resources_created_at ON admin_resources(created_at);
   `);
 }
 

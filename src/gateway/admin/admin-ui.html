@@ -137,6 +137,50 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .empty-state { text-align: center; padding: 3rem; color: var(--text-muted); font-size: 0.875rem; }
 
+  /* Resources */
+  .resources-toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; }
+  .search-input-wrap { flex: 1; min-width: 200px; position: relative; }
+  .search-input-wrap input { padding-left: 2.25rem; }
+  .search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+  .tag-filters { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+  .tag-filter-chip { padding: 0.25rem 0.65rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); transition: all 0.12s; }
+  .tag-filter-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .tag-filter-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+  .resource-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
+  .resource-card-body { padding: 1.125rem 1.25rem; flex: 1; }
+  .resource-card-title { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .resource-type-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+  .resource-title-text { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; line-height: 1.3; }
+  .resource-desc { font-size: 0.825rem; color: var(--text-muted); margin-bottom: 0.75rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .resource-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.75rem; }
+  .resource-tag { padding: 0.15rem 0.5rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); }
+  .resource-access { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .access-badge { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
+  .access-badge-ai { background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; }
+  .access-badge-users { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+  .access-badge-off { background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); }
+  .resource-card-footer { padding: 0.625rem 1.25rem; background: var(--surface2); border-top: 1px solid var(--border); display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; }
+  .resource-date { font-size: 0.7rem; color: var(--text-muted); }
+  /* Tag chip input */
+  .tag-chip-wrap { border: 1px solid var(--border); border-radius: 7px; padding: 0.4rem 0.6rem; display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; min-height: 42px; cursor: text; transition: border-color 0.15s, box-shadow 0.15s; background: var(--surface); }
+  .tag-chip-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
+  .tag-chip-wrap .chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.5rem; background: var(--accent); color: #fff; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .tag-chip-wrap .chip-remove { cursor: pointer; opacity: 0.75; line-height: 1; }
+  .tag-chip-wrap .chip-remove:hover { opacity: 1; }
+  .tag-chip-input { border: none; outline: none; font-size: 13px; font-family: inherit; background: transparent; min-width: 80px; flex: 1; }
+  /* Toggle switch */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 0.625rem 0; border-bottom: 1px solid var(--border); }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-label { font-size: 0.875rem; font-weight: 600; }
+  .toggle-sublabel { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem; }
+  .toggle { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 999px; cursor: pointer; transition: background 0.2s; }
+  .toggle-slider:before { content: ''; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+  .toggle input:checked + .toggle-slider { background: var(--accent); }
+  .toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
+
   /* Agent cards */
   .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
   .agent-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
@@ -213,6 +257,7 @@
       <a href="#dashboard" class="nav-link" data-page="dashboard"><span class="icon">⊞</span> Dashboard</a>
       <a href="#users" class="nav-link admin-only" data-page="users"><span class="icon">👥</span> Users</a>
       <a href="#agents" class="nav-link" data-page="agents"><span class="icon">🤖</span> Agents</a>
+      <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
       <a href="#system" class="nav-link admin-only" data-page="system"><span class="icon">⚙</span> System</a>
       <a href="#account" class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
     </nav>
@@ -271,6 +316,25 @@
           Other users will only interact with the main agent.
         </div>
         <div id="agents-grid" class="agents-grid">
+          <div class="empty-state" style="grid-column:1/-1"><span class="spin">⟳</span> Loading…</div>
+        </div>
+      </div>
+
+      <!-- Resources page -->
+      <div id="page-resources" class="page hidden">
+        <div class="flex justify-between items-center mb-4">
+          <div class="resources-toolbar" style="flex:1;margin-bottom:0">
+            <div class="search-input-wrap">
+              <span class="search-icon">🔍</span>
+              <input id="resources-search" type="search" placeholder="Search title, description, tags…">
+            </div>
+          </div>
+          <div style="margin-left:0.75rem">
+            <button class="btn btn-primary" id="add-resource-btn">+ Add Resource</button>
+          </div>
+        </div>
+        <div id="resources-tag-filters" class="tag-filters"></div>
+        <div id="resources-grid" class="resources-grid">
           <div class="empty-state" style="grid-column:1/-1"><span class="spin">⟳</span> Loading…</div>
         </div>
       </div>
@@ -338,6 +402,67 @@
   </div>
 </div>
 
+<!-- Resource Modal -->
+<div id="resource-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-title" id="resource-modal-title">Add Resource</div>
+    <div id="resource-modal-error" class="alert alert-error hidden"></div>
+    <form id="resource-modal-form">
+      <input type="hidden" id="resource-modal-id">
+      <div class="form-group">
+        <label>Type</label>
+        <select id="resource-type" onchange="onResourceTypeChange()">
+          <option value="link">🔗 Link (URL)</option>
+          <option value="file">📄 File Upload</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Title</label>
+        <input id="resource-title" required placeholder="e.g. Q4 Sales Playbook">
+      </div>
+      <div class="form-group">
+        <label>Description <span style="font-weight:400;text-transform:none">(optional)</span></label>
+        <textarea id="resource-desc" rows="2" style="resize:vertical" placeholder="Brief description of this resource…"></textarea>
+      </div>
+      <div class="form-group" id="resource-url-group">
+        <label>URL</label>
+        <input id="resource-url" type="url" placeholder="https://…">
+      </div>
+      <div class="form-group hidden" id="resource-file-group">
+        <label>File <span style="font-weight:400;text-transform:none">(max 15 MB)</span></label>
+        <input id="resource-file" type="file" style="padding:0.45rem 0.5rem">
+        <div id="resource-file-info" class="text-muted" style="font-size:0.8rem;margin-top:0.35rem"></div>
+      </div>
+      <div class="form-group">
+        <label>Tags</label>
+        <div class="tag-chip-wrap" id="tag-chip-wrap" onclick="document.getElementById('tag-input').focus()">
+          <input id="tag-input" class="tag-chip-input" placeholder="Type a tag, press Enter…">
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:1rem">
+        <div class="toggle-row" style="padding:0.75rem 1rem">
+          <div>
+            <div class="toggle-label">🤖 AI Access</div>
+            <div class="toggle-sublabel">Allow agents to use this resource for business knowledge</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="resource-ai-access" checked><span class="toggle-slider"></span></label>
+        </div>
+        <div class="toggle-row" style="padding:0.75rem 1rem">
+          <div>
+            <div class="toggle-label">👥 User Access</div>
+            <div class="toggle-sublabel">Allow users to view and download this resource</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="resource-user-access"><span class="toggle-slider"></span></label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="resource-modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="resource-modal-submit">Add Resource</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- User Permissions Modal -->
 <div id="perms-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:500px">
@@ -391,6 +516,7 @@
     dashboard: { el: 'page-dashboard', title: 'Dashboard', adminOnly: false },
     users: { el: 'page-users', title: 'Users', adminOnly: true },
     agents: { el: 'page-agents', title: 'Agents', adminOnly: false },
+    resources: { el: 'page-resources', title: 'Resource Library', adminOnly: true },
     system: { el: 'page-system', title: 'System', adminOnly: true },
     account: { el: 'page-account', title: 'My Account', adminOnly: false },
   };
@@ -407,6 +533,7 @@
     });
     if (page === 'users') loadUsers();
     if (page === 'agents') loadAgents();
+    if (page === 'resources') loadResources();
     if (page === 'system') loadSystem();
     if (page === 'dashboard') loadDashboard();
     location.hash = '#' + page;
@@ -625,6 +752,276 @@
       document.getElementById(target).classList.remove('hidden');
     });
   });
+
+  // ── Resources ─────────────────────────────────────────────────────────────
+  let resourceActiveTags = new Set();
+  let resourceSearchTimer = null;
+  let resourceModalTags = [];
+  let resourceEditId = null;
+
+  function renderResourceCards(resources, allTags) {
+    const grid = document.getElementById('resources-grid');
+    // Render tag filters
+    const filterWrap = document.getElementById('resources-tag-filters');
+    filterWrap.innerHTML = allTags.length === 0 ? '' : allTags.map(t => `
+      <span class="tag-filter-chip${resourceActiveTags.has(t) ? ' active' : ''}" onclick="toggleTagFilter('${esc(t)}')">${esc(t)}</span>`
+    ).join('');
+    if (!resources.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No resources found.</div>';
+      return;
+    }
+    grid.innerHTML = resources.map(r => {
+      const typeIcon = r.type === 'file' ? '📄' : '🔗';
+      const aiBadge = r.aiAccess
+        ? '<span class="access-badge access-badge-ai">🤖 AI</span>'
+        : '<span class="access-badge access-badge-off">🤖 No AI</span>';
+      const userBadge = r.userAccess
+        ? '<span class="access-badge access-badge-users">👥 Users</span>'
+        : '<span class="access-badge access-badge-off">👥 Private</span>';
+      const tags = r.tags.map(t => `<span class="resource-tag">${esc(t)}</span>`).join('');
+      const adminActions = isAdmin() ? `
+        <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" onclick="openEditResource(${JSON.stringify(JSON.stringify(r))})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteResource('${esc(r.id)}','${esc(r.title)}')">Delete</button>
+        </div>` : '';
+      const fileLink = r.type === 'file'
+        ? `<a class="btn btn-ghost btn-sm" href="${API}/resources/${esc(r.id)}/file" target="_blank" style="text-decoration:none">↓ Download</a>`
+        : `<a class="btn btn-ghost btn-sm" href="${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none">↗ Open</a>`;
+      return `
+        <div class="resource-card">
+          <div class="resource-card-body">
+            <div class="resource-card-title">
+              <span class="resource-type-icon">${typeIcon}</span>
+              <span class="resource-title-text">${esc(r.title)}</span>
+            </div>
+            ${r.description ? `<div class="resource-desc">${esc(r.description)}</div>` : ''}
+            ${tags ? `<div class="resource-tags">${tags}</div>` : ''}
+            <div class="resource-access">${aiBadge}${userBadge}</div>
+          </div>
+          <div class="resource-card-footer">
+            <span class="resource-date">${formatTimeAgo(new Date(r.createdAt).toISOString())}</span>
+            <div class="flex gap-2">
+              ${fileLink}
+              ${adminActions}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function loadResources() {
+    const grid = document.getElementById('resources-grid');
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><span class="spin">⟳</span> Loading…</div>';
+    const search = document.getElementById('resources-search').value.trim();
+    const tags = Array.from(resourceActiveTags).join(',');
+    let qs = '';
+    if (search) qs += `search=${encodeURIComponent(search)}`;
+    if (tags) qs += (qs ? '&' : '') + `tags=${encodeURIComponent(tags)}`;
+    const r = await api('GET', '/resources' + (qs ? '?' + qs : ''));
+    if (!r.ok) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">Failed to load resources.</div>'; return; }
+    renderResourceCards(r.data.resources, r.data.allTags);
+  }
+
+  window.toggleTagFilter = function(tag) {
+    if (resourceActiveTags.has(tag)) resourceActiveTags.delete(tag);
+    else resourceActiveTags.add(tag);
+    loadResources();
+  };
+
+  document.getElementById('resources-search').addEventListener('input', () => {
+    clearTimeout(resourceSearchTimer);
+    resourceSearchTimer = setTimeout(loadResources, 300);
+  });
+
+  // Tag chip input logic
+  function renderModalTags() {
+    const wrap = document.getElementById('tag-chip-wrap');
+    const input = document.getElementById('tag-input');
+    // Remove old chips
+    wrap.querySelectorAll('.chip').forEach(el => el.remove());
+    resourceModalTags.forEach((tag, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.innerHTML = esc(tag) + `<span class="chip-remove" data-i="${i}">×</span>`;
+      chip.querySelector('.chip-remove').addEventListener('click', () => {
+        resourceModalTags.splice(i, 1);
+        renderModalTags();
+      });
+      wrap.insertBefore(chip, input);
+    });
+  }
+
+  document.getElementById('tag-input').addEventListener('keydown', e => {
+    const input = e.target;
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const val = input.value.trim().replace(/,/g, '');
+      if (val && !resourceModalTags.includes(val)) {
+        resourceModalTags.push(val);
+        renderModalTags();
+      }
+      input.value = '';
+    } else if (e.key === 'Backspace' && !input.value && resourceModalTags.length) {
+      resourceModalTags.pop();
+      renderModalTags();
+    }
+  });
+
+  window.onResourceTypeChange = function() {
+    const type = document.getElementById('resource-type').value;
+    document.getElementById('resource-url-group').classList.toggle('hidden', type !== 'link');
+    document.getElementById('resource-file-group').classList.toggle('hidden', type !== 'file');
+  };
+
+  function openAddResource() {
+    resourceEditId = null;
+    resourceModalTags = [];
+    document.getElementById('resource-modal-title').textContent = 'Add Resource';
+    document.getElementById('resource-modal-id').value = '';
+    document.getElementById('resource-type').value = 'link';
+    document.getElementById('resource-type').disabled = false;
+    document.getElementById('resource-title').value = '';
+    document.getElementById('resource-desc').value = '';
+    document.getElementById('resource-url').value = '';
+    document.getElementById('resource-file').value = '';
+    document.getElementById('resource-file-info').textContent = '';
+    document.getElementById('resource-ai-access').checked = true;
+    document.getElementById('resource-user-access').checked = false;
+    document.getElementById('resource-modal-submit').textContent = 'Add Resource';
+    document.getElementById('resource-modal-error').classList.add('hidden');
+    renderModalTags();
+    onResourceTypeChange();
+    document.getElementById('resource-modal').classList.remove('hidden');
+  }
+
+  window.openEditResource = function(jsonStr) {
+    const r = JSON.parse(jsonStr);
+    resourceEditId = r.id;
+    resourceModalTags = [...(r.tags || [])];
+    document.getElementById('resource-modal-title').textContent = 'Edit Resource';
+    document.getElementById('resource-modal-id').value = r.id;
+    document.getElementById('resource-type').value = r.type;
+    document.getElementById('resource-type').disabled = true;
+    document.getElementById('resource-title').value = r.title;
+    document.getElementById('resource-desc').value = r.description || '';
+    document.getElementById('resource-url').value = r.url || '';
+    document.getElementById('resource-ai-access').checked = !!r.aiAccess;
+    document.getElementById('resource-user-access').checked = !!r.userAccess;
+    document.getElementById('resource-modal-submit').textContent = 'Save Changes';
+    document.getElementById('resource-modal-error').classList.add('hidden');
+    renderModalTags();
+    onResourceTypeChange();
+    document.getElementById('resource-modal').classList.remove('hidden');
+  };
+
+  document.getElementById('add-resource-btn').addEventListener('click', openAddResource);
+  document.getElementById('resource-modal-cancel').addEventListener('click', () => {
+    document.getElementById('resource-modal').classList.add('hidden');
+  });
+
+  document.getElementById('resource-file').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      document.getElementById('resource-file-info').textContent = `${file.name} — ${mb} MB`;
+      if (file.size > 15 * 1024 * 1024) {
+        document.getElementById('resource-file-info').textContent += ' (too large, max 15 MB)';
+      }
+    }
+  });
+
+  document.getElementById('resource-modal-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const errEl = document.getElementById('resource-modal-error');
+    errEl.classList.add('hidden');
+    const submitBtn = document.getElementById('resource-modal-submit');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving…';
+
+    const id = document.getElementById('resource-modal-id').value;
+    const type = document.getElementById('resource-type').value;
+    const title = document.getElementById('resource-title').value.trim();
+    const description = document.getElementById('resource-desc').value.trim() || null;
+    const aiAccess = document.getElementById('resource-ai-access').checked;
+    const userAccess = document.getElementById('resource-user-access').checked;
+    const tags = [...resourceModalTags];
+    // Add any unsaved tag still in input
+    const pendingTag = document.getElementById('tag-input').value.trim().replace(/,/g, '');
+    if (pendingTag && !tags.includes(pendingTag)) tags.push(pendingTag);
+
+    let r;
+    if (id) {
+      // Edit
+      const body = { title, description, tags, aiAccess, userAccess };
+      const url = document.getElementById('resource-url').value.trim();
+      if (type === 'link' && url) body.url = url;
+      r = await api('PUT', '/resources/' + id, body);
+    } else {
+      // Create
+      if (type === 'link') {
+        const url = document.getElementById('resource-url').value.trim();
+        if (!url) {
+          errEl.textContent = 'URL is required.';
+          errEl.classList.remove('hidden');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Add Resource';
+          return;
+        }
+        r = await api('POST', '/resources', { type: 'link', title, description, url, tags, aiAccess, userAccess });
+      } else {
+        const fileInput = document.getElementById('resource-file');
+        const file = fileInput.files[0];
+        if (!file) {
+          errEl.textContent = 'Please select a file.';
+          errEl.classList.remove('hidden');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Add Resource';
+          return;
+        }
+        if (file.size > 15 * 1024 * 1024) {
+          errEl.textContent = 'File is too large (max 15 MB).';
+          errEl.classList.remove('hidden');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Add Resource';
+          return;
+        }
+        const fileData = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]); // base64 part only
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        r = await api('POST', '/resources', {
+          type: 'file',
+          title,
+          description,
+          filename: file.name,
+          mimetype: file.type || 'application/octet-stream',
+          fileData,
+          tags,
+          aiAccess,
+          userAccess,
+        });
+      }
+    }
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = id ? 'Save Changes' : 'Add Resource';
+
+    if (!r.ok) {
+      errEl.textContent = r.data.error || 'An error occurred.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    document.getElementById('resource-modal').classList.add('hidden');
+    loadResources();
+  });
+
+  window.deleteResource = async function(id, title) {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    await api('DELETE', '/resources/' + id);
+    loadResources();
+  };
 
   // ── Agents ───────────────────────────────────────────────────────────────
   async function loadAgents() {
