@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Admin</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3352;
+    --accent: #6c7eff;
+    --accent-hover: #8491ff;
+    --danger: #e05c5c;
+    --success: #4caf80;
+    --text: #e2e8f0;
+    --text-muted: #7a8399;
+    --radius: 8px;
+    --font: system-ui, -apple-system, sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; min-height: 100vh; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* Login */
+  .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem; width: 100%; max-width: 360px; }
+  .login-card h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .login-card p { color: var(--text-muted); margin-bottom: 1.5rem; }
+
+  /* Layout */
+  .app { display: flex; min-height: 100vh; }
+  .sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-logo { padding: 1.25rem 1rem; font-weight: 700; font-size: 1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem; }
+  .sidebar-logo span { font-size: 1.3rem; }
+  .sidebar-user { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+  .sidebar-user .name { font-weight: 600; }
+  .sidebar-user .role { color: var(--text-muted); font-size: 0.8rem; }
+  nav { flex: 1; padding: 0.5rem 0; }
+  nav a { display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 1rem; color: var(--text-muted); transition: background 0.15s, color 0.15s; }
+  nav a:hover, nav a.active { background: var(--surface2); color: var(--text); }
+  nav a .icon { width: 18px; text-align: center; }
+  .sidebar-footer { padding: 1rem; border-top: 1px solid var(--border); }
+  .main { flex: 1; overflow-x: hidden; }
+  .topbar { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .topbar h2 { font-size: 1.1rem; font-weight: 600; }
+  .content { padding: 1.5rem; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; }
+  .card-title { font-weight: 600; margin-bottom: 0.75rem; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+  .stat-label { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.25rem; }
+  .stat-value { font-size: 1.5rem; font-weight: 700; }
+
+  /* Forms */
+  .form-group { margin-bottom: 1rem; }
+  label { display: block; margin-bottom: 0.35rem; font-weight: 500; }
+  input, select, textarea { width: 100%; padding: 0.5rem 0.75rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; font-family: inherit; transition: border-color 0.15s; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  input[type="checkbox"] { width: auto; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1rem; border-radius: 6px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 500; transition: background 0.15s, opacity 0.15s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { opacity: 0.85; }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-muted); }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm { padding: 0.3rem 0.65rem; font-size: 12px; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+
+  /* Badge */
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .badge-superadmin { background: #3a2060; color: #c084fc; }
+  .badge-admin { background: #1a3050; color: var(--accent); }
+  .badge-user { background: #1e2535; color: var(--text-muted); }
+
+  /* Modal */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; width: 100%; max-width: 420px; }
+  .modal-title { font-weight: 600; font-size: 1rem; margin-bottom: 1rem; }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.25rem; }
+
+  /* Alert */
+  .alert { padding: 0.65rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+  .alert-error { background: rgba(224,92,92,0.15); border: 1px solid rgba(224,92,92,0.3); color: #e05c5c; }
+  .alert-success { background: rgba(76,175,128,0.15); border: 1px solid rgba(76,175,128,0.3); color: var(--success); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 1.25rem; }
+  .tab { padding: 0.5rem 1rem; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  .hidden { display: none !important; }
+  .text-muted { color: var(--text-muted); }
+  .flex { display: flex; }
+  .gap-2 { gap: 0.5rem; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .mb-4 { margin-bottom: 1rem; }
+  .mt-4 { margin-top: 1rem; }
+  .text-right { text-align: right; }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<!-- Login screen -->
+<div id="login-screen" class="login-wrap">
+  <div class="login-card">
+    <h1>🦞 OpenClaw</h1>
+    <p>Admin Dashboard</p>
+    <div id="login-error" class="alert alert-error hidden"></div>
+    <form id="login-form">
+      <div class="form-group">
+        <label for="login-username">Username</label>
+        <input id="login-username" type="text" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%" id="login-btn">Sign in</button>
+    </form>
+  </div>
+</div>
+
+<!-- Main app -->
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="sidebar-logo"><span>🦞</span> OpenClaw</div>
+    <div class="sidebar-user">
+      <div class="name" id="sidebar-username"></div>
+      <div class="role" id="sidebar-role"></div>
+    </div>
+    <nav id="sidebar-nav">
+      <a href="#dashboard" class="nav-link" data-page="dashboard"><span class="icon">⊞</span> Dashboard</a>
+      <a href="#users" class="nav-link admin-only" data-page="users"><span class="icon">👥</span> Users</a>
+      <a href="#agents" class="nav-link" data-page="agents"><span class="icon">🤖</span> Agents</a>
+      <a href="#system" class="nav-link admin-only" data-page="system"><span class="icon">⚙</span> System</a>
+      <a href="#account" class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn btn-ghost btn-sm" id="logout-btn" style="width:100%">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h2 id="page-title">Dashboard</h2>
+    </div>
+    <div class="content">
+
+      <!-- Dashboard page -->
+      <div id="page-dashboard" class="page">
+        <div class="stats-grid" id="stats-grid"></div>
+        <div class="card">
+          <div class="card-title">Welcome to OpenClaw Admin</div>
+          <p class="text-muted">Manage your AI assistant, users, agents, and system settings from this dashboard.</p>
+        </div>
+      </div>
+
+      <!-- Users page -->
+      <div id="page-users" class="page hidden">
+        <div class="flex justify-between items-center mb-4">
+          <div></div>
+          <button class="btn btn-primary" id="add-user-btn">+ Add User</button>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Last Login</th>
+                  <th>Created</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body">
+                <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agents page -->
+      <div id="page-agents" class="page hidden">
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Agent ID</th><th>Name</th></tr></thead>
+              <tbody id="agents-table-body">
+                <tr><td colspan="2" class="empty-state">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- System page -->
+      <div id="page-system" class="page hidden">
+        <div id="system-info-cards"></div>
+      </div>
+
+      <!-- Account page -->
+      <div id="page-account" class="page hidden">
+        <div class="card" style="max-width:400px">
+          <div class="card-title">Change Password</div>
+          <div id="pw-alert" class="hidden"></div>
+          <form id="change-pw-form">
+            <div class="form-group">
+              <label>Current Password</label>
+              <input type="password" id="pw-current" required>
+            </div>
+            <div class="form-group">
+              <label>New Password</label>
+              <input type="password" id="pw-new" required minlength="8">
+            </div>
+            <div class="form-group">
+              <label>Confirm New Password</label>
+              <input type="password" id="pw-confirm" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Password</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Add/Edit User Modal -->
+<div id="user-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-title" id="user-modal-title">Add User</div>
+    <div id="user-modal-error" class="alert alert-error hidden"></div>
+    <form id="user-modal-form">
+      <input type="hidden" id="modal-user-id">
+      <div class="form-group">
+        <label>Username</label>
+        <input id="modal-username" required>
+      </div>
+      <div class="form-group" id="modal-pw-group">
+        <label id="modal-pw-label">Password</label>
+        <input id="modal-password" type="password">
+      </div>
+      <div class="form-group" id="modal-role-group">
+        <label>Role</label>
+        <select id="modal-role">
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+          <option value="superadmin">Super Admin</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="user-modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="user-modal-submit">Create User</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- User Permissions Modal -->
+<div id="perms-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-title">Manage Permissions: <span id="perms-modal-username"></span></div>
+    <div class="tabs">
+      <div class="tab active" data-tab="agents-tab">Agents</div>
+      <div class="tab" data-tab="skills-tab">Skills</div>
+      <div class="tab" data-tab="channels-tab">Channels</div>
+    </div>
+    <div id="agents-tab" class="tab-content">
+      <div id="perms-agents-list"></div>
+    </div>
+    <div id="skills-tab" class="tab-content hidden">
+      <p class="text-muted">Skill permissions coming soon.</p>
+    </div>
+    <div id="channels-tab" class="tab-content hidden">
+      <p class="text-muted">Channel permissions coming soon.</p>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="perms-modal-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="perms-modal-save">Save Permissions</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  const API = '/api/admin';
+  let token = localStorage.getItem('oc_admin_token');
+  let currentUser = null;
+  let allAgents = [];
+  let permsModalUserId = null;
+
+  // ── API helpers ──────────────────────────────────────────────────────────
+  async function api(method, path, body) {
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const res = await fetch(API + path, opts);
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  // ── Routing ──────────────────────────────────────────────────────────────
+  const pages = {
+    dashboard: { el: 'page-dashboard', title: 'Dashboard', adminOnly: false },
+    users: { el: 'page-users', title: 'Users', adminOnly: true },
+    agents: { el: 'page-agents', title: 'Agents', adminOnly: false },
+    system: { el: 'page-system', title: 'System', adminOnly: true },
+    account: { el: 'page-account', title: 'My Account', adminOnly: false },
+  };
+
+  function navigate(page) {
+    const def = pages[page];
+    if (!def) page = 'dashboard', def = pages.dashboard;
+    if (def.adminOnly && !isAdmin()) { page = 'dashboard'; }
+    document.querySelectorAll('.page').forEach(el => el.classList.add('hidden'));
+    document.getElementById(def.el).classList.remove('hidden');
+    document.getElementById('page-title').textContent = def.title;
+    document.querySelectorAll('.nav-link').forEach(a => {
+      a.classList.toggle('active', a.dataset.page === page);
+    });
+    if (page === 'users') loadUsers();
+    if (page === 'agents') loadAgents();
+    if (page === 'system') loadSystem();
+    if (page === 'dashboard') loadDashboard();
+    location.hash = '#' + page;
+  }
+
+  function isAdmin() {
+    return currentUser && (currentUser.role === 'superadmin' || currentUser.role === 'admin');
+  }
+  function isSuperAdmin() {
+    return currentUser && currentUser.role === 'superadmin';
+  }
+
+  // ── Auth ─────────────────────────────────────────────────────────────────
+  document.getElementById('login-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('login-btn');
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    const err = document.getElementById('login-error');
+    err.classList.add('hidden');
+    const r = await api('POST', '/auth/login', {
+      username: document.getElementById('login-username').value,
+      password: document.getElementById('login-password').value,
+    });
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+    if (!r.ok) {
+      err.textContent = 'Invalid username or password.';
+      err.classList.remove('hidden');
+      return;
+    }
+    token = r.data.token;
+    localStorage.setItem('oc_admin_token', token);
+    currentUser = r.data.user;
+    showApp();
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    await api('POST', '/auth/logout');
+    token = null;
+    currentUser = null;
+    localStorage.removeItem('oc_admin_token');
+    location.reload();
+  });
+
+  async function tryRestoreSession() {
+    if (!token) return false;
+    const r = await api('GET', '/auth/me');
+    if (!r.ok) { token = null; localStorage.removeItem('oc_admin_token'); return false; }
+    currentUser = r.data;
+    return true;
+  }
+
+  function showApp() {
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('sidebar-username').textContent = currentUser.username;
+    document.getElementById('sidebar-role').textContent = currentUser.role;
+    // Hide admin-only nav for non-admins
+    document.querySelectorAll('.admin-only').forEach(el => {
+      el.classList.toggle('hidden', !isAdmin());
+    });
+    // Show superadmin role option only for superadmins
+    const page = location.hash.replace('#', '') || 'dashboard';
+    navigate(page);
+  }
+
+  // ── Dashboard ────────────────────────────────────────────────────────────
+  async function loadDashboard() {
+    const grid = document.getElementById('stats-grid');
+    grid.innerHTML = '';
+    if (isAdmin()) {
+      const [usersR, agentsR] = await Promise.all([api('GET', '/users'), api('GET', '/agents')]);
+      const stats = [
+        { label: 'Users', value: usersR.ok ? usersR.data.users.length : '—' },
+        { label: 'Agents', value: agentsR.ok ? agentsR.data.agents.length : '—' },
+        { label: 'Your Role', value: currentUser.role },
+      ];
+      grid.innerHTML = stats.map(s => `
+        <div class="stat-card">
+          <div class="stat-label">${s.label}</div>
+          <div class="stat-value">${s.value}</div>
+        </div>`).join('');
+    } else {
+      grid.innerHTML = `<div class="stat-card"><div class="stat-label">Your Role</div><div class="stat-value">${currentUser.role}</div></div>`;
+    }
+  }
+
+  // ── Users ────────────────────────────────────────────────────────────────
+  async function loadUsers() {
+    const body = document.getElementById('users-table-body');
+    body.innerHTML = '<tr><td colspan="5" class="empty-state"><span class="spin">⟳</span> Loading…</td></tr>';
+    const r = await api('GET', '/users');
+    if (!r.ok) { body.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load users.</td></tr>'; return; }
+    const users = r.data.users;
+    if (!users.length) { body.innerHTML = '<tr><td colspan="5" class="empty-state">No users yet.</td></tr>'; return; }
+    body.innerHTML = users.map(u => `
+      <tr>
+        <td><strong>${esc(u.username)}</strong></td>
+        <td><span class="badge badge-${u.role}">${u.role}</span></td>
+        <td class="text-muted">${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</td>
+        <td class="text-muted">${new Date(u.createdAt).toLocaleDateString()}</td>
+        <td>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" onclick="openEditUser('${esc(u.id)}','${esc(u.username)}','${esc(u.role)}')">Edit</button>
+            <button class="btn btn-ghost btn-sm" onclick="openPermsModal('${esc(u.id)}','${esc(u.username)}')">Permissions</button>
+            ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${esc(u.id)}','${esc(u.username)}')">Delete</button>` : ''}
+          </div>
+        </td>
+      </tr>`).join('');
+  }
+
+  window.openEditUser = function(id, username, role) {
+    document.getElementById('user-modal-title').textContent = 'Edit User';
+    document.getElementById('modal-user-id').value = id;
+    document.getElementById('modal-username').value = username;
+    document.getElementById('modal-password').value = '';
+    document.getElementById('modal-pw-label').textContent = 'New Password (leave blank to keep)';
+    document.getElementById('modal-password').required = false;
+    document.getElementById('modal-role').value = role;
+    document.getElementById('user-modal-submit').textContent = 'Save Changes';
+    document.getElementById('modal-role-group').classList.toggle('hidden', !isSuperAdmin());
+    document.getElementById('user-modal-error').classList.add('hidden');
+    document.getElementById('user-modal').classList.remove('hidden');
+  };
+
+  document.getElementById('add-user-btn').addEventListener('click', () => {
+    document.getElementById('user-modal-title').textContent = 'Add User';
+    document.getElementById('modal-user-id').value = '';
+    document.getElementById('modal-username').value = '';
+    document.getElementById('modal-password').value = '';
+    document.getElementById('modal-pw-label').textContent = 'Password';
+    document.getElementById('modal-password').required = true;
+    document.getElementById('modal-role').value = 'user';
+    document.getElementById('user-modal-submit').textContent = 'Create User';
+    document.getElementById('modal-role-group').classList.toggle('hidden', !isSuperAdmin());
+    document.getElementById('user-modal-error').classList.add('hidden');
+    document.getElementById('user-modal').classList.remove('hidden');
+  });
+
+  document.getElementById('user-modal-cancel').addEventListener('click', () => {
+    document.getElementById('user-modal').classList.add('hidden');
+  });
+
+  document.getElementById('user-modal-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const id = document.getElementById('modal-user-id').value;
+    const username = document.getElementById('modal-username').value.trim();
+    const password = document.getElementById('modal-password').value;
+    const role = document.getElementById('modal-role').value;
+    const errEl = document.getElementById('user-modal-error');
+    errEl.classList.add('hidden');
+    let r;
+    if (id) {
+      const body = { username, role };
+      if (password) body.password = password;
+      r = await api('PUT', '/users/' + id, body);
+    } else {
+      r = await api('POST', '/users', { username, password, role });
+    }
+    if (!r.ok) {
+      errEl.textContent = r.data.error || 'An error occurred.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    document.getElementById('user-modal').classList.add('hidden');
+    loadUsers();
+  });
+
+  window.deleteUser = async function(id, username) {
+    if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+    await api('DELETE', '/users/' + id);
+    loadUsers();
+  };
+
+  // ── Permissions Modal ─────────────────────────────────────────────────────
+  window.openPermsModal = async function(userId, username) {
+    permsModalUserId = userId;
+    document.getElementById('perms-modal-username').textContent = username;
+    document.getElementById('perms-modal').classList.remove('hidden');
+    // Load agents and current permissions
+    const [agentsR, permsR] = await Promise.all([api('GET', '/agents'), api('GET', '/users/' + userId + '/permissions')]);
+    allAgents = agentsR.ok ? agentsR.data.agents : [];
+    const perms = permsR.ok ? permsR.data.permissions : [];
+    const grantedAgents = new Set(perms.filter(p => p.permissionType === 'agent').map(p => p.value));
+    const list = document.getElementById('perms-agents-list');
+    list.innerHTML = allAgents.length === 0
+      ? '<p class="text-muted">No agents found.</p>'
+      : allAgents.map(a => `
+        <div class="flex items-center gap-2 mb-4" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">
+          <input type="checkbox" id="agent-perm-${esc(a.id)}" value="${esc(a.id)}" ${grantedAgents.has(a.id) ? 'checked' : ''}>
+          <label for="agent-perm-${esc(a.id)}" style="margin:0;font-weight:normal">${esc(a.name || a.id)}</label>
+        </div>`).join('');
+  };
+
+  document.getElementById('perms-modal-cancel').addEventListener('click', () => {
+    document.getElementById('perms-modal').classList.add('hidden');
+  });
+
+  document.getElementById('perms-modal-save').addEventListener('click', async () => {
+    const permissions = [];
+    document.querySelectorAll('#perms-agents-list input[type=checkbox]:checked').forEach(cb => {
+      permissions.push({ permissionType: 'agent', value: cb.value });
+    });
+    await api('PUT', '/users/' + permsModalUserId + '/permissions', { permissions });
+    document.getElementById('perms-modal').classList.add('hidden');
+  });
+
+  // Tabs in perms modal
+  document.querySelectorAll('.tabs .tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+      tab.classList.add('active');
+      document.getElementById(target).classList.remove('hidden');
+    });
+  });
+
+  // ── Agents ───────────────────────────────────────────────────────────────
+  async function loadAgents() {
+    const body = document.getElementById('agents-table-body');
+    body.innerHTML = '<tr><td colspan="2" class="empty-state"><span class="spin">⟳</span> Loading…</td></tr>';
+    const r = await api('GET', '/agents');
+    if (!r.ok) { body.innerHTML = '<tr><td colspan="2" class="empty-state">Failed to load agents.</td></tr>'; return; }
+    const agents = r.data.agents;
+    body.innerHTML = agents.map(a => `
+      <tr>
+        <td>${esc(a.id)}${a.id === r.data.defaultId ? ' <span class="badge badge-admin">default</span>' : ''}</td>
+        <td>${esc(a.name || '—')}</td>
+      </tr>`).join('');
+  }
+
+  // ── System ───────────────────────────────────────────────────────────────
+  async function loadSystem() {
+    const r = await api('GET', '/system');
+    const el = document.getElementById('system-info-cards');
+    if (!r.ok) { el.innerHTML = '<div class="card">Failed to load system info.</div>'; return; }
+    const s = r.data;
+    el.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label">Version</div><div class="stat-value" style="font-size:1rem">${esc(s.version || '—')}</div></div>
+        <div class="stat-card"><div class="stat-label">Node.js</div><div class="stat-value" style="font-size:1rem">${esc(s.nodeVersion)}</div></div>
+        <div class="stat-card"><div class="stat-label">Platform</div><div class="stat-value" style="font-size:1rem">${esc(s.platform)}</div></div>
+        <div class="stat-card"><div class="stat-label">Uptime</div><div class="stat-value" style="font-size:1rem">${formatUptime(s.uptime)}</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Default Model</div>
+        <div>${esc(s.model || 'not configured')}</div>
+      </div>`;
+  }
+
+  // ── Account ───────────────────────────────────────────────────────────────
+  document.getElementById('change-pw-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const alertEl = document.getElementById('pw-alert');
+    alertEl.className = 'hidden';
+    const cur = document.getElementById('pw-current').value;
+    const next = document.getElementById('pw-new').value;
+    const confirm = document.getElementById('pw-confirm').value;
+    if (next !== confirm) {
+      alertEl.className = 'alert alert-error';
+      alertEl.textContent = 'New passwords do not match.';
+      return;
+    }
+    const r = await api('PUT', '/me/password', { currentPassword: cur, newPassword: next });
+    if (!r.ok) {
+      alertEl.className = 'alert alert-error';
+      alertEl.textContent = r.data.error === 'invalid_current_password' ? 'Current password is incorrect.' : 'Failed to update password.';
+    } else {
+      alertEl.className = 'alert alert-success';
+      alertEl.textContent = 'Password updated successfully.';
+      document.getElementById('change-pw-form').reset();
+    }
+  });
+
+  // ── Nav ───────────────────────────────────────────────────────────────────
+  document.querySelectorAll('.nav-link').forEach(a => {
+    a.addEventListener('click', e => { e.preventDefault(); navigate(a.dataset.page); });
+  });
+  window.addEventListener('hashchange', () => {
+    const page = location.hash.replace('#', '');
+    if (page && pages[page]) navigate(page);
+  });
+
+  // ── Utils ─────────────────────────────────────────────────────────────────
+  function esc(str) {
+    return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function formatUptime(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  (async () => {
+    if (token && await tryRestoreSession()) {
+      showApp();
+    }
+  })();
+})();
+</script>
+</body>
+</html>

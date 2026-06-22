@@ -88,6 +88,7 @@ let httpAuthUtilsModulePromise: Promise<typeof import("./http-auth-utils.js")> |
 let pluginRouteRuntimeScopesModulePromise:
   | Promise<typeof import("./server/plugin-route-runtime-scopes.js")>
   | undefined;
+let adminHttpModulePromise: Promise<typeof import("./admin/admin-http.js")> | undefined;
 
 function getIdentityAvatarModule() {
   identityAvatarModulePromise ??= import("../agents/identity-avatar.js");
@@ -152,6 +153,11 @@ function getHttpAuthUtilsModule() {
 function getPluginRouteRuntimeScopesModule() {
   pluginRouteRuntimeScopesModulePromise ??= import("./server/plugin-route-runtime-scopes.js");
   return pluginRouteRuntimeScopesModulePromise;
+}
+
+function getAdminHttpModule() {
+  adminHttpModulePromise ??= import("./admin/admin-http.js");
+  return adminHttpModulePromise;
 }
 
 const GATEWAY_PROBE_STATUS_BY_PATH = new Map<string, "live" | "ready">([
@@ -578,6 +584,18 @@ export function createGatewayHttpServer(opts: {
         {
           name: "hooks",
           run: () => handleHooksRequest(req, res),
+        },
+        {
+          name: "admin-ui",
+          run: async () => (await getAdminHttpModule()).handleAdminUiRequest(req, res),
+        },
+        {
+          name: "admin-api",
+          run: async () => {
+            const mod = await getAdminHttpModule();
+            await mod.ensureAdminInitialized();
+            return mod.handleAdminHttpRequest(req, res);
+          },
         },
       ];
       if (openAiCompatEnabled && isOpenAiModelsPath(scopedRequestPath)) {
