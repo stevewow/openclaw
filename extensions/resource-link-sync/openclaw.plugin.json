@@ -1,0 +1,14 @@
+{
+  "id": "resource-link-sync",
+  "activation": {
+    "onStartup": false
+  },
+  "contracts": {
+    "tools": ["sync_resources"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
