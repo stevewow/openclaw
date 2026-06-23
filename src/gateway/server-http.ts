@@ -586,6 +586,10 @@ export function createGatewayHttpServer(opts: {
           run: () => handleHooksRequest(req, res),
         },
         {
+          name: "user-portal-ui",
+          run: async () => (await getAdminHttpModule()).handleUserPortalUiRequest(req, res),
+        },
+        {
           name: "admin-ui",
           run: async () => (await getAdminHttpModule()).handleAdminUiRequest(req, res),
         },

@@ -588,9 +588,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   function showApp() {
-    // Non-admin users belong in the main chat UI, not the admin panel.
+    // Non-admin users belong in the user portal, not the admin panel.
     if (!isAdmin()) {
-      window.location.replace('/');
+      window.location.replace('/portal');
       return;
     }
     document.getElementById('login-screen').classList.add('hidden');

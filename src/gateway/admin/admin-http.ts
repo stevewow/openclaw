@@ -6,6 +6,7 @@ import { getRuntimeConfig } from "../../config/io.js";
 import { readJsonBody } from "../hooks.js";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
+import { USER_PORTAL_HTML } from "./user-portal-html.js";
 import {
   createSession,
   createUser,
@@ -588,5 +589,21 @@ export async function handleAdminUiRequest(
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   res.end(ADMIN_UI_HTML);
+  return true;
+}
+
+export async function handleUserPortalUiRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<boolean> {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname !== "/portal" && !url.pathname.startsWith("/portal/")) return false;
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+
+  setDefaultSecurityHeaders(res);
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.end(USER_PORTAL_HTML);
   return true;
 }
