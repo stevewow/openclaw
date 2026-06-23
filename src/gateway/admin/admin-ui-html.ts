@@ -590,6 +590,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   function showApp() {
     // Non-admin users belong in the user portal, not the admin panel.
     if (!isAdmin()) {
+      localStorage.removeItem('oc_admin_token');
+      token = null;
       window.location.replace('/portal');
       return;
     }
