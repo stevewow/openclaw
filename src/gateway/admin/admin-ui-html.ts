@@ -62,10 +62,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   nav a.active { background: var(--sidebar-active-bg); color: var(--sidebar-text-active); border-left: 2.5px solid var(--accent); }
   nav a .icon { width: 20px; text-align: center; font-size: 0.95rem; }
   .sidebar-footer { padding: 0.875rem 0.75rem; border-top: 1px solid var(--sidebar-border); }
-  .main { flex: 1; overflow-x: hidden; min-width: 0; }
+  .main { flex: 1; overflow-x: hidden; min-width: 0; display: flex; flex-direction: column; }
   .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
   .topbar h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
-  .content { padding: 1.75rem; }
+  .content { padding: 1.75rem; flex: 1; }
+  #page-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #000; }
+  #admin-chat-frame { flex: 1; width: 100%; border: none; display: block; }
 
   /* Cards */
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
@@ -257,6 +259,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <a href="#dashboard" class="nav-link" data-page="dashboard"><span class="icon">⊞</span> Dashboard</a>
       <a href="#users" class="nav-link admin-only" data-page="users"><span class="icon">👥</span> Users</a>
       <a href="#agents" class="nav-link" data-page="agents"><span class="icon">🤖</span> Agents</a>
+      <a href="#chat" class="nav-link" data-page="chat"><span class="icon">💬</span> Chat</a>
       <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
       <a href="#system" class="nav-link admin-only" data-page="system"><span class="icon">⚙</span> System</a>
       <a href="#account" class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
@@ -267,10 +270,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   </aside>
 
   <main class="main">
-    <div class="topbar">
+    <div class="topbar" id="main-topbar">
       <h2 id="page-title">Dashboard</h2>
     </div>
-    <div class="content">
+    <div class="content" id="main-content">
 
       <!-- Dashboard page -->
       <div id="page-dashboard" class="page">
@@ -368,6 +371,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       </div>
 
     </div>
+
+    <!-- Chat page — outside .content so iframe fills remaining height -->
+    <div id="page-chat" class="page hidden">
+      <iframe id="admin-chat-frame" title="OpenClaw Chat" allow="microphone"></iframe>
+    </div>
+
   </main>
 </div>
 
@@ -497,6 +506,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   let currentUser = null;
   let allAgents = [];
   let permsModalUserId = null;
+  let gatewayConfig = null;
+  let chatFrameMounted = false;
 
   // ── API helpers ──────────────────────────────────────────────────────────
   async function api(method, path, body) {
@@ -516,15 +527,32 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     dashboard: { el: 'page-dashboard', title: 'Dashboard', adminOnly: false },
     users: { el: 'page-users', title: 'Users', adminOnly: true },
     agents: { el: 'page-agents', title: 'Agents', adminOnly: false },
+    chat: { el: 'page-chat', title: 'Chat', adminOnly: false },
     resources: { el: 'page-resources', title: 'Resource Library', adminOnly: true },
     system: { el: 'page-system', title: 'System', adminOnly: true },
     account: { el: 'page-account', title: 'My Account', adminOnly: false },
   };
 
+  function mountAdminChatFrame() {
+    if (chatFrameMounted) return;
+    chatFrameMounted = true;
+    const frame = document.getElementById('admin-chat-frame');
+    const cfg = gatewayConfig;
+    if (!cfg) return;
+    const hash = [];
+    if (cfg.gatewayWsUrl) hash.push('gatewayUrl=' + encodeURIComponent(cfg.gatewayWsUrl));
+    const credential = cfg.gatewayToken || cfg.gatewayPassword || '';
+    if (credential) hash.push('token=' + encodeURIComponent(credential));
+    frame.src = '/chat' + (hash.length ? '#' + hash.join('&') : '');
+  }
+
   function navigate(page) {
     const def = pages[page];
     if (!def) page = 'dashboard', def = pages.dashboard;
     if (def.adminOnly && !isAdmin()) { page = 'dashboard'; }
+    const isChatPage = page === 'chat';
+    document.getElementById('main-topbar').classList.toggle('hidden', isChatPage);
+    document.getElementById('main-content').classList.toggle('hidden', isChatPage);
     document.querySelectorAll('.page').forEach(el => el.classList.add('hidden'));
     document.getElementById(def.el).classList.remove('hidden');
     document.getElementById('page-title').textContent = def.title;
@@ -536,6 +564,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'resources') loadResources();
     if (page === 'system') loadSystem();
     if (page === 'dashboard') loadDashboard();
+    if (page === 'chat') mountAdminChatFrame();
     location.hash = '#' + page;
   }
 
@@ -568,14 +597,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     token = r.data.token;
     localStorage.setItem('oc_admin_token', token);
     currentUser = r.data.user;
-    showApp();
+    await showApp();
   });
 
   document.getElementById('logout-btn').addEventListener('click', async () => {
     await api('POST', '/auth/logout');
     token = null;
     currentUser = null;
+    gatewayConfig = null;
+    chatFrameMounted = false;
     localStorage.removeItem('oc_admin_token');
+    document.getElementById('admin-chat-frame').src = 'about:blank';
     location.reload();
   });
 
@@ -587,7 +619,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     return true;
   }
 
-  function showApp() {
+  async function showApp() {
     // Non-admin users belong in the user portal, not the admin panel.
     if (!isAdmin()) {
       localStorage.removeItem('oc_admin_token');
@@ -603,6 +635,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.querySelectorAll('.admin-only').forEach(el => {
       el.classList.toggle('hidden', !isAdmin());
     });
+    // Fetch gateway config for the chat iframe
+    const cfgRes = await api('GET', '/portal/config');
+    if (cfgRes.ok) gatewayConfig = cfgRes.data;
     // Show superadmin role option only for superadmins
     const page = location.hash.replace('#', '') || 'dashboard';
     navigate(page);
@@ -1195,7 +1230,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   // ── Init ──────────────────────────────────────────────────────────────────
   (async () => {
     if (token && await tryRestoreSession()) {
-      showApp();
+      await showApp();
     }
   })();
 })();
