@@ -314,8 +314,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div id="page-agents" class="page hidden">
         <div id="agents-chat-hint" class="info-box hidden">
           <strong>Chatting with Agents</strong>
-          As superadmin, you can chat with any agent directly in the OpenClaw interface.
-          Visit <a href="/" target="_blank">openclaw.wowvideotours.com</a> and use the agent selector in the top bar to switch between agents.
+          As superadmin, you can chat with any agent directly. Use the <a href="#chat" onclick="navigate('chat');return false;">Chat tab</a> in the sidebar, or open chat in a new tab using the button on each agent card.
           Other users will only interact with the main agent.
         </div>
         <div id="agents-grid" class="agents-grid">
@@ -1099,7 +1098,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           </div>
           <div class="agent-card-actions">
             <button class="btn btn-ghost btn-sm" onclick="toggleAgentDetail('\${esc(a.id)}')">View Details</button>
-            \${isSuperAdmin() ? \`<a href="/" target="_blank" class="btn btn-primary btn-sm">Open Chat ↗</a>\` : ''}
+            \${isSuperAdmin() ? \`<a href="/chat" target="_blank" class="btn btn-primary btn-sm">Open Chat ↗</a>\` : ''}
           </div>
           <div id="agent-detail-\${esc(a.id)}" class="agent-detail-panel hidden"></div>
         </div>\`;
