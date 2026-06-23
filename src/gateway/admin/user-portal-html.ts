@@ -24,7 +24,8 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
     --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
   }
-  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
   a { color: var(--accent); text-decoration: none; }
 
   /* Login */
@@ -45,9 +46,9 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     .login-right { width: 100%; min-height: 100vh; }
   }
 
-  /* Layout */
-  .app { display: flex; min-height: 100vh; }
-  .sidebar { width: 220px; background: var(--sidebar-bg); display: flex; flex-direction: column; flex-shrink: 0; position: sticky; top: 0; height: 100vh; }
+  /* App layout — full height with sidebar */
+  .app { display: flex; height: 100vh; overflow: hidden; }
+  .sidebar { width: 220px; background: var(--sidebar-bg); display: flex; flex-direction: column; flex-shrink: 0; height: 100vh; }
   .sidebar-logo { padding: 1.25rem 1.25rem 1rem; display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--sidebar-border); }
   .sidebar-logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
   .sidebar-logo-name { color: #ffffff; font-weight: 700; font-size: 1rem; letter-spacing: -0.01em; }
@@ -60,10 +61,18 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   nav a.active { background: var(--sidebar-active-bg); color: var(--sidebar-text-active); border-left: 2.5px solid var(--accent); }
   nav a .icon { width: 20px; text-align: center; font-size: 0.95rem; }
   .sidebar-footer { padding: 0.875rem 0.75rem; border-top: 1px solid var(--sidebar-border); }
-  .main { flex: 1; overflow-x: hidden; min-width: 0; }
-  .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+  /* Pages */
+  .page { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .page.active { display: flex; }
+  .page-scroll { flex: 1; overflow-y: auto; padding: 1.75rem; }
+  .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   .topbar h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
-  .content { padding: 1.75rem; }
+
+  /* Chat iframe page — full height, no scroll */
+  #page-chat { background: #000; }
+  #chat-frame { flex: 1; width: 100%; border: none; display: block; }
 
   /* Cards */
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
@@ -72,8 +81,8 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   /* Forms */
   .form-group { margin-bottom: 1.125rem; }
   label { display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-  input, select, textarea { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 14px; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
+  input { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 14px; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
 
   /* Buttons */
   .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.125rem; border-radius: 7px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 600; transition: background 0.12s, box-shadow 0.12s, opacity 0.12s; letter-spacing: 0.01em; }
@@ -88,34 +97,14 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .alert { padding: 0.7rem 1rem; border-radius: 7px; margin-bottom: 1rem; font-size: 0.875rem; font-weight: 500; }
   .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
   .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+  .alert-info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
 
   .hidden { display: none !important; }
   .text-muted { color: var(--text-muted); }
-  .empty-state { text-align: center; padding: 3rem; color: var(--text-muted); font-size: 0.875rem; }
-  .spin { animation: spin 1s linear infinite; display: inline-block; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty-state { text-align: center; padding: 3rem 1rem; color: var(--text-muted); font-size: 0.875rem; }
+  .empty-state p { margin-bottom: 0.5rem; }
 
-  /* Page sections */
-  .page { display: none; }
-  .page.active { display: block; }
-
-  /* Welcome banner */
-  .welcome-banner { background: linear-gradient(135deg, #111111 0%, #1f1f1f 100%); border-radius: var(--radius); padding: 1.75rem; margin-bottom: 1.5rem; color: #fff; }
-  .welcome-banner h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.35rem; }
-  .welcome-banner p { color: rgba(255,255,255,0.6); font-size: 0.9rem; }
-
-  /* Agent grid */
-  .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
-  .agent-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
-  .agent-card-header { display: flex; align-items: center; gap: 0.875rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
-  .agent-emoji { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; background: var(--surface2); }
-  .agent-name { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; }
-  .agent-id { color: var(--text-muted); font-size: 0.72rem; font-family: monospace; margin-top: 0.1rem; }
-  .agent-card-body { padding: 0.875rem 1.25rem; }
-  .agent-model { font-size: 0.8rem; color: var(--text-muted); font-family: monospace; margin-bottom: 0.75rem; }
-  .agent-card-footer { padding: 0.75rem 1.25rem; border-top: 1px solid var(--border); background: var(--surface2); display: flex; gap: 0.5rem; }
-
-  /* Resources grid */
+  /* Resources */
   .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
   .resource-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
   .resource-card-body { padding: 1rem 1.25rem; }
@@ -125,7 +114,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .resource-tag { padding: 0.15rem 0.5rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); }
   .resource-card-footer { padding: 0.625rem 1.25rem; background: var(--surface2); border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: flex-end; }
 
-  /* Account form */
+  /* Account */
   .account-section { max-width: 480px; }
 </style>
 </head>
@@ -173,11 +162,10 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
       <div class="name" id="sidebar-username"></div>
       <div class="role" id="sidebar-role"></div>
     </div>
-    <nav id="sidebar-nav">
-      <a href="#home" class="nav-link active" data-page="home"><span class="icon">⊞</span> Home</a>
-      <a href="#agents" class="nav-link" data-page="agents"><span class="icon">🤖</span> Agents</a>
-      <a href="#resources" class="nav-link" data-page="resources"><span class="icon">📚</span> Resources</a>
-      <a href="#account" class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
+    <nav>
+      <a class="nav-link active" data-page="chat"><span class="icon">💬</span> Chat</a>
+      <a class="nav-link" data-page="resources"><span class="icon">📚</span> Resources</a>
+      <a class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
     </nav>
     <div class="sidebar-footer">
       <button class="btn btn-ghost btn-sm" id="logout-btn" style="width:100%">Sign out</button>
@@ -185,121 +173,76 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   </aside>
 
   <main class="main">
-    <!-- Home -->
-    <div id="page-home" class="page active">
-      <div class="topbar"><h2>Home</h2></div>
-      <div class="content">
-        <div class="welcome-banner">
-          <h1 id="welcome-name">Welcome back!</h1>
-          <p>Select an agent below to start chatting, or browse your resources.</p>
-        </div>
-        <div class="card">
-          <div class="card-title">Your Agents</div>
-          <div id="home-agents-grid" class="agents-grid"></div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Agents -->
-    <div id="page-agents" class="page">
-      <div class="topbar"><h2>Agents</h2></div>
-      <div class="content">
-        <div id="agents-grid" class="agents-grid"></div>
-      </div>
+    <!-- Chat — embedded control UI -->
+    <div id="page-chat" class="page active">
+      <iframe id="chat-frame" title="OpenClaw Chat" allow="microphone"></iframe>
     </div>
 
     <!-- Resources -->
     <div id="page-resources" class="page">
       <div class="topbar"><h2>Resources</h2></div>
-      <div class="content">
-        <div id="resources-grid" class="resources-grid"></div>
+      <div class="page-scroll">
+        <div id="resources-container"></div>
       </div>
     </div>
 
     <!-- Account -->
     <div id="page-account" class="page">
       <div class="topbar"><h2>My Account</h2></div>
-      <div class="content">
-        <div class="card account-section">
-          <div class="card-title">Account Info</div>
-          <div id="account-info" style="margin-bottom:1.25rem;font-size:0.875rem;color:var(--text-muted)"></div>
-          <div class="card-title" style="margin-top:1.25rem">Change Password</div>
-          <div id="pw-alert" class="alert hidden"></div>
-          <form id="pw-form">
-            <div class="form-group">
-              <label for="pw-current">Current Password</label>
-              <input id="pw-current" type="password" autocomplete="current-password" required>
-            </div>
-            <div class="form-group">
-              <label for="pw-new">New Password</label>
-              <input id="pw-new" type="password" autocomplete="new-password" required>
-            </div>
-            <div class="form-group">
-              <label for="pw-confirm">Confirm New Password</label>
-              <input id="pw-confirm" type="password" autocomplete="new-password" required>
-            </div>
-            <button type="submit" class="btn btn-primary" id="pw-btn">Update Password</button>
-          </form>
+      <div class="page-scroll">
+        <div class="account-section">
+          <div class="card">
+            <div class="card-title">Account Info</div>
+            <div id="account-info" style="font-size:0.875rem;color:var(--text-muted)"></div>
+          </div>
+          <div class="card" style="margin-top:1rem">
+            <div class="card-title">Change Password</div>
+            <div id="pw-alert" class="alert hidden"></div>
+            <form id="pw-form">
+              <div class="form-group">
+                <label for="pw-current">Current Password</label>
+                <input id="pw-current" type="password" autocomplete="current-password" required>
+              </div>
+              <div class="form-group">
+                <label for="pw-new">New Password</label>
+                <input id="pw-new" type="password" autocomplete="new-password" required>
+              </div>
+              <div class="form-group">
+                <label for="pw-confirm">Confirm New Password</label>
+                <input id="pw-confirm" type="password" autocomplete="new-password" required>
+              </div>
+              <button type="submit" class="btn btn-primary" id="pw-btn">Update Password</button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
+
   </main>
 </div>
 
 <script>
   let token = localStorage.getItem('oc_portal_token');
   let currentUser = null;
+  let gatewayConfig = null;
 
   function esc(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   async function api(method, path, body) {
-    const opts = { method, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } };
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+    };
     if (body) opts.body = JSON.stringify(body);
     const r = await fetch('/api/admin' + path, opts);
     const data = await r.json().catch(() => ({}));
     return { ok: r.ok, status: r.status, data };
   }
 
-  async function login(username, password) {
-    const r = await fetch('/api/admin/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await r.json().catch(() => ({}));
-    return { ok: r.ok, data };
-  }
-
-  async function loadMe() {
-    if (!token) return false;
-    const r = await api('GET', '/me');
-    if (!r.ok) { token = null; localStorage.removeItem('oc_portal_token'); return false; }
-    currentUser = r.data;
-    return true;
-  }
-
-  function showApp() {
-    // Admins belong in the admin panel
-    if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin')) {
-      window.location.replace('/admin');
-      return;
-    }
-    document.getElementById('login-screen').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
-    document.getElementById('sidebar-username').textContent = currentUser.username;
-    document.getElementById('sidebar-role').textContent = currentUser.role;
-    document.getElementById('welcome-name').textContent = 'Welcome back, ' + currentUser.username + '!';
-    document.getElementById('account-info').innerHTML =
-      '<strong>' + esc(currentUser.username) + '</strong> &mdash; ' + esc(currentUser.role);
-    const page = location.hash.replace('#', '') || 'home';
-    navigate(page);
-    loadAgents();
-    loadResources();
-  }
-
-  // ── Navigation ───────────────────────────────────────────────────────────
+  // ── Navigation ────────────────────────────────────────────────────────────
   function navigate(page) {
     document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
@@ -307,7 +250,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     if (pageEl) pageEl.classList.add('active');
     const navEl = document.querySelector('.nav-link[data-page="' + page + '"]');
     if (navEl) navEl.classList.add('active');
-    location.hash = page;
+    if (page === 'resources') loadResources();
   }
 
   document.querySelectorAll('.nav-link').forEach(a => {
@@ -317,48 +260,20 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     });
   });
 
-  window.addEventListener('hashchange', () => {
-    const page = location.hash.replace('#', '') || 'home';
-    navigate(page);
-  });
-
-  // ── Agents ───────────────────────────────────────────────────────────────
-  function agentCardHtml(a) {
-    const emoji = a.emoji || '🤖';
-    const chatUrl = '/?agent=' + encodeURIComponent(a.id);
-    return \`<div class="agent-card">
-      <div class="agent-card-header">
-        <div class="agent-emoji">\${esc(emoji)}</div>
-        <div>
-          <div class="agent-name">\${esc(a.name || a.id)}</div>
-          <div class="agent-id">\${esc(a.id)}</div>
-        </div>
-      </div>
-      <div class="agent-card-body">
-        <div class="agent-model">\${esc(a.model || 'default model')}</div>
-      </div>
-      <div class="agent-card-footer">
-        <a href="\${esc(chatUrl)}" class="btn btn-primary btn-sm">Open Chat</a>
-      </div>
-    </div>\`;
+  // ── Chat iframe ────────────────────────────────────────────────────────────
+  function mountChatFrame(cfg) {
+    const frame = document.getElementById('chat-frame');
+    let src = '/chat';
+    const params = new URLSearchParams();
+    if (cfg.gatewayToken) params.set('token', cfg.gatewayToken);
+    else if (cfg.gatewayPassword) params.set('token', cfg.gatewayPassword);
+    if (cfg.gatewayWsUrl) params.set('gatewayUrl', cfg.gatewayWsUrl);
+    const qs = params.toString();
+    if (qs) src += '?' + qs;
+    frame.src = src;
   }
 
-  async function loadAgents() {
-    const r = await api('GET', '/agents');
-    const agents = r.ok ? (r.data.agents ?? []) : [];
-    const homeGrid = document.getElementById('home-agents-grid');
-    const agentsGrid = document.getElementById('agents-grid');
-    if (!agents.length) {
-      homeGrid.innerHTML = '<div class="empty-state">No agents configured.</div>';
-      agentsGrid.innerHTML = '<div class="empty-state">No agents configured.</div>';
-      return;
-    }
-    const html = agents.map(agentCardHtml).join('');
-    homeGrid.innerHTML = html;
-    agentsGrid.innerHTML = html;
-  }
-
-  // ── Resources ────────────────────────────────────────────────────────────
+  // ── Resources ─────────────────────────────────────────────────────────────
   function resourceTypeIcon(type) {
     if (type === 'file') return '📄';
     if (type === 'link') return '🔗';
@@ -367,34 +282,40 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   }
 
   function resourceCardHtml(r) {
-    const tags = (r.tags ?? []).map(t => \`<span class="resource-tag">\${esc(t)}</span>\`).join('');
-    const footer = r.type === 'file'
-      ? \`<a href="/api/admin/resources/\${esc(r.id)}/file" class="btn btn-ghost btn-sm" download>Download</a>\`
-      : r.type === 'link' && r.url
-      ? \`<a href="\${esc(r.url)}" target="_blank" rel="noreferrer noopener" class="btn btn-ghost btn-sm">Open Link</a>\`
-      : '';
-    return \`<div class="resource-card">
-      <div class="resource-card-body">
-        <div class="resource-title">\${resourceTypeIcon(r.type)} \${esc(r.title)}</div>
-        \${r.description ? \`<div class="resource-desc">\${esc(r.description)}</div>\` : ''}
-        \${tags ? \`<div class="resource-tags">\${tags}</div>\` : ''}
-      </div>
-      \${footer ? \`<div class="resource-card-footer">\${footer}</div>\` : ''}
-    </div>\`;
+    const tags = (r.tags ?? []).map(t => '<span class="resource-tag">' + esc(t) + '</span>').join('');
+    let footer = '';
+    if (r.type === 'file') {
+      footer = '<a href="/api/admin/resources/' + esc(r.id) + '/file" class="btn btn-ghost btn-sm" download>Download</a>';
+    } else if (r.type === 'link' && r.url) {
+      footer = '<a href="' + esc(r.url) + '" target="_blank" rel="noreferrer noopener" class="btn btn-ghost btn-sm">Open Link</a>';
+    }
+    return '<div class="resource-card">' +
+      '<div class="resource-card-body">' +
+        '<div class="resource-title">' + resourceTypeIcon(r.type) + ' ' + esc(r.title) + '</div>' +
+        (r.description ? '<div class="resource-desc">' + esc(r.description) + '</div>' : '') +
+        (tags ? '<div class="resource-tags">' + tags + '</div>' : '') +
+      '</div>' +
+      (footer ? '<div class="resource-card-footer">' + footer + '</div>' : '') +
+    '</div>';
   }
 
   async function loadResources() {
+    const container = document.getElementById('resources-container');
+    container.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
     const r = await api('GET', '/resources');
     const resources = r.ok ? (r.data.resources ?? []) : [];
-    const grid = document.getElementById('resources-grid');
     if (!resources.length) {
-      grid.innerHTML = '<div class="empty-state">No resources available.</div>';
+      container.innerHTML =
+        '<div class="empty-state">' +
+          '<p>No resources are available to you yet.</p>' +
+          '<p style="margin-top:0.35rem;font-size:0.8rem">An admin can make resources available by enabling <strong>User Access</strong> in the Resource Library.</p>' +
+        '</div>';
       return;
     }
-    grid.innerHTML = resources.map(resourceCardHtml).join('');
+    container.innerHTML = '<div class="resources-grid">' + resources.map(resourceCardHtml).join('') + '</div>';
   }
 
-  // ── Login ────────────────────────────────────────────────────────────────
+  // ── Login ──────────────────────────────────────────────────────────────────
   document.getElementById('login-form').addEventListener('submit', async e => {
     e.preventDefault();
     const btn = document.getElementById('login-btn');
@@ -402,37 +323,73 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     errEl.classList.add('hidden');
     btn.disabled = true;
     btn.textContent = 'Signing in…';
+
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
-    const result = await login(username, password).catch(() => ({ ok: false, data: {} }));
-    if (!result.ok) {
-      errEl.textContent = result.data?.error || 'Invalid username or password.';
+
+    const loginRes = await fetch('/api/admin/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    }).then(r => r.json()).catch(() => ({}));
+
+    if (!loginRes.token) {
+      errEl.textContent = loginRes.error || 'Invalid username or password.';
       errEl.classList.remove('hidden');
       btn.disabled = false;
       btn.textContent = 'Sign in';
       return;
     }
-    token = result.data.token;
+
+    token = loginRes.token;
     localStorage.setItem('oc_portal_token', token);
-    currentUser = result.data.user;
-    showApp();
+    currentUser = loginRes.user;
+
+    // Admins belong in the admin panel
+    if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin')) {
+      window.location.replace('/admin');
+      return;
+    }
+
+    await showApp();
     btn.disabled = false;
     btn.textContent = 'Sign in';
   });
 
-  // ── Logout ───────────────────────────────────────────────────────────────
+  // ── Show app after auth ────────────────────────────────────────────────────
+  async function showApp() {
+    document.getElementById('sidebar-username').textContent = currentUser.username;
+    document.getElementById('sidebar-role').textContent = currentUser.role;
+    document.getElementById('account-info').innerHTML =
+      'Signed in as <strong>' + esc(currentUser.username) + '</strong> (' + esc(currentUser.role) + ')';
+
+    // Fetch gateway config then mount the chat iframe
+    const cfgRes = await api('GET', '/portal/config');
+    if (cfgRes.ok) {
+      gatewayConfig = cfgRes.data;
+      mountChatFrame(gatewayConfig);
+    }
+
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    navigate('chat');
+  }
+
+  // ── Logout ─────────────────────────────────────────────────────────────────
   document.getElementById('logout-btn').addEventListener('click', async () => {
     await api('POST', '/auth/logout').catch(() => {});
     token = null;
     currentUser = null;
+    gatewayConfig = null;
     localStorage.removeItem('oc_portal_token');
+    document.getElementById('chat-frame').src = 'about:blank';
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').classList.remove('hidden');
     document.getElementById('login-username').value = '';
     document.getElementById('login-password').value = '';
   });
 
-  // ── Change Password ──────────────────────────────────────────────────────
+  // ── Change Password ────────────────────────────────────────────────────────
   document.getElementById('pw-form').addEventListener('submit', async e => {
     e.preventDefault();
     const alertEl = document.getElementById('pw-alert');
@@ -461,11 +418,17 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     btn.textContent = 'Update Password';
   });
 
-  // ── Init ─────────────────────────────────────────────────────────────────
+  // ── Init ───────────────────────────────────────────────────────────────────
   (async () => {
-    if (token && await loadMe()) {
-      showApp();
+    if (!token) return;
+    const r = await api('GET', '/auth/me');
+    if (!r.ok) { token = null; localStorage.removeItem('oc_portal_token'); return; }
+    currentUser = r.data;
+    if (currentUser.role === 'admin' || currentUser.role === 'superadmin') {
+      window.location.replace('/admin');
+      return;
     }
+    await showApp();
   })();
 </script>
 </body>

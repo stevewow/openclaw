@@ -3,10 +3,17 @@ import fs from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { getRuntimeConfig } from "../../config/io.js";
+import type { ResolvedGatewayAuth } from "../auth-resolve.js";
 import { readJsonBody } from "../hooks.js";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
+
+let _getResolvedAuth: (() => ResolvedGatewayAuth) | undefined;
+
+export function setPortalAuthResolver(fn: () => ResolvedGatewayAuth): void {
+  _getResolvedAuth = fn;
+}
 import {
   createSession,
   createUser,
@@ -268,6 +275,22 @@ export async function handleAdminHttpRequest(
       username: sessionUser.username,
       role: sessionUser.role,
       permissions: perms,
+    });
+    return true;
+  }
+
+  // GET /api/admin/portal/config — gateway connection info for portal users
+  if (subPath === "/portal/config" && req.method === "GET") {
+    const auth = _getResolvedAuth?.();
+    const host = req.headers.host ?? "localhost";
+    const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+    const wsProto = proto === "https" ? "wss" : "ws";
+    const gatewayWsUrl = `${wsProto}://${host}`;
+    sendJson(res, 200, {
+      gatewayWsUrl,
+      gatewayToken: auth?.mode === "token" ? (auth.token ?? null) : null,
+      gatewayPassword: auth?.mode === "password" ? (auth.password ?? null) : null,
+      gatewayMode: auth?.mode ?? "none",
     });
     return true;
   }

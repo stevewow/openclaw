@@ -598,6 +598,7 @@ export function createGatewayHttpServer(opts: {
           run: async () => {
             const mod = await getAdminHttpModule();
             await mod.ensureAdminInitialized();
+            mod.setPortalAuthResolver(getResolvedAuth);
             return mod.handleAdminHttpRequest(req, res);
           },
         },
