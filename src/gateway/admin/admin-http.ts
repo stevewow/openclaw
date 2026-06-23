@@ -15,6 +15,17 @@ export function setPortalAuthResolver(fn: () => ResolvedGatewayAuth): void {
   _getResolvedAuth = fn;
 }
 import {
+  createResource,
+  deleteResource,
+  ensureResourcesDir,
+  getAllTags,
+  getResource,
+  listResources,
+  resolveResourceFilePath,
+  updateResource,
+} from "./resource-store.js";
+import type { AdminUserRole } from "./types.js";
+import {
   createSession,
   createUser,
   deleteSession,
@@ -28,17 +39,6 @@ import {
   updateUser,
   verifyPassword,
 } from "./user-store.js";
-import {
-  createResource,
-  deleteResource,
-  ensureResourcesDir,
-  getAllTags,
-  getResource,
-  listResources,
-  resolveResourceFilePath,
-  updateResource,
-} from "./resource-store.js";
-import type { AdminUserRole } from "./types.js";
 
 const MAX_BODY_BYTES_RESOURCE = 20 * 1024 * 1024; // 20 MB for file uploads (base64)
 
@@ -297,7 +297,10 @@ export async function handleAdminHttpRequest(
 
   // GET /api/admin/users — admin only
   if (subPath === "/users" && req.method === "GET") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const users = await listUsers();
     sendJson(res, 200, { users });
     return true;
@@ -305,16 +308,28 @@ export async function handleAdminHttpRequest(
 
   // POST /api/admin/users — admin only
   if (subPath === "/users" && req.method === "POST") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
-    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
     const data = body.value as Record<string, unknown>;
     const username = normalizeString(data.username);
     const password = normalizeString(data.password);
     const role = normalizeRole(data.role) ?? "user";
-    if (!username || !password) { sendBadRequest(res, "username and password required"); return true; }
+    if (!username || !password) {
+      sendBadRequest(res, "username and password required");
+      return true;
+    }
     // Only superadmin can create admins
-    if (role !== "user" && sessionUser.role !== "superadmin") { sendForbidden(res); return true; }
+    if (role !== "user" && sessionUser.role !== "superadmin") {
+      sendForbidden(res);
+      return true;
+    }
     try {
       const user = await createUser({ username, password, role });
       sendJson(res, 201, { user });
@@ -334,9 +349,15 @@ export async function handleAdminHttpRequest(
   if (userEditMatch && req.method === "PUT") {
     const targetId = userEditMatch[1]!;
     const isSelf = targetId === sessionUser.id;
-    if (!isAdmin && !isSelf) { sendForbidden(res); return true; }
+    if (!isAdmin && !isSelf) {
+      sendForbidden(res);
+      return true;
+    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
-    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
     const data = body.value as Record<string, unknown>;
     const params: { username?: string; password?: string; role?: AdminUserRole } = {};
     const newUsername = normalizeString(data.username);
@@ -345,11 +366,17 @@ export async function handleAdminHttpRequest(
     if (newUsername) params.username = newUsername;
     if (newPassword) params.password = newPassword;
     if (newRole) {
-      if (sessionUser.role !== "superadmin") { sendForbidden(res); return true; }
+      if (sessionUser.role !== "superadmin") {
+        sendForbidden(res);
+        return true;
+      }
       params.role = newRole;
     }
     const updated = await updateUser(targetId, params);
-    if (!updated) { sendNotFound(res); return true; }
+    if (!updated) {
+      sendNotFound(res);
+      return true;
+    }
     sendJson(res, 200, { user: updated });
     return true;
   }
@@ -357,9 +384,15 @@ export async function handleAdminHttpRequest(
   // DELETE /api/admin/users/:id — admin only, cannot self-delete
   const userDeleteMatch = subPath.match(/^\/users\/([^/]+)$/);
   if (userDeleteMatch && req.method === "DELETE") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const targetId = userDeleteMatch[1]!;
-    if (targetId === sessionUser.id) { sendBadRequest(res, "cannot delete own account"); return true; }
+    if (targetId === sessionUser.id) {
+      sendBadRequest(res, "cannot delete own account");
+      return true;
+    }
     await deleteUser(targetId);
     sendJson(res, 200, { ok: true });
     return true;
@@ -368,7 +401,10 @@ export async function handleAdminHttpRequest(
   // GET /api/admin/users/:id/permissions — admin only
   const userPermsMatch = subPath.match(/^\/users\/([^/]+)\/permissions$/);
   if (userPermsMatch && req.method === "GET") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const targetId = userPermsMatch[1]!;
     const perms = await getUserPermissions(targetId);
     sendJson(res, 200, { permissions: perms });
@@ -377,10 +413,16 @@ export async function handleAdminHttpRequest(
 
   // PUT /api/admin/users/:id/permissions — admin only
   if (userPermsMatch && req.method === "PUT") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const targetId = userPermsMatch[1]!;
     const body = await readJsonBody(req, MAX_BODY_BYTES);
-    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
     const data = body.value as Record<string, unknown>;
     const perms = Array.isArray(data.permissions)
       ? (data.permissions as Array<{ permissionType: string; value: string }>).filter(
@@ -432,7 +474,10 @@ export async function handleAdminHttpRequest(
 
   // GET /api/admin/system — system info (admin only)
   if (subPath === "/system" && req.method === "GET") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const { resolveRuntimeServiceVersion } = await import("../../version.js");
     const cfg = getRuntimeConfig();
     sendJson(res, 200, {
@@ -448,15 +493,27 @@ export async function handleAdminHttpRequest(
   // GET /api/admin/me/password — change own password
   if (subPath === "/me/password" && req.method === "PUT") {
     const body = await readJsonBody(req, MAX_BODY_BYTES);
-    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
     const data = body.value as Record<string, unknown>;
     const currentPassword = normalizeString(data.currentPassword);
     const newPassword = normalizeString(data.newPassword);
-    if (!currentPassword || !newPassword) { sendBadRequest(res, "currentPassword and newPassword required"); return true; }
+    if (!currentPassword || !newPassword) {
+      sendBadRequest(res, "currentPassword and newPassword required");
+      return true;
+    }
     const userWithHash = await getUserByUsername(sessionUser.username);
-    if (!userWithHash) { sendNotFound(res); return true; }
+    if (!userWithHash) {
+      sendNotFound(res);
+      return true;
+    }
     const valid = await verifyPassword(currentPassword, userWithHash.passwordHash);
-    if (!valid) { sendJson(res, 401, { error: "invalid_current_password" }); return true; }
+    if (!valid) {
+      sendJson(res, 401, { error: "invalid_current_password" });
+      return true;
+    }
     await updateUser(sessionUser.id, { password: newPassword });
     sendJson(res, 200, { ok: true });
     return true;
@@ -466,7 +523,12 @@ export async function handleAdminHttpRequest(
   if (subPath === "/resources" && req.method === "GET") {
     const search = url.searchParams.get("search") ?? undefined;
     const tagsParam = url.searchParams.get("tags");
-    const tags = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const tags = tagsParam
+      ? tagsParam
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
     const isUser = !isAdmin;
     const resources = await listResources({
       search,
@@ -486,22 +548,36 @@ export async function handleAdminHttpRequest(
 
   // POST /api/admin/resources — create (admin only)
   if (subPath === "/resources" && req.method === "POST") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const body = await readJsonBody(req, MAX_BODY_BYTES_RESOURCE);
-    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
     const data = body.value as Record<string, unknown>;
     const title = normalizeString(data.title);
-    if (!title) { sendBadRequest(res, "title required"); return true; }
+    if (!title) {
+      sendBadRequest(res, "title required");
+      return true;
+    }
     const type = data.type === "file" ? "file" : "link";
     if (type === "link") {
       const urlVal = normalizeString(data.url);
-      if (!urlVal) { sendBadRequest(res, "url required for link type"); return true; }
+      if (!urlVal) {
+        sendBadRequest(res, "url required for link type");
+        return true;
+      }
       const resource = await createResource({
         title,
         description: normalizeString(data.description),
         type: "link",
         url: urlVal,
-        tags: Array.isArray(data.tags) ? (data.tags as string[]).filter((t) => typeof t === "string") : [],
+        tags: Array.isArray(data.tags)
+          ? (data.tags as string[]).filter((t) => typeof t === "string")
+          : [],
         aiAccess: data.aiAccess !== false,
         userAccess: !!data.userAccess,
         createdBy: sessionUser.id,
@@ -510,7 +586,10 @@ export async function handleAdminHttpRequest(
     } else {
       const fileData = normalizeString(data.fileData);
       const filename = normalizeString(data.filename);
-      if (!fileData || !filename) { sendBadRequest(res, "fileData and filename required for file type"); return true; }
+      if (!fileData || !filename) {
+        sendBadRequest(res, "fileData and filename required for file type");
+        return true;
+      }
       await ensureResourcesDir();
       const ext = path.extname(filename).toLowerCase();
       const storedFilename = `${crypto.randomUUID()}${ext}`;
@@ -527,7 +606,9 @@ export async function handleAdminHttpRequest(
         storedFilename,
         mimetype,
         filesize: buf.byteLength,
-        tags: Array.isArray(data.tags) ? (data.tags as string[]).filter((t) => typeof t === "string") : [],
+        tags: Array.isArray(data.tags)
+          ? (data.tags as string[]).filter((t) => typeof t === "string")
+          : [],
         aiAccess: data.aiAccess !== false,
         userAccess: !!data.userAccess,
         createdBy: sessionUser.id,
@@ -542,8 +623,14 @@ export async function handleAdminHttpRequest(
   if (resourceFileMatch && req.method === "GET") {
     const resourceId = resourceFileMatch[1]!;
     const resource = await getResource(resourceId);
-    if (!resource || resource.type !== "file" || !resource.storedFilename) { sendNotFound(res); return true; }
-    if (!isAdmin && !resource.userAccess) { sendForbidden(res); return true; }
+    if (!resource || resource.type !== "file" || !resource.storedFilename) {
+      sendNotFound(res);
+      return true;
+    }
+    if (!isAdmin && !resource.userAccess) {
+      sendForbidden(res);
+      return true;
+    }
     const filePath = resolveResourceFilePath(resource.storedFilename);
     try {
       const fileContent = await import("node:fs/promises").then((fsp) => fsp.readFile(filePath));
@@ -561,10 +648,16 @@ export async function handleAdminHttpRequest(
   // PUT /api/admin/resources/:id — update (admin only)
   const resourceEditMatch = subPath.match(/^\/resources\/([^/]+)$/);
   if (resourceEditMatch && req.method === "PUT") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const resourceId = resourceEditMatch[1]!;
     const body = await readJsonBody(req, MAX_BODY_BYTES_RESOURCE);
-    if (!body.ok) { sendBadRequest(res, body.error); return true; }
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
     const data = body.value as Record<string, unknown>;
     const updates: Parameters<typeof updateResource>[1] = {};
     const newTitle = normalizeString(data.title);
@@ -579,17 +672,26 @@ export async function handleAdminHttpRequest(
     if (data.aiAccess !== undefined) updates.aiAccess = !!data.aiAccess;
     if (data.userAccess !== undefined) updates.userAccess = !!data.userAccess;
     const updated = await updateResource(resourceId, updates);
-    if (!updated) { sendNotFound(res); return true; }
+    if (!updated) {
+      sendNotFound(res);
+      return true;
+    }
     sendJson(res, 200, { resource: updated });
     return true;
   }
 
   // DELETE /api/admin/resources/:id — delete (admin only)
   if (resourceEditMatch && req.method === "DELETE") {
-    if (!isAdmin) { sendForbidden(res); return true; }
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const resourceId = resourceEditMatch[1]!;
     const resource = await getResource(resourceId);
-    if (!resource) { sendNotFound(res); return true; }
+    if (!resource) {
+      sendNotFound(res);
+      return true;
+    }
     await deleteResource(resourceId);
     sendJson(res, 200, { ok: true });
     return true;
@@ -620,8 +722,18 @@ export async function handleUserPortalUiRequest(
   res: ServerResponse,
 ): Promise<boolean> {
   const url = new URL(req.url ?? "/", "http://localhost");
-  if (url.pathname !== "/portal" && !url.pathname.startsWith("/portal/")) return false;
   if (req.method !== "GET" && req.method !== "HEAD") return false;
+
+  // Redirect root to the portal so team members land on the user login.
+  if (url.pathname === "/") {
+    setDefaultSecurityHeaders(res);
+    res.statusCode = 302;
+    res.setHeader("Location", "/portal");
+    res.end();
+    return true;
+  }
+
+  if (url.pathname !== "/portal" && !url.pathname.startsWith("/portal/")) return false;
 
   setDefaultSecurityHeaders(res);
   res.statusCode = 200;
