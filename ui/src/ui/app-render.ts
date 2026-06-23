@@ -158,6 +158,7 @@ import {
   sortLocaleStrings,
 } from "./views/agents-utils.ts";
 import { renderChat } from "./views/chat.ts";
+import { renderUserPortal } from "./views/user-portal.ts";
 import { renderCommandPalette } from "./views/command-palette.ts";
 import { getPresetById } from "./views/config-presets.ts";
 import { renderQuickSettings, type QuickSettingsChannel } from "./views/config-quick.ts";
@@ -1386,6 +1387,129 @@ export function renderApp(state: AppViewState) {
     state.toolsCatalogLoading = false;
     resetToolsEffectiveState(state);
   };
+
+  // User portal: clean Claude-style chat layout, bypasses the admin shell.
+  if (isChat) {
+    return html`
+      ${renderUserPortal({
+        sessionKey: state.sessionKey,
+        onSessionKeyChange: (next) => { switchChatSession(state, next); },
+        thinkingLevel: state.chatThinkingLevel,
+        showThinking,
+        showToolCalls,
+        loading: state.chatLoading,
+        sending: state.chatSending,
+        compactionStatus: state.compactionStatus,
+        fallbackStatus: state.fallbackStatus,
+        assistantAvatarUrl: chatAvatarUrl,
+        messages: state.chatMessages,
+        sideResult: state.chatSideResult,
+        toolMessages: state.chatToolMessages,
+        streamSegments: state.chatStreamSegments,
+        stream: state.chatStream,
+        streamStartedAt: state.chatStreamStartedAt,
+        draft: state.chatMessage,
+        queue: state.chatQueue,
+        realtimeTalkActive: state.realtimeTalkActive,
+        realtimeTalkStatus: state.realtimeTalkStatus,
+        realtimeTalkDetail: state.realtimeTalkDetail,
+        realtimeTalkTranscript: state.realtimeTalkTranscript,
+        realtimeTalkOptionsOpen: state.realtimeTalkOptionsOpen,
+        realtimeTalkOptions: state.realtimeTalkOptions,
+        connected: state.connected,
+        canSend: state.connected,
+        disabledReason: chatDisabledReason,
+        error: state.lastError,
+        onDismissError: () => dismissChatError(state),
+        sessions: state.sessionsResult,
+        focusMode: false,
+        autoExpandToolCalls: false,
+        onRefresh: () => {
+          state.chatSideResult = null;
+          state.resetToolStream();
+          return refreshChat(state, { awaitHistory: true, scheduleScroll: false });
+        },
+        onToggleFocusMode: () => {},
+        onChatScroll: (event) => state.handleChatScroll(event),
+        getDraft: () => state.chatMessage,
+        onDraftChange: (next) => state.handleChatDraftChange(next),
+        onRequestUpdate: requestHostUpdate,
+        onHistoryKeydown: (input) => state.handleChatInputHistoryKey(input),
+        attachments: state.chatAttachments,
+        onAttachmentsChange: (next) => (state.chatAttachments = next),
+        onSend: () => state.handleSendChat(),
+        onCompact: () => state.handleSendChat("/compact", { restoreDraft: true }),
+        onOpenSessionCheckpoints: () => {
+          state.sessionsExpandedCheckpointKey = state.sessionKey;
+          state.setTab("sessions" as import("./navigation.ts").Tab);
+          void loadSessions(state, {
+            activeMinutes: CHAT_SESSIONS_ACTIVE_MINUTES,
+            limit: CHAT_SESSIONS_REFRESH_LIMIT,
+            includeGlobal: true,
+            includeUnknown: true,
+          });
+        },
+        onToggleRealtimeTalk: () => state.toggleRealtimeTalk(),
+        onToggleRealtimeTalkOptions: () => {
+          state.realtimeTalkOptionsOpen = !state.realtimeTalkOptionsOpen;
+        },
+        onRealtimeTalkOptionsChange: (next) => state.updateRealtimeTalkOptions(next),
+        canAbort: hasAbortableSessionRun(state),
+        onAbort: () => void state.handleAbortChat({ preserveDraft: true }),
+        onQueueRemove: (id) => state.removeQueuedMessage(id),
+        onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
+        onDismissSideResult: () => { state.chatSideResult = null; },
+        onNewSession: () => void createChatSession(state),
+        onClearHistory: async () => {
+          if (!state.client || !state.connected) return;
+          try {
+            await state.client.request("sessions.reset", { key: state.sessionKey });
+            state.chatMessages = [];
+            state.chatSideResult = null;
+            state.chatStream = null;
+            state.chatRunId = null;
+            await loadChatHistory(state);
+          } catch (err) {
+            state.lastError = String(err);
+          }
+        },
+        agentsList: state.agentsList,
+        currentAgentId: resolvedAgentId ?? "main",
+        onAgentChange: (agentId: string) => {
+          switchChatSession(state, buildAgentMainSessionKey({ agentId }));
+        },
+        onNavigateToAgent: () => {
+          state.agentsSelectedId = resolvedAgentId;
+          state.setTab("agents" as import("./navigation.ts").Tab);
+        },
+        onSessionSelect: (key: string) => { switchChatSession(state, key); },
+        showNewMessages: state.chatNewMessagesBelow && !state.chatManualRefreshInFlight,
+        onScrollToBottom: () => state.scrollToBottom(),
+        sidebarOpen: state.sidebarOpen,
+        sidebarContent: state.sidebarContent,
+        sidebarError: state.sidebarError,
+        splitRatio: state.splitRatio,
+        canvasPluginSurfaceUrl: state.hello?.pluginSurfaceUrls?.canvas ?? null,
+        onOpenSidebar: (content) => state.handleOpenSidebar(content),
+        onCloseSidebar: () => state.handleCloseSidebar(),
+        onSplitRatioChange: (ratio: number) => state.handleSplitRatioChange(ratio),
+        assistantName: state.assistantName,
+        assistantAvatar: effectiveAssistantAvatar,
+        userName: state.userName ?? null,
+        userAvatar: state.userAvatar ?? null,
+        localMediaPreviewRoots: state.localMediaPreviewRoots,
+        embedSandboxMode: state.embedSandboxMode,
+        allowExternalEmbedUrls: state.allowExternalEmbedUrls,
+        assistantAttachmentAuthToken: resolveAssistantAttachmentAuthToken(state),
+        basePath: state.basePath ?? "",
+        themeMode: state.themeMode,
+        onThemeModeChange: (mode) =>
+          state.setThemeMode(mode as import("./theme.ts").ThemeMode),
+      })}
+      ${renderExecApprovalPrompt(state)}
+      ${renderGatewayUrlConfirmation(state)}
+    `;
+  }
 
   return html`
     ${renderCommandPalette({

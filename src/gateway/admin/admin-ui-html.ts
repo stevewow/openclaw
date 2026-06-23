@@ -588,6 +588,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   function showApp() {
+    // Non-admin users belong in the main chat UI, not the admin panel.
+    if (!isAdmin()) {
+      window.location.replace('/');
+      return;
+    }
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('sidebar-username').textContent = currentUser.username;
