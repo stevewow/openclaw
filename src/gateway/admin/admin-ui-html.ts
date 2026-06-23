@@ -534,10 +534,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
   function mountAdminChatFrame() {
     if (chatFrameMounted) return;
-    chatFrameMounted = true;
     const frame = document.getElementById('admin-chat-frame');
     const cfg = gatewayConfig;
     if (!cfg) return;
+    chatFrameMounted = true;
     const hash = [];
     if (cfg.gatewayWsUrl) hash.push('gatewayUrl=' + encodeURIComponent(cfg.gatewayWsUrl));
     const credential = cfg.gatewayToken || cfg.gatewayPassword || '';
@@ -606,6 +606,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     gatewayConfig = null;
     chatFrameMounted = false;
     localStorage.removeItem('oc_admin_token');
+    localStorage.removeItem('oc_portal_token');
     document.getElementById('admin-chat-frame').src = 'about:blank';
     location.reload();
   });
@@ -621,6 +622,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   async function showApp() {
     // Non-admin users belong in the user portal, not the admin panel.
     if (!isAdmin()) {
+      localStorage.setItem('oc_portal_token', token);
       localStorage.removeItem('oc_admin_token');
       token = null;
       window.location.replace('/portal');

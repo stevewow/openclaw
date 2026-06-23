@@ -346,8 +346,9 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     localStorage.setItem('oc_portal_token', token);
     currentUser = loginRes.user;
 
-    // Admins belong in the admin panel
+    // Admins belong in the admin panel — share the token so they don't have to log in twice
     if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin')) {
+      localStorage.setItem('oc_admin_token', token);
       window.location.replace('/admin');
       return;
     }
@@ -383,6 +384,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     currentUser = null;
     gatewayConfig = null;
     localStorage.removeItem('oc_portal_token');
+    localStorage.removeItem('oc_admin_token');
     document.getElementById('chat-frame').src = 'about:blank';
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').classList.remove('hidden');
@@ -426,6 +428,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     if (!r.ok) { token = null; localStorage.removeItem('oc_portal_token'); return; }
     currentUser = r.data;
     if (currentUser.role === 'admin' || currentUser.role === 'superadmin') {
+      localStorage.setItem('oc_admin_token', token);
       window.location.replace('/admin');
       return;
     }
