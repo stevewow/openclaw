@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { listResources, type Resource } from "openclaw/plugin-sdk/admin-resources";
+import {
+  listResources,
+  resolveResourceFilePath,
+  type Resource,
+} from "openclaw/plugin-sdk/admin-resources";
 import { resolveAgentDir } from "openclaw/plugin-sdk/agent-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { definePluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
@@ -167,7 +171,19 @@ async function syncResources(
     return { synced: 0, skipped: 0, failed: 0 };
   }
 
+  const TEXT_MIMETYPES = new Set([
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "text/html",
+    "application/json",
+  ]);
+
   const linkResources = resources.filter((r) => r.type === "link" && r.url);
+  const fileResources = resources.filter(
+    (r) => r.type === "file" && r.storedFilename && r.mimetype && TEXT_MIMETYPES.has(r.mimetype),
+  );
+
   let synced = 0;
   let skipped = 0;
   let failed = 0;
@@ -205,6 +221,53 @@ async function syncResources(
     }
   }
 
+  for (const resource of fileResources) {
+    const cachedUpdatedAt = cache[resource.id];
+    if (!force && cachedUpdatedAt !== undefined && cachedUpdatedAt >= resource.updatedAt) {
+      skipped++;
+      continue;
+    }
+
+    const filename = resolveResourceMemoryFilename(resource);
+    const filePath = path.join(resourcesDir, filename);
+
+    if (!isPathInside(resourcesDir, filePath)) {
+      logger.warn?.(`resource-link-sync: unsafe path for file resource ${resource.id}, skipping`);
+      failed++;
+      continue;
+    }
+
+    try {
+      const storedPath = resolveResourceFilePath(resource.storedFilename!);
+      const raw = await fs.readFile(storedPath, "utf8");
+      const header = [
+        `# ${resource.title}`,
+        "",
+        `> Resource ID: ${resource.id}`,
+        `> Filename: ${resource.filename ?? resource.storedFilename}`,
+        `> Format: ${resource.mimetype}`,
+        resource.description ? `> Description: ${resource.description}` : null,
+        "",
+        "---",
+        "",
+      ]
+        .filter((l): l is string => l !== null)
+        .join("\n");
+      await replaceFileAtomic({
+        filePath,
+        content: header + raw.trim() + "\n",
+        tempPrefix: ".resource-sync",
+      });
+      cache[resource.id] = resource.updatedAt;
+      synced++;
+    } catch (err) {
+      logger.debug?.(
+        `resource-link-sync: failed to sync file resource ${resource.id}: ${String(err)}`,
+      );
+      failed++;
+    }
+  }
+
   if (synced > 0) {
     await writeSyncCache(cacheFile, cache);
   }
@@ -216,7 +279,7 @@ export default definePluginEntry({
   id: "resource-link-sync",
   name: "Resource Link Sync",
   description:
-    "Fetches Google Docs, Sheets, and web links from AI-accessible resources into agent memory for recall",
+    "Fetches AI-accessible resources (Google Docs, Sheets, web links, and text/CSV files) into agent memory for business knowledge recall",
   register(api) {
     api.on("session_start", async (_event, ctx) => {
       const agentId = ctx.agentId ?? "main";
@@ -237,7 +300,7 @@ export default definePluginEntry({
         name: "sync_resources",
         label: "Sync Resources",
         description:
-          "Fetch all AI-accessible link resources (Google Docs, Sheets, URLs) and write their content to agent memory. Call this to refresh resource content or after adding new resources.",
+          "Fetch all AI-accessible resources (Google Docs, Sheets, URLs, and uploaded text/CSV files) and write their content to agent memory. Call this to refresh resource content or after adding new resources.",
         parameters: {
           type: "object",
           properties: {
