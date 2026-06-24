@@ -154,7 +154,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .resource-card-title { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
   .resource-type-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
   .resource-title-text { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; line-height: 1.3; }
-  .resource-desc { font-size: 0.825rem; color: var(--text-muted); margin-bottom: 0.75rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .resource-desc { font-size: 0.825rem; color: var(--text-muted); }
+  .resource-desc-collapsed { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .resource-desc-toggle { background: none; border: none; padding: 0 0 0.5rem 0; font-size: 0.75rem; color: var(--accent); cursor: pointer; font-family: inherit; display: none; margin-top: 0.15rem; }
   .resource-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.75rem; }
   .resource-tag { padding: 0.15rem 0.5rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); }
   .resource-access { display: flex; gap: 0.4rem; flex-wrap: wrap; }
@@ -801,9 +803,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   let resourceSearchTimer = null;
   let resourceModalTags = [];
   let resourceEditId = null;
+  let resourceDataMap = {};
 
   function renderResourceCards(resources, allTags) {
     const grid = document.getElementById('resources-grid');
+    // Rebuild lookup map so openEditResource can find resources by ID
+    resourceDataMap = {};
+    for (const r of resources) resourceDataMap[r.id] = r;
     // Render tag filters
     const filterWrap = document.getElementById('resources-tag-filters');
     filterWrap.innerHTML = allTags.length === 0 ? '' : allTags.map(t => \`
@@ -824,12 +830,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       const tags = r.tags.map(t => \`<span class="resource-tag">\${esc(t)}</span>\`).join('');
       const adminActions = isAdmin() ? \`
         <div class="flex gap-2">
-          <button class="btn btn-ghost btn-sm" onclick="openEditResource(\${JSON.stringify(JSON.stringify(r))})">Edit</button>
+          <button class="btn btn-ghost btn-sm" onclick="openEditResource('\${esc(r.id)}')">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="deleteResource('\${esc(r.id)}','\${esc(r.title)}')">Delete</button>
         </div>\` : '';
       const fileLink = r.type === 'file'
         ? \`<a class="btn btn-ghost btn-sm" href="\${API}/resources/\${esc(r.id)}/file" target="_blank" style="text-decoration:none">↓ Download</a>\`
         : \`<a class="btn btn-ghost btn-sm" href="\${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none">↗ Open</a>\`;
+      const descHtml = r.description
+        ? \`<div class="resource-desc resource-desc-collapsed" id="rdesc-\${esc(r.id)}">\${esc(r.description)}</div><button class="resource-desc-toggle" id="rdesc-btn-\${esc(r.id)}" onclick="toggleResourceDesc('\${esc(r.id)}')">Show more</button>\`
+        : '';
       return \`
         <div class="resource-card">
           <div class="resource-card-body">
@@ -837,7 +846,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               <span class="resource-type-icon">\${typeIcon}</span>
               <span class="resource-title-text">\${esc(r.title)}</span>
             </div>
-            \${r.description ? \`<div class="resource-desc">\${esc(r.description)}</div>\` : ''}
+            \${descHtml}
             \${tags ? \`<div class="resource-tags">\${tags}</div>\` : ''}
             <div class="resource-access">\${aiBadge}\${userBadge}</div>
           </div>
@@ -850,6 +859,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           </div>
         </div>\`;
     }).join('');
+    // Show toggle buttons only for descriptions that are actually truncated
+    requestAnimationFrame(() => {
+      grid.querySelectorAll('.resource-desc').forEach(el => {
+        if (el.scrollHeight > el.clientHeight + 1) {
+          const btn = document.getElementById('rdesc-btn-' + el.id.replace('rdesc-', ''));
+          if (btn) btn.style.display = 'block';
+        }
+      });
+    });
   }
 
   async function loadResources() {
@@ -937,8 +955,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('resource-modal').classList.remove('hidden');
   }
 
-  window.openEditResource = function(jsonStr) {
-    const r = JSON.parse(jsonStr);
+  window.openEditResource = function(id) {
+    const r = resourceDataMap[id];
+    if (!r) return;
     resourceEditId = r.id;
     resourceModalTags = [...(r.tags || [])];
     document.getElementById('resource-modal-title').textContent = 'Edit Resource';
@@ -955,6 +974,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     renderModalTags();
     onResourceTypeChange();
     document.getElementById('resource-modal').classList.remove('hidden');
+  };
+
+  window.toggleResourceDesc = function(id) {
+    const el = document.getElementById('rdesc-' + id);
+    const btn = document.getElementById('rdesc-btn-' + id);
+    if (!el || !btn) return;
+    const isCollapsed = el.classList.contains('resource-desc-collapsed');
+    el.classList.toggle('resource-desc-collapsed', !isCollapsed);
+    btn.textContent = isCollapsed ? 'Show less' : 'Show more';
   };
 
   document.getElementById('add-resource-btn').addEventListener('click', openAddResource);
