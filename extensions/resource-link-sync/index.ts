@@ -5,7 +5,7 @@ import {
   resolveResourceFilePath,
   type Resource,
 } from "openclaw/plugin-sdk/admin-resources";
-import { resolveAgentDir } from "openclaw/plugin-sdk/agent-runtime";
+import { resolveAgentWorkspaceDir } from "openclaw/plugin-sdk/agent-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { definePluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import {
@@ -155,9 +155,9 @@ async function syncResources(
   logger: OpenClawPluginApi["logger"],
   force = false,
 ): Promise<{ synced: number; skipped: number; failed: number }> {
-  const agentDir = resolveAgentDir(config, agentId);
-  const resourcesDir = path.join(agentDir, RESOURCES_DIR);
-  const cacheFile = path.join(agentDir, SYNC_CACHE_FILENAME);
+  const workspaceDir = resolveAgentWorkspaceDir(config, agentId);
+  const resourcesDir = path.join(workspaceDir, RESOURCES_DIR);
+  const cacheFile = path.join(resourcesDir, SYNC_CACHE_FILENAME);
 
   await fs.mkdir(resourcesDir, { recursive: true });
 

@@ -11,6 +11,10 @@ fi
 tool="$1"
 shift
 
+if [[ -x "$ROOT_DIR/node_modules/.bin/$tool" ]]; then
+  exec "$ROOT_DIR/node_modules/.bin/$tool" "$@"
+fi
+
 if [[ -f "$ROOT_DIR/pnpm-lock.yaml" ]] && command -v pnpm >/dev/null 2>&1; then
   exec pnpm exec "$tool" "$@"
 fi
