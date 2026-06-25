@@ -486,7 +486,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div id="perms-agents-list"></div>
     </div>
     <div id="skills-tab" class="tab-content hidden">
-      <p class="text-muted">Skill permissions coming soon.</p>
+      <div class="form-group" style="margin-top:0.5rem">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:0.375rem">Allowed Skills / Tools</label>
+        <textarea id="perms-skills-textarea" rows="6" style="resize:vertical;font-family:monospace;font-size:13px" placeholder="Enter tool names, one per line&#10;e.g. buildr&#10;researcher"></textarea>
+        <p class="text-muted" style="font-size:12px;margin-top:0.375rem">Leave empty to allow all skills. Enter tool names one per line to restrict access.</p>
+      </div>
     </div>
     <div id="channels-tab" class="tab-content hidden">
       <p class="text-muted">Channel permissions coming soon.</p>
@@ -764,6 +768,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     allAgents = agentsR.ok ? agentsR.data.agents : [];
     const perms = permsR.ok ? permsR.data.permissions : [];
     const grantedAgents = new Set(perms.filter(p => p.permissionType === 'agent').map(p => p.value));
+    const grantedSkills = perms.filter(p => p.permissionType === 'skill').map(p => p.value);
+    document.getElementById('perms-skills-textarea').value = grantedSkills.join('\n');
     const list = document.getElementById('perms-agents-list');
     list.innerHTML = allAgents.length === 0
       ? '<p class="text-muted">No agents found.</p>'
@@ -782,6 +788,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     const permissions = [];
     document.querySelectorAll('#perms-agents-list input[type=checkbox]:checked').forEach(cb => {
       permissions.push({ permissionType: 'agent', value: cb.value });
+    });
+    const skillText = document.getElementById('perms-skills-textarea').value;
+    skillText.split('\n').map(s => s.trim()).filter(Boolean).forEach(name => {
+      permissions.push({ permissionType: 'skill', value: name });
     });
     await api('PUT', '/users/' + permsModalUserId + '/permissions', { permissions });
     document.getElementById('perms-modal').classList.add('hidden');

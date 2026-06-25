@@ -1408,6 +1408,25 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           ? resolveSharedGatewaySessionGeneration(resolvedAuth, trustedProxies)
           : undefined;
         clearHandshakeTimer();
+        const portalSessionTokenRaw = connectParams.auth?.portalSessionToken;
+        let resolvedPortalUser: import("../../admin/types.js").PortalUser | undefined;
+        if (portalSessionTokenRaw && typeof portalSessionTokenRaw === "string") {
+          try {
+            const { resolveSessionUser, getUserPermissions } =
+              await import("../../admin/user-store.js");
+            const portalUserRecord = await resolveSessionUser(portalSessionTokenRaw);
+            if (portalUserRecord) {
+              const portalPermissions = await getUserPermissions(portalUserRecord.id);
+              resolvedPortalUser = {
+                id: portalUserRecord.id,
+                role: portalUserRecord.role,
+                permissions: portalPermissions,
+              };
+            }
+          } catch {
+            // Portal session lookup failure is non-fatal; proceed without portal user identity.
+          }
+        }
         const nextClient: GatewayWsClient = {
           socket,
           connect: connectParams,
@@ -1421,6 +1440,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           ...(Object.keys(pluginNodeCapabilitySurfaces).length > 0
             ? { pluginNodeCapabilitySurfaces }
             : {}),
+          ...(resolvedPortalUser ? { portalUser: resolvedPortalUser } : {}),
         };
         for (const entry of pendingPluginNodeCapabilities) {
           setClientPluginNodeCapability({

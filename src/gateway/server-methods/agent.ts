@@ -170,7 +170,30 @@ function logAttachmentFailure(
 
 function resolveSenderIsOwnerFromClient(client: GatewayRequestHandlerOptions["client"]): boolean {
   const scopes = Array.isArray(client?.connect?.scopes) ? client.connect.scopes : [];
-  return scopes.includes(ADMIN_SCOPE);
+  if (!scopes.includes(ADMIN_SCOPE)) return false;
+  // Portal users that are not superadmin do not get owner-level tool access,
+  // even if they connected with the shared gateway token.
+  const portalUser = client?.portalUser;
+  if (portalUser && portalUser.role !== "superadmin") return false;
+  return true;
+}
+
+function resolvePortalUserToolsAllow(
+  client: GatewayRequestHandlerOptions["client"],
+): string[] | undefined {
+  const permissions = client?.portalUser?.permissions;
+  if (!permissions) return undefined;
+  const skillPerms = permissions.filter((p) => p.permissionType === "skill").map((p) => p.value);
+  return skillPerms.length > 0 ? skillPerms : undefined;
+}
+
+function resolvePortalUserAgentAllow(
+  client: GatewayRequestHandlerOptions["client"],
+): string[] | undefined {
+  const permissions = client?.portalUser?.permissions;
+  if (!permissions) return undefined;
+  const agentPerms = permissions.filter((p) => p.permissionType === "agent").map((p) => p.value);
+  return agentPerms.length > 0 ? agentPerms : undefined;
 }
 
 function resolveAllowModelOverrideFromClient(
@@ -611,6 +634,8 @@ export const agentHandlers: GatewayRequestHandlers = {
     const allowModelOverride = resolveAllowModelOverrideFromClient(client);
     const canResetSession = resolveCanResetSessionFromClient(client);
     const canUseInternalRuntimeHandoff = resolveCanUseInternalRuntimeHandoff(client);
+    const portalToolsAllow = resolvePortalUserToolsAllow(client);
+    const portalAgentAllow = resolvePortalUserAgentAllow(client);
     const requestedModelOverride = Boolean(request.provider || request.model);
     const isRawModelRun = request.modelRun === true || request.promptMode === "none";
     if (requestedModelOverride && !allowModelOverride) {
@@ -757,6 +782,14 @@ export const agentHandlers: GatewayRequestHandlers = {
           ErrorCodes.INVALID_REQUEST,
           `invalid agent params: unknown agent id "${request.agentId}"`,
         ),
+      );
+      return;
+    }
+    if (portalAgentAllow && agentId && !portalAgentAllow.includes(agentId)) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `agent "${agentId}" is not permitted for this user`),
       );
       return;
     }
@@ -1503,6 +1536,7 @@ export const agentHandlers: GatewayRequestHandlers = {
             }),
             senderIsOwner,
             allowModelOverride,
+            ...(portalToolsAllow ? { toolsAllow: portalToolsAllow } : {}),
           },
           runId,
           idempotencyKey: idem,

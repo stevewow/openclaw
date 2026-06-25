@@ -25,3 +25,9 @@ export type UserPermission = {
 export type AdminUserWithPermissions = AdminUser & {
   permissions: UserPermission[];
 };
+
+export type PortalUser = {
+  id: string;
+  role: AdminUserRole;
+  permissions: UserPermission[];
+};

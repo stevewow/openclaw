@@ -263,14 +263,16 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   // ── Chat iframe ────────────────────────────────────────────────────────────
   function mountChatFrame(cfg) {
     const frame = document.getElementById('chat-frame');
-    // Pass credentials via hash fragment — the control UI reads #token= and #gatewayUrl=
-    // on load (app-settings.ts:applySettingsFromUrl) and strips them from the URL.
+    // Pass credentials via hash fragment — the control UI reads #token=, #gatewayUrl=,
+    // and #portalToken= on load and strips them from the URL.
     // Hash params don't appear in server logs. sessionStorage is per-frame and can't be
     // pre-seeded from the parent, so URL fragment is the correct handoff mechanism.
     const hash = [];
     if (cfg.gatewayWsUrl) hash.push('gatewayUrl=' + encodeURIComponent(cfg.gatewayWsUrl));
     const credential = cfg.gatewayToken || cfg.gatewayPassword || '';
     if (credential) hash.push('token=' + encodeURIComponent(credential));
+    const portalToken = cfg.portalSessionToken || localStorage.getItem('oc_portal_token') || '';
+    if (portalToken) hash.push('portalToken=' + encodeURIComponent(portalToken));
     frame.src = '/chat' + (hash.length ? '#' + hash.join('&') : '');
   }
 

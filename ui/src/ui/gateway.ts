@@ -178,6 +178,7 @@ export type GatewayConnectAuth = {
   token?: string;
   deviceToken?: string;
   password?: string;
+  portalSessionToken?: string;
 };
 
 export type GatewayConnectDevice = {
@@ -234,6 +235,7 @@ export type GatewayBrowserClientOptions = {
   url: string;
   token?: string;
   password?: string;
+  portalSessionToken?: string;
   clientName?: GatewayClientName;
   clientVersion?: string;
   platform?: string;
@@ -267,6 +269,7 @@ const BROWSER_WEBSOCKET_SECURITY_ERROR_CODE = "BROWSER_WEBSOCKET_SECURITY_ERROR"
 
 function buildGatewayConnectAuth(
   selectedAuth: SelectedConnectAuth,
+  portalSessionToken?: string,
 ): GatewayConnectAuth | undefined {
   const authToken = selectedAuth.authToken;
   if (!(authToken || selectedAuth.authPassword)) {
@@ -276,6 +279,7 @@ function buildGatewayConnectAuth(
     token: authToken,
     deviceToken: selectedAuth.authDeviceToken ?? selectedAuth.resolvedDeviceToken,
     password: selectedAuth.authPassword,
+    ...(portalSessionToken ? { portalSessionToken } : {}),
   };
 }
 
@@ -605,7 +609,7 @@ export class GatewayBrowserClient {
       client,
       explicitGatewayToken,
       selectedAuth,
-      auth: buildGatewayConnectAuth(selectedAuth),
+      auth: buildGatewayConnectAuth(selectedAuth, this.opts.portalSessionToken),
       deviceIdentity,
       device: await buildGatewayConnectDevice({
         deviceIdentity,

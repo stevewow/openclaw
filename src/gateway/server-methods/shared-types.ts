@@ -6,6 +6,7 @@ import type { CronServiceContract } from "../../cron/service-contract.js";
 import type { PluginApprovalRequestPayload } from "../../infra/plugin-approvals.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { WizardSession } from "../../wizard/session.js";
+import type { PortalUser } from "../admin/types.js";
 import type { ChatAbortControllerEntry } from "../chat-abort.js";
 import type { ExecApprovalManager } from "../exec-approval-manager.js";
 import type { NodeRegistry } from "../node-registry.js";
@@ -30,6 +31,7 @@ export type GatewayClient = {
     allowModelOverride?: boolean;
     pluginRuntimeOwnerId?: string;
   };
+  portalUser?: PortalUser;
 };
 
 export type RespondFn = (

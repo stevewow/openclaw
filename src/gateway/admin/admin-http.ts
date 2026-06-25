@@ -291,6 +291,7 @@ export async function handleAdminHttpRequest(
       gatewayToken: auth?.mode === "token" ? (auth.token ?? null) : null,
       gatewayPassword: auth?.mode === "password" ? (auth.password ?? null) : null,
       gatewayMode: auth?.mode ?? "none",
+      portalSessionToken: token ?? null,
     });
     return true;
   }

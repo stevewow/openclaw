@@ -102,6 +102,7 @@ type SettingsHost = {
   pendingGatewayUrl?: string | null;
   systemThemeCleanup?: (() => void) | null;
   pendingGatewayToken?: string | null;
+  portalSessionToken?: string | null;
   requestUpdate?: () => void;
   updateComplete?: Promise<unknown>;
   controlUiRefreshSeq?: number;
@@ -251,6 +252,15 @@ export function applySettingsFromUrl(host: SettingsHost) {
     // Never hydrate password from URL params; strip only.
     params.delete("password");
     hashParams.delete("password");
+    shouldCleanUrl = true;
+  }
+
+  const portalToken = normalizeOptionalString(hashParams.get("portalToken"));
+  if (hashParams.has("portalToken")) {
+    if (portalToken) {
+      host.portalSessionToken = portalToken;
+    }
+    hashParams.delete("portalToken");
     shouldCleanUrl = true;
   }
 

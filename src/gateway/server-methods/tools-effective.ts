@@ -292,12 +292,16 @@ export const toolsEffectiveHandlers: GatewayRequestHandlers = {
     if (requestedAgentId === null) {
       return;
     }
+    const scopeIsAdmin = Array.isArray(client?.connect?.scopes)
+      ? client.connect.scopes.includes(ADMIN_SCOPE)
+      : false;
+    const portalUser = client?.portalUser;
+    const senderIsOwnerForEffective =
+      scopeIsAdmin && (!portalUser || portalUser.role === "superadmin");
     const trustedContext = resolveTrustedToolsEffectiveContext({
       sessionKey: params.sessionKey,
       requestedAgentId,
-      senderIsOwner: Array.isArray(client?.connect?.scopes)
-        ? client.connect.scopes.includes(ADMIN_SCOPE)
-        : false,
+      senderIsOwner: senderIsOwnerForEffective,
       respond,
     });
     if (!trustedContext) {
