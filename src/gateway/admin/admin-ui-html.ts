@@ -769,7 +769,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     const perms = permsR.ok ? permsR.data.permissions : [];
     const grantedAgents = new Set(perms.filter(p => p.permissionType === 'agent').map(p => p.value));
     const grantedSkills = perms.filter(p => p.permissionType === 'skill').map(p => p.value);
-    document.getElementById('perms-skills-textarea').value = grantedSkills.join('\n');
+    document.getElementById('perms-skills-textarea').value = grantedSkills.join('\\n');
     const list = document.getElementById('perms-agents-list');
     list.innerHTML = allAgents.length === 0
       ? '<p class="text-muted">No agents found.</p>'
@@ -790,7 +790,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       permissions.push({ permissionType: 'agent', value: cb.value });
     });
     const skillText = document.getElementById('perms-skills-textarea').value;
-    skillText.split('\n').map(s => s.trim()).filter(Boolean).forEach(name => {
+    skillText.split('\\n').map(s => s.trim()).filter(Boolean).forEach(name => {
       permissions.push({ permissionType: 'skill', value: name });
     });
     await api('PUT', '/users/' + permsModalUserId + '/permissions', { permissions });
