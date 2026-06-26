@@ -473,6 +473,49 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
+  // GET /api/admin/skills — aggregate skills across all agent workspaces (admin only)
+  if (subPath === "/skills" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const cfg = getRuntimeConfig();
+    const { listGatewayAgentsBasic } = await import("../agent-list.js");
+    const { resolveAgentWorkspaceDir } = await import("../../agents/agent-scope-config.js");
+    const result = listGatewayAgentsBasic(cfg);
+    const skillMap = new Map<string, string | null>();
+    await Promise.all(
+      result.agents.map(async (a) => {
+        const workspaceDir = resolveAgentWorkspaceDir(cfg, a.id);
+        const agentSkills = await readWorkspaceSkills(workspaceDir);
+        for (const s of agentSkills) {
+          if (!skillMap.has(s.name)) skillMap.set(s.name, s.description);
+        }
+      }),
+    );
+    const skills = Array.from(skillMap.entries())
+      .map(([name, description]) => ({ name, description }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    sendJson(res, 200, { skills });
+    return true;
+  }
+
+  // GET /api/admin/channels — list configured channel IDs (admin only)
+  if (subPath === "/channels" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const cfg = getRuntimeConfig();
+    const reserved = new Set(["defaults", "modelByChannel"]);
+    const channels = Object.keys(cfg.channels ?? {})
+      .filter((k) => !reserved.has(k))
+      .sort()
+      .map((id) => ({ id }));
+    sendJson(res, 200, { channels });
+    return true;
+  }
+
   // GET /api/admin/system — system info (admin only)
   if (subPath === "/system" && req.method === "GET") {
     if (!isAdmin) {
