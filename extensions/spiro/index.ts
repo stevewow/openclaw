@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Type } from "typebox";
 import { CALLBACK_PATH } from "./src/oauth.js";
 
+const START_PATH = "/plugin/spiro/start";
+
 const GATEWAY_URL =
   process.env.SPIRO_GATEWAY_URL?.trim().replace(/\/$/, "") ?? "https://openclaw.wowvideotours.com";
 
@@ -11,6 +13,9 @@ function text(payload: unknown) {
     details: payload,
   };
 }
+
+// Keyed by state: full Spiro authorization URL (for server-side redirect)
+const pendingStartUrls = new Map<string, string>();
 
 let _oauth: typeof import("./src/oauth.js") | undefined;
 let _client: typeof import("./src/client.js") | undefined;
@@ -47,6 +52,26 @@ export default {
     }) => void;
     logger: { info?: (msg: string) => void; warn?: (msg: string) => void };
   }) {
+    // Short redirect route — browser hits this, gateway 302s to the full Spiro OAuth URL.
+    // Avoids any chat-UI encoding issues with the long authorize URL.
+    api.registerHttpRoute({
+      path: START_PATH,
+      auth: "plugin",
+      match: "prefix",
+      handler: async (req, res) => {
+        const qs = new URL(`https://x${req.url ?? ""}`).searchParams;
+        const state = qs.get("s") ?? "";
+        const dest = pendingStartUrls.get(state);
+        if (!dest) {
+          res
+            .writeHead(400, { "Content-Type": "text/plain" })
+            .end("Link expired. Run /spiro-auth again.");
+          return;
+        }
+        res.writeHead(302, { Location: dest }).end();
+      },
+    });
+
     api.registerHttpRoute({
       path: CALLBACK_PATH,
       auth: "plugin",
@@ -135,9 +160,20 @@ export default {
         const result = await (await oauth()).startAuth(base);
         if (!result.ok) return { text: `Spiro auth failed: ${result.error}` };
 
+        // Extract the state from the authorize URL to key the short redirect
+        const authState = new URL(result.authorizeUrl).searchParams.get("state") ?? "";
+        pendingStartUrls.set(authState, result.authorizeUrl);
+        // Clean up after 10 minutes whether or not it was used
+        setTimeout(() => pendingStartUrls.delete(authState), 10 * 60 * 1000);
+
+        const startUrl = `${base}${START_PATH}?s=${authState}`;
+
         void result
           .awaitCallback()
-          .then(() => api.logger.info?.("spiro: tokens saved"))
+          .then(() => {
+            pendingStartUrls.delete(authState);
+            api.logger.info?.("spiro: tokens saved");
+          })
           .catch((err: unknown) =>
             api.logger.warn?.(`spiro: callback error — ${(err as Error)?.message ?? err}`),
           );
@@ -146,8 +182,8 @@ export default {
           text: [
             "**Connect Spiro CRM**",
             "",
-            "Open this URL in your browser and sign in:",
-            `${result.authorizeUrl}`,
+            "Click this link to sign in:",
+            startUrl,
             "",
             "After you approve access you'll see a success page. Spiro will be ready immediately.",
           ].join("\n"),
