@@ -1,15 +1,8 @@
 {
   "id": "spiro",
-  "activation": {
-    "onStartup": true
-  },
+  "activation": { "onStartup": true },
   "enabledByDefault": false,
-  "contracts": {
-    "tools": ["spiro_list_tools", "spiro_call"]
-  },
-  "configSchema": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {}
-  }
+  "commandAliases": [{ "name": "spiro-auth", "kind": "runtime-slash" }],
+  "contracts": { "tools": ["spiro_list_tools", "spiro_call"] },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
 }

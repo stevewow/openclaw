@@ -1,57 +1,72 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { jsonResult } from "openclaw/plugin-sdk/provider-web-search";
 import { Type } from "typebox";
-import { SPIRO_CALLBACK_PATH } from "./src/oauth.js";
+import { CALLBACK_PATH } from "./src/oauth.js";
 
-let spiroClientModule: typeof import("./src/spiro-client.js") | undefined;
-let oauthModule: typeof import("./src/oauth.js") | undefined;
+const GATEWAY_URL =
+  process.env.SPIRO_GATEWAY_URL?.trim().replace(/\/$/, "") ?? "https://openclaw.wowvideotours.com";
 
-async function loadClient() {
-  spiroClientModule ??= await import("./src/spiro-client.js");
-  return spiroClientModule;
+function text(payload: unknown) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+    details: payload,
+  };
 }
 
-async function loadOAuth() {
-  oauthModule ??= await import("./src/oauth.js");
-  return oauthModule;
-}
+let _oauth: typeof import("./src/oauth.js") | undefined;
+let _client: typeof import("./src/client.js") | undefined;
+const oauth = async () => (_oauth ??= await import("./src/oauth.js"));
+const client = async () => (_client ??= await import("./src/client.js"));
 
-// Default public gateway URL — users can override via SPIRO_GATEWAY_URL env var
-const DEFAULT_GATEWAY_URL = "https://openclaw.wowvideotours.com";
-
-function resolveCallbackBase(): string {
-  return process.env.SPIRO_GATEWAY_URL?.trim().replace(/\/$/, "") ?? DEFAULT_GATEWAY_URL;
-}
-
-export default definePluginEntry({
+export default {
   id: "spiro",
   name: "Spiro CRM",
-  description: "Query Spiro CRM data — agent rankings, orders, invoices, and contacts.",
+  description: "Query Spiro CRM — agent rankings, orders, invoices, and contacts.",
 
-  register(api) {
-    // OAuth callback route — auth: "plugin" so the browser redirect reaches it without a token
+  register(api: {
+    registerHttpRoute: (opts: {
+      path: string;
+      auth: string;
+      match: string;
+      handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+    }) => void;
+    registerTool: (
+      def: {
+        name: string;
+        label: string;
+        description: string;
+        parameters: unknown;
+        execute: (id: string, params: unknown) => Promise<unknown>;
+      },
+      meta: { name: string },
+    ) => void;
+    registerCommand: (cmd: {
+      name: string;
+      description: string;
+      acceptsArgs: boolean;
+      handler: (args: unknown) => Promise<{ text: string }>;
+    }) => void;
+    logger: { info?: (msg: string) => void; warn?: (msg: string) => void };
+  }) {
     api.registerHttpRoute({
-      path: SPIRO_CALLBACK_PATH,
+      path: CALLBACK_PATH,
       auth: "plugin",
       match: "exact",
-      handler: async (req: IncomingMessage, res: ServerResponse) => {
-        const { handleSpiroOAuthCallback } = await loadOAuth();
+      handler: async (req, res) => {
         const proto =
           (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim() ??
           "https";
         const host =
           (req.headers["x-forwarded-host"] as string | undefined) ??
           req.headers.host ??
-          resolveCallbackBase().replace(/^https?:\/\//, "");
-        const callbackUrl = new URL(`${proto}://${host}${req.url ?? SPIRO_CALLBACK_PATH}`);
+          GATEWAY_URL.replace(/^https?:\/\//, "");
+        const url = new URL(`${proto}://${host}${req.url ?? CALLBACK_PATH}`);
         try {
-          const html = await handleSpiroOAuthCallback(callbackUrl);
+          const html = await (await oauth()).handleCallback(url);
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(html);
         } catch (err) {
           res
             .writeHead(500, { "Content-Type": "text/plain" })
-            .end(`OAuth error: ${(err as Error).message}`);
+            .end(`Error: ${(err as Error).message}`);
         }
       },
     });
@@ -59,21 +74,17 @@ export default definePluginEntry({
     api.registerTool(
       {
         name: "spiro_list_tools",
-        label: "Spiro: List Available Tools",
+        label: "Spiro: List Tools",
         description:
-          "List all data operations available from Spiro CRM. Call this first to discover " +
-          "what reports and queries are available (agent rankings, orders, invoices, contacts, etc.) " +
-          "before calling spiro_call.",
+          "List all available Spiro CRM operations (agent rankings, orders, invoices, contacts). " +
+          "Call this first before using spiro_call.",
         parameters: Type.Object({}, { additionalProperties: false }),
-        execute: async (_toolCallId: string, _params: unknown) => {
-          const { listSpiroTools } = await loadClient();
-          const tools = await listSpiroTools();
+        execute: async () => {
+          const tools = await (await client()).listTools();
           if (tools.length === 0) {
-            return jsonResult({
-              message: "No tools found. Make sure Spiro is authenticated — run /spiro-auth.",
-            });
+            return text({ message: "No tools found. Run /spiro-auth to connect Spiro." });
           }
-          return jsonResult(tools.map((t) => ({ name: t.name, description: t.description ?? "" })));
+          return text(tools.map((t) => ({ name: t.name, description: t.description ?? "" })));
         },
       },
       { name: "spiro_list_tools" },
@@ -84,41 +95,32 @@ export default definePluginEntry({
         name: "spiro_call",
         label: "Spiro: Call Tool",
         description:
-          "Call a Spiro CRM tool by name to retrieve business data. Use spiro_list_tools first " +
-          "to discover valid tool names. Examples: agent rankings, order pipeline, invoice status, " +
-          "contact lookup. Pass any filters (date range, location, agent, status) in the args object.",
+          "Call a Spiro CRM tool by name. Use spiro_list_tools first to see available tools. " +
+          "Pass filters like date_from, date_to, agent_id, location, status in args.",
         parameters: Type.Object(
           {
-            tool_name: Type.String({
-              description: "The Spiro tool name to call, as returned by spiro_list_tools.",
-            }),
+            tool_name: Type.String({ description: "Tool name from spiro_list_tools." }),
             args: Type.Optional(
               Type.Record(Type.String(), Type.Unknown(), {
-                description:
-                  "Parameters for the tool — filters like date_from, date_to, location, agent_id, status, limit, etc.",
+                description: "Filter parameters for the tool.",
               }),
             ),
           },
           { additionalProperties: false },
         ),
-        execute: async (_toolCallId: string, rawParams: unknown) => {
-          const params =
-            rawParams !== null && typeof rawParams === "object" && !Array.isArray(rawParams)
-              ? (rawParams as Record<string, unknown>)
+        execute: async (_id, raw) => {
+          const p =
+            raw && typeof raw === "object" && !Array.isArray(raw)
+              ? (raw as Record<string, unknown>)
               : {};
-          const toolName = typeof params.tool_name === "string" ? params.tool_name : "";
+          const toolName = typeof p.tool_name === "string" ? p.tool_name : "";
+          if (!toolName) return text({ error: "tool_name is required." });
           const args =
-            params.args !== null && typeof params.args === "object" && !Array.isArray(params.args)
-              ? (params.args as Record<string, unknown>)
+            p.args && typeof p.args === "object" && !Array.isArray(p.args)
+              ? (p.args as Record<string, unknown>)
               : {};
-
-          if (!toolName) {
-            return jsonResult({ error: "tool_name is required." });
-          }
-
-          const { callSpiroTool } = await loadClient();
-          const result = await callSpiroTool(toolName, args);
-          return jsonResult(result);
+          const result = await (await client()).callTool(toolName, args);
+          return text(result);
         },
       },
       { name: "spiro_call" },
@@ -126,45 +128,31 @@ export default definePluginEntry({
 
     api.registerCommand({
       name: "spiro-auth",
-      description: "Connect your Spiro CRM account via OAuth browser sign-in.",
+      description: "Connect your Spiro CRM account via OAuth.",
       acceptsArgs: true,
-      requiredScopes: ["operator.admin"],
       handler: async (args) => {
-        const { startSpiroOAuth } = await loadOAuth();
-        // Optional first arg overrides the callback base URL
-        const callbackBaseUrl = (typeof args === "string" && args.trim()) || resolveCallbackBase();
-
-        const result = await startSpiroOAuth({ callbackBaseUrl });
-
-        if (!result.ok) {
-          return { text: `Spiro auth setup failed: ${result.error}` };
-        }
+        const base = (typeof args === "string" && args.trim()) || GATEWAY_URL;
+        const result = await (await oauth()).startAuth(base);
+        if (!result.ok) return { text: `Spiro auth failed: ${result.error}` };
 
         void result
           .awaitCallback()
-          .then(() => {
-            api.logger.info?.("spiro: OAuth tokens saved successfully");
-          })
-          .catch((err: unknown) => {
-            api.logger.warn?.(
-              `spiro: OAuth callback error — ${(err as Error)?.message ?? String(err)}`,
-            );
-          });
+          .then(() => api.logger.info?.("spiro: tokens saved"))
+          .catch((err: unknown) =>
+            api.logger.warn?.(`spiro: callback error — ${(err as Error)?.message ?? err}`),
+          );
 
         return {
           text: [
-            "**Spiro OAuth — Action required**",
+            "**Connect Spiro CRM**",
             "",
-            "1. Open this URL in your browser:",
-            `   ${result.authorizeUrl}`,
+            "Open this URL in your browser and sign in:",
+            `${result.authorizeUrl}`,
             "",
-            "2. Sign in to Spiro and approve access.",
-            "3. You'll be redirected back automatically — the gateway completes the connection.",
-            "",
-            "_Waiting up to 5 minutes for the callback…_",
+            "After you approve access you'll see a success page. Spiro will be ready immediately.",
           ].join("\n"),
         };
       },
     });
   },
-});
+};

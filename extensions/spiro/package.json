@@ -1,18 +1,10 @@
 {
   "name": "@openclaw/spiro-plugin",
-  "version": "2026.6.25-beta.1",
+  "version": "2026.6.29-beta.2",
   "private": true,
-  "description": "OpenClaw Spiro CRM plugin — query orders, invoices, contacts, and agent reports",
   "type": "module",
   "dependencies": {
     "typebox": "1.1.38"
   },
-  "devDependencies": {
-    "@openclaw/plugin-sdk": "workspace:*"
-  },
-  "openclaw": {
-    "extensions": [
-      "./index.ts"
-    ]
-  }
+  "openclaw": { "extensions": ["./index.ts"] }
 }
