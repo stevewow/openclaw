@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { Kysely } from "kysely";
+import { resolveStateDir } from "../../config/paths.js";
 import { NodeSqliteKyselyDialect } from "../../infra/kysely-node-sqlite.js";
 import { requireNodeSqlite } from "../../infra/node-sqlite.js";
 import { configureSqliteWalMaintenance } from "../../infra/sqlite-wal.js";
-import { resolveStateDir } from "../../config/paths.js";
 import type { AdminUser, AdminUserRole, AdminSession, UserPermission } from "./types.js";
 
 type UsersTable = {
@@ -48,11 +48,42 @@ type ResourcesTable = {
   updated_at: number;
 };
 
+type ProjectsTable = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  color: string;
+  tags: string;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type TasksTable = {
+  id: string;
+  project_id: string | null;
+  parent_task_id: string | null;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  due_date: number | null;
+  assigned_to: string | null;
+  tags: string;
+  position: number;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
   admin_user_permissions: PermissionsTable;
   admin_resources: ResourcesTable;
+  admin_projects: ProjectsTable;
+  admin_tasks: TasksTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -154,6 +185,36 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_resources_created_at ON admin_resources(created_at);
+    CREATE TABLE IF NOT EXISTS admin_projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('planning','active','completed','archived')),
+      color TEXT NOT NULL DEFAULT '#3b82f6',
+      tags TEXT NOT NULL DEFAULT '[]',
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_projects_created_at ON admin_projects(created_at);
+    CREATE TABLE IF NOT EXISTS admin_tasks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES admin_projects(id) ON DELETE CASCADE,
+      parent_task_id TEXT REFERENCES admin_tasks(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','in_progress','review','done')),
+      priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
+      due_date INTEGER,
+      assigned_to TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      position INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_tasks_project_id ON admin_tasks(project_id);
+    CREATE INDEX IF NOT EXISTS admin_tasks_due_date ON admin_tasks(due_date);
   `);
 }
 
@@ -175,20 +236,23 @@ export async function ensureSuperadminExists(): Promise<{ created: boolean; user
   const passwordHash = await createPasswordHash(password);
   const now = Date.now();
 
-  await db.insertInto("admin_users").values({
-    id,
-    username,
-    password_hash: passwordHash,
-    role: "superadmin",
-    created_at: now,
-    updated_at: now,
-    last_login_at: null,
-  }).execute();
+  await db
+    .insertInto("admin_users")
+    .values({
+      id,
+      username,
+      password_hash: passwordHash,
+      role: "superadmin",
+      created_at: now,
+      updated_at: now,
+      last_login_at: null,
+    })
+    .execute();
 
   // Print credentials to stderr once on first run
   process.stderr.write(
     `\n[admin] First-run superadmin created. Username: ${username}  Password: ${password}\n` +
-    `[admin] Change this password immediately at /admin/\n\n`,
+      `[admin] Change this password immediately at /admin/\n\n`,
   );
 
   return { created: true, username };
@@ -215,7 +279,9 @@ export async function getUserById(id: string): Promise<AdminUser | null> {
   return row ? rowToUser(row) : null;
 }
 
-export async function getUserByUsername(username: string): Promise<(AdminUser & { passwordHash: string }) | null> {
+export async function getUserByUsername(
+  username: string,
+): Promise<(AdminUser & { passwordHash: string }) | null> {
   const db = getAdminDb();
   const row = await db
     .selectFrom("admin_users")
@@ -228,7 +294,11 @@ export async function getUserByUsername(username: string): Promise<(AdminUser & 
 
 export async function listUsers(): Promise<AdminUser[]> {
   const db = getAdminDb();
-  const rows = await db.selectFrom("admin_users").selectAll().orderBy("created_at", "asc").execute();
+  const rows = await db
+    .selectFrom("admin_users")
+    .selectAll()
+    .orderBy("created_at", "asc")
+    .execute();
   return rows.map(rowToUser);
 }
 
@@ -241,23 +311,36 @@ export async function createUser(params: {
   const id = crypto.randomUUID();
   const passwordHash = await createPasswordHash(params.password);
   const now = Date.now();
-  await db.insertInto("admin_users").values({
+  await db
+    .insertInto("admin_users")
+    .values({
+      id,
+      username: params.username,
+      password_hash: passwordHash,
+      role: params.role,
+      created_at: now,
+      updated_at: now,
+      last_login_at: null,
+    })
+    .execute();
+  return {
     id,
     username: params.username,
-    password_hash: passwordHash,
     role: params.role,
-    created_at: now,
-    updated_at: now,
-    last_login_at: null,
-  }).execute();
-  return { id, username: params.username, role: params.role, createdAt: now, updatedAt: now, lastLoginAt: null };
+    createdAt: now,
+    updatedAt: now,
+    lastLoginAt: null,
+  };
 }
 
-export async function updateUser(id: string, params: {
-  username?: string;
-  password?: string;
-  role?: AdminUserRole;
-}): Promise<AdminUser | null> {
+export async function updateUser(
+  id: string,
+  params: {
+    username?: string;
+    password?: string;
+    role?: AdminUserRole;
+  },
+): Promise<AdminUser | null> {
   const db = getAdminDb();
   const updates: Partial<UsersTable> = { updated_at: Date.now() };
   if (params.username) updates.username = params.username;
@@ -277,13 +360,20 @@ export async function createSession(userId: string): Promise<AdminSession> {
   const token = crypto.randomBytes(32).toString("hex");
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;
-  await db.insertInto("admin_sessions").values({
-    token,
-    user_id: userId,
-    created_at: now,
-    expires_at: expiresAt,
-  }).execute();
-  await db.updateTable("admin_users").set({ last_login_at: now, updated_at: now }).where("id", "=", userId).execute();
+  await db
+    .insertInto("admin_sessions")
+    .values({
+      token,
+      user_id: userId,
+      created_at: now,
+      expires_at: expiresAt,
+    })
+    .execute();
+  await db
+    .updateTable("admin_users")
+    .set({ last_login_at: now, updated_at: now })
+    .where("id", "=", userId)
+    .execute();
   // Purge expired sessions periodically
   await db.deleteFrom("admin_sessions").where("expires_at", "<", now).execute();
   return { token, userId, createdAt: now, expiresAt };
@@ -328,8 +418,15 @@ export async function setUserPermissions(
   const db = getAdminDb();
   await db.deleteFrom("admin_user_permissions").where("user_id", "=", userId).execute();
   if (permissions.length > 0) {
-    await db.insertInto("admin_user_permissions").values(
-      permissions.map((p) => ({ user_id: userId, permission_type: p.permissionType, value: p.value })),
-    ).execute();
+    await db
+      .insertInto("admin_user_permissions")
+      .values(
+        permissions.map((p) => ({
+          user_id: userId,
+          permission_type: p.permissionType,
+          value: p.value,
+        })),
+      )
+      .execute();
   }
 }

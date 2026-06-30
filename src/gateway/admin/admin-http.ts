@@ -15,6 +15,18 @@ export function setPortalAuthResolver(fn: () => ResolvedGatewayAuth): void {
   _getResolvedAuth = fn;
 }
 import {
+  createProject,
+  createTask,
+  deleteProject,
+  deleteTask,
+  listProjects,
+  listTasks,
+  updateProject,
+  updateTask,
+  type UpdateProjectParams,
+  type UpdateTaskParams,
+} from "./project-store.js";
+import {
   createResource,
   deleteResource,
   ensureResourcesDir,
@@ -737,6 +749,177 @@ export async function handleAdminHttpRequest(
       return true;
     }
     await deleteResource(resourceId);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/projects
+  if (subPath === "/projects" && req.method === "GET") {
+    const projects = await listProjects();
+    sendJson(res, 200, { projects });
+    return true;
+  }
+
+  // POST /api/admin/projects
+  if (subPath === "/projects" && req.method === "POST") {
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const title = normalizeString(data.title);
+    if (!title) {
+      sendBadRequest(res, "title required");
+      return true;
+    }
+    const validStatuses = ["planning", "active", "completed", "archived"] as const;
+    const status = validStatuses.includes(data.status as (typeof validStatuses)[number])
+      ? (data.status as (typeof validStatuses)[number])
+      : "active";
+    const project = await createProject({
+      title,
+      description: normalizeString(data.description),
+      status,
+      color: typeof data.color === "string" ? data.color : "#3b82f6",
+      tags: Array.isArray(data.tags)
+        ? (data.tags as string[]).filter((t) => typeof t === "string")
+        : [],
+      createdBy: sessionUser.id,
+    });
+    sendJson(res, 201, { project });
+    return true;
+  }
+
+  // PUT /DELETE /api/admin/projects/:id
+  const projectEditMatch = subPath.match(/^\/projects\/([^/]+)$/);
+  if (projectEditMatch && req.method === "PUT") {
+    const id = projectEditMatch[1]!;
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const validStatuses = ["planning", "active", "completed", "archived"] as const;
+    const params: UpdateProjectParams = {};
+    const newTitle = normalizeString(data.title);
+    if (newTitle) params.title = newTitle;
+    if (data.description !== undefined) params.description = normalizeString(data.description);
+    if (
+      typeof data.status === "string" &&
+      validStatuses.includes(data.status as (typeof validStatuses)[number])
+    ) {
+      params.status = data.status as (typeof validStatuses)[number];
+    }
+    if (typeof data.color === "string") params.color = data.color;
+    if (Array.isArray(data.tags))
+      params.tags = (data.tags as string[]).filter((t) => typeof t === "string");
+    const updated = await updateProject(id, params);
+    if (!updated) {
+      sendNotFound(res);
+      return true;
+    }
+    sendJson(res, 200, { project: updated });
+    return true;
+  }
+  if (projectEditMatch && req.method === "DELETE") {
+    const id = projectEditMatch[1]!;
+    await deleteProject(id);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/tasks
+  if (subPath === "/tasks" && req.method === "GET") {
+    const projectId = url.searchParams.get("projectId") ?? undefined;
+    const tasks = await listTasks(projectId ? { projectId } : {});
+    sendJson(res, 200, { tasks });
+    return true;
+  }
+
+  // POST /api/admin/tasks
+  if (subPath === "/tasks" && req.method === "POST") {
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const title = normalizeString(data.title);
+    if (!title) {
+      sendBadRequest(res, "title required");
+      return true;
+    }
+    const validStatuses = ["todo", "in_progress", "review", "done"] as const;
+    const validPriorities = ["low", "medium", "high", "urgent"] as const;
+    const task = await createTask({
+      title,
+      description: normalizeString(data.description),
+      status: validStatuses.includes(data.status as (typeof validStatuses)[number])
+        ? (data.status as (typeof validStatuses)[number])
+        : "todo",
+      priority: validPriorities.includes(data.priority as (typeof validPriorities)[number])
+        ? (data.priority as (typeof validPriorities)[number])
+        : "medium",
+      projectId: normalizeString(data.projectId),
+      parentTaskId: normalizeString(data.parentTaskId),
+      dueDate: typeof data.dueDate === "number" ? data.dueDate : null,
+      assignedTo: normalizeString(data.assignedTo),
+      tags: Array.isArray(data.tags)
+        ? (data.tags as string[]).filter((t) => typeof t === "string")
+        : [],
+      createdBy: sessionUser.id,
+    });
+    sendJson(res, 201, { task });
+    return true;
+  }
+
+  // PUT / DELETE /api/admin/tasks/:id
+  const taskEditMatch = subPath.match(/^\/tasks\/([^/]+)$/);
+  if (taskEditMatch && req.method === "PUT") {
+    const id = taskEditMatch[1]!;
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const validStatuses = ["todo", "in_progress", "review", "done"] as const;
+    const validPriorities = ["low", "medium", "high", "urgent"] as const;
+    const params: UpdateTaskParams = {};
+    const newTitle = normalizeString(data.title);
+    if (newTitle) params.title = newTitle;
+    if (data.description !== undefined) params.description = normalizeString(data.description);
+    if (
+      typeof data.status === "string" &&
+      validStatuses.includes(data.status as (typeof validStatuses)[number])
+    ) {
+      params.status = data.status as (typeof validStatuses)[number];
+    }
+    if (
+      typeof data.priority === "string" &&
+      validPriorities.includes(data.priority as (typeof validPriorities)[number])
+    ) {
+      params.priority = data.priority as (typeof validPriorities)[number];
+    }
+    if (data.projectId !== undefined) params.projectId = normalizeString(data.projectId);
+    if (data.dueDate !== undefined)
+      params.dueDate = typeof data.dueDate === "number" ? data.dueDate : null;
+    if (data.assignedTo !== undefined) params.assignedTo = normalizeString(data.assignedTo);
+    if (Array.isArray(data.tags))
+      params.tags = (data.tags as string[]).filter((t) => typeof t === "string");
+    const updated = await updateTask(id, params);
+    if (!updated) {
+      sendNotFound(res);
+      return true;
+    }
+    sendJson(res, 200, { task: updated });
+    return true;
+  }
+  if (taskEditMatch && req.method === "DELETE") {
+    const id = taskEditMatch[1]!;
+    await deleteTask(id);
     sendJson(res, 200, { ok: true });
     return true;
   }
