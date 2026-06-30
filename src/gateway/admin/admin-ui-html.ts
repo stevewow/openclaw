@@ -61,6 +61,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   nav a:hover { background: rgba(255,255,255,0.07); color: var(--sidebar-text-active); }
   nav a.active { background: var(--sidebar-active-bg); color: var(--sidebar-text-active); border-left: 2.5px solid var(--accent); }
   nav a .icon { width: 20px; text-align: center; font-size: 0.95rem; }
+  .nav-section { padding: 0.625rem 0.625rem 0.25rem; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.3); margin-top: 0.375rem; }
   .sidebar-footer { padding: 0.875rem 0.75rem; border-top: 1px solid var(--sidebar-border); }
   .main { flex: 1; overflow-x: hidden; min-width: 0; display: flex; flex-direction: column; }
   .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
@@ -316,11 +317,14 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="role" id="sidebar-role"></div>
     </div>
     <nav id="sidebar-nav">
+      <div class="nav-section">Main</div>
       <a href="#dashboard" class="nav-link" data-page="dashboard"><span class="icon">⊞</span> Dashboard</a>
       <a href="#users" class="nav-link admin-only" data-page="users"><span class="icon">👥</span> Users</a>
       <a href="#agents" class="nav-link" data-page="agents"><span class="icon">🤖</span> Agents</a>
       <a href="#chat" class="nav-link" data-page="chat"><span class="icon">💬</span> Chat</a>
-      <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects</a>
+      <div class="nav-section">Workspace</div>
+      <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
+      <div class="nav-section">Settings</div>
       <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
       <a href="#system" class="nav-link admin-only" data-page="system"><span class="icon">⚙</span> System</a>
       <a href="#account" class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
