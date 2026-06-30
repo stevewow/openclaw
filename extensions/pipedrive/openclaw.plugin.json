@@ -1,0 +1,34 @@
+{
+  "id": "pipedrive",
+  "activation": {
+    "onStartup": false
+  },
+  "enabledByDefault": false,
+  "contracts": {
+    "tools": [
+      "pipedrive_search_persons",
+      "pipedrive_get_activities",
+      "pipedrive_get_deals",
+      "pipedrive_get_stale_contacts",
+      "pipedrive_add_note",
+      "pipedrive_add_activity"
+    ]
+  },
+  "uiHints": {
+    "apiToken": {
+      "label": "Pipedrive API Token",
+      "help": "Your Pipedrive API token from Settings → Personal preferences → API.",
+      "sensitive": true,
+      "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiToken": {
+        "type": ["string", "object"]
+      }
+    }
+  }
+}
