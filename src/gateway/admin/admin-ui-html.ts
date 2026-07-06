@@ -65,10 +65,25 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .sidebar-footer { padding: 0.875rem 0.75rem; border-top: 1px solid var(--sidebar-border); }
   .main { flex: 1; overflow-x: hidden; min-width: 0; display: flex; flex-direction: column; }
   .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+  .topbar-left { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
   .topbar h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
   .content { padding: 1.75rem; flex: 1; }
   #page-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #000; }
   #admin-chat-frame { flex: 1; width: 100%; border: none; display: block; }
+
+  /* Mobile nav */
+  .menu-toggle { display: none; background: transparent; border: none; color: var(--text); font-size: 1.25rem; line-height: 1; cursor: pointer; padding: 0.3rem 0.4rem; flex-shrink: 0; }
+  .sidebar-backdrop { display: none; }
+  @media (max-width: 860px) {
+    .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
+    .sidebar { position: fixed; top: 0; left: 0; z-index: 60; height: 100dvh; transform: translateX(-100%); transition: transform 0.2s ease; }
+    .sidebar.open { transform: translateX(0); box-shadow: 8px 0 24px rgba(0,0,0,0.25); }
+    .sidebar-backdrop { display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 55; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+    .sidebar-backdrop.open { opacity: 1; pointer-events: auto; }
+    .topbar { padding: 0.875rem 1rem; }
+    .content { padding: 1rem; }
+    .modal { max-width: calc(100vw - 2rem) !important; }
+  }
 
   /* Cards */
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
@@ -270,6 +285,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .subtask-done { text-decoration: line-through; color: var(--text-muted); }
   .subtask-delete { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; line-height: 1; padding: 0 0.2rem; transition: color 0.1s; }
   .subtask-delete:hover { color: var(--danger); }
+  @media (max-width: 640px) {
+    .board-column { flex: 0 0 240px; }
+    .cal-day { min-height: 64px; padding: 0.25rem; }
+    .cal-day-num { font-size: 0.7rem; width: 18px; height: 18px; }
+    .cal-task-chip { font-size: 0.6rem; }
+    .cal-weekday { font-size: 0.6rem; padding: 0.4rem 0.2rem; }
+  }
 </style>
 </head>
 <body>
@@ -307,7 +329,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
 <!-- Main app -->
 <div id="app" class="app hidden">
-  <aside class="sidebar">
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+  <aside class="sidebar" id="app-sidebar">
     <div class="sidebar-logo">
       <div class="sidebar-logo-icon">🦞</div>
       <div class="sidebar-logo-name">OpenClaw</div>
@@ -336,7 +359,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
   <main class="main">
     <div class="topbar" id="main-topbar">
-      <h2 id="page-title">Dashboard</h2>
+      <div class="topbar-left">
+        <button class="menu-toggle" id="menu-toggle-btn" aria-label="Toggle menu">☰</button>
+        <h2 id="page-title">Dashboard</h2>
+      </div>
     </div>
     <div class="content" id="main-content">
 
@@ -833,7 +859,20 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'chat') mountAdminChatFrame();
     if (page === 'projects') loadProjects();
     location.hash = '#' + page;
+    closeSidebar();
   }
+
+  // ── Mobile sidebar ───────────────────────────────────────────────────────
+  function closeSidebar() {
+    document.getElementById('app-sidebar').classList.remove('open');
+    document.getElementById('sidebar-backdrop').classList.remove('open');
+  }
+  function toggleSidebar() {
+    document.getElementById('app-sidebar').classList.toggle('open');
+    document.getElementById('sidebar-backdrop').classList.toggle('open');
+  }
+  document.getElementById('menu-toggle-btn').addEventListener('click', toggleSidebar);
+  document.getElementById('sidebar-backdrop').addEventListener('click', closeSidebar);
 
   function isAdmin() {
     return currentUser && (currentUser.role === 'superadmin' || currentUser.role === 'admin');
