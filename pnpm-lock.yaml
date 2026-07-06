@@ -1262,6 +1262,16 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  extensions/pipedrive:
+    dependencies:
+      typebox:
+        specifier: 1.1.38
+        version: 1.1.38
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   extensions/qa-channel:
     dependencies:
       typebox:
@@ -1451,10 +1461,6 @@ importers:
       typebox:
         specifier: 1.1.38
         version: 1.1.38
-    devDependencies:
-      '@openclaw/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
 
   extensions/stepfun:
     devDependencies:
