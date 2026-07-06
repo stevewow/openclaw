@@ -14,7 +14,10 @@ export type AdminSession = {
   userId: string;
   createdAt: number;
   expiresAt: number;
+  impersonatorId: string | null;
 };
+
+export type SessionUser = AdminUser & { impersonatorId: string | null };
 
 export type UserPermission = {
   userId: string;

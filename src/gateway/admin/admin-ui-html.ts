@@ -25,6 +25,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     --radius: 10px;
     --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
     --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --banner-h: 0px;
   }
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; min-height: 100vh; -webkit-font-smoothing: antialiased; }
   a { color: var(--accent); text-decoration: none; }
@@ -47,9 +48,14 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     .login-right { width: 100%; min-height: 100vh; }
   }
 
+  /* Impersonation banner */
+  .impersonation-banner { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 0.5rem 1rem; background: #f59e0b; color: #111; font-size: 0.8rem; font-weight: 600; text-align: center; }
+  .impersonation-banner .btn { padding: 0.3rem 0.75rem; font-size: 0.75rem; background: #111; color: #fff; border: none; }
+  .impersonation-banner .btn:hover { background: #292929; }
+
   /* Layout */
-  .app { display: flex; min-height: 100vh; }
-  .sidebar { width: 240px; background: var(--sidebar-bg); display: flex; flex-direction: column; flex-shrink: 0; position: sticky; top: 0; height: 100vh; }
+  .app { display: flex; min-height: calc(100vh - var(--banner-h)); }
+  .sidebar { width: 240px; background: var(--sidebar-bg); display: flex; flex-direction: column; flex-shrink: 0; position: sticky; top: var(--banner-h); height: calc(100vh - var(--banner-h)); }
   .sidebar-logo { padding: 1.25rem 1.25rem 1rem; display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--sidebar-border); }
   .sidebar-logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
   .sidebar-logo-name { color: #ffffff; font-weight: 700; font-size: 1rem; letter-spacing: -0.01em; }
@@ -64,7 +70,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .nav-section { padding: 0.625rem 0.625rem 0.25rem; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.3); margin-top: 0.375rem; }
   .sidebar-footer { padding: 0.875rem 0.75rem; border-top: 1px solid var(--sidebar-border); }
   .main { flex: 1; overflow-x: hidden; min-width: 0; display: flex; flex-direction: column; }
-  .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+  .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: var(--banner-h); z-index: 10; }
   .topbar-left { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
   .topbar h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
   .content { padding: 1.75rem; flex: 1; }
@@ -76,7 +82,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .sidebar-backdrop { display: none; }
   @media (max-width: 860px) {
     .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
-    .sidebar { position: fixed; top: 0; left: 0; z-index: 60; height: 100dvh; transform: translateX(-100%); transition: transform 0.2s ease; }
+    .sidebar { position: fixed; top: var(--banner-h); left: 0; z-index: 60; height: calc(100dvh - var(--banner-h)); transform: translateX(-100%); transition: transform 0.2s ease; }
     .sidebar.open { transform: translateX(0); box-shadow: 8px 0 24px rgba(0,0,0,0.25); }
     .sidebar-backdrop { display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 55; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
     .sidebar-backdrop.open { opacity: 1; pointer-events: auto; }
@@ -339,6 +345,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   </div>
 </div>
 
+<div id="impersonation-banner" class="impersonation-banner hidden">
+  <span>Viewing as <strong id="impersonation-target"></strong></span>
+  <button type="button" class="btn" id="return-to-admin-btn">Return to admin</button>
+</div>
+
 <!-- Main app -->
 <div id="app" class="app hidden">
   <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
@@ -359,6 +370,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <a href="#chat" class="nav-link" data-page="chat"><span class="icon">💬</span> Chat</a>
       <div class="nav-section">Workspace</div>
       <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
+      <a href="#reports" class="nav-link admin-only" data-page="reports"><span class="icon">📊</span> Reports</a>
       <div class="nav-section">Settings</div>
       <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
       <a href="#system" class="nav-link superadmin-only" data-page="system"><span class="icon">⚙</span> System</a>
@@ -558,6 +570,49 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
             <button class="view-btn" data-status="archived">Archived</button>
           </div>
           <div id="projects-list-grid" class="projects-list-grid"></div>
+        </div>
+      </div>
+
+      <!-- Reports page -->
+      <div id="page-reports" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label>From</label>
+              <select id="report-from-sel"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>To</label>
+              <select id="report-to-sel"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Market</label>
+              <select id="report-market-sel"><option value="">All markets</option></select>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+              <span class="text-muted" id="report-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-primary btn-sm" id="report-refresh-btn">↻ Refresh now</button>
+            </div>
+          </div>
+        </div>
+        <div class="stats-grid" id="report-stats-grid"></div>
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Total Orders</th>
+                  <th>Cancellations</th>
+                  <th>Reschedules</th>
+                  <th>% Cancelled/Rescheduled</th>
+                </tr>
+              </thead>
+              <tbody id="report-table-body">
+                <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -837,6 +892,41 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   let permsModalUserId = null;
   let gatewayConfig = null;
   let chatFrameMounted = false;
+  let impersonatedBy = null;
+
+  // ── Impersonation ────────────────────────────────────────────────────────
+  function updateImpersonationBanner() {
+    const banner = document.getElementById('impersonation-banner');
+    document.documentElement.style.setProperty('--banner-h', impersonatedBy ? '40px' : '0px');
+    banner.classList.toggle('hidden', !impersonatedBy);
+    if (impersonatedBy) {
+      document.getElementById('impersonation-target').textContent =
+        (currentUser ? currentUser.username : '') + ' (impersonated by ' + impersonatedBy.username + ')';
+    }
+  }
+
+  document.getElementById('return-to-admin-btn').addEventListener('click', async () => {
+    const returnToken = localStorage.getItem('oc_impersonator_token');
+    await api('POST', '/auth/logout').catch(() => {});
+    localStorage.removeItem('oc_impersonator_token');
+    localStorage.removeItem('oc_portal_token');
+    if (returnToken) {
+      localStorage.setItem('oc_admin_token', returnToken);
+    } else {
+      localStorage.removeItem('oc_admin_token');
+    }
+    location.reload();
+  });
+
+  window.loginAsUser = async function(id, username) {
+    if (!confirm('Log in as "' + username + '"? You can return to your own session at any time.')) return;
+    const r = await api('POST', '/users/' + id + '/impersonate');
+    if (!r.ok) { alert(r.data.error || 'Failed to log in as user.'); return; }
+    localStorage.setItem('oc_impersonator_token', token);
+    token = r.data.token;
+    localStorage.setItem('oc_admin_token', token);
+    location.reload();
+  };
 
   // ── API helpers ──────────────────────────────────────────────────────────
   async function api(method, path, body) {
@@ -861,6 +951,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     system: { el: 'page-system', title: 'System', adminOnly: true, superAdminOnly: true },
     account: { el: 'page-account', title: 'My Account', adminOnly: false, superAdminOnly: false },
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
+    reports: { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
   };
 
   function mountAdminChatFrame() {
@@ -899,6 +990,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'dashboard') loadDashboard();
     if (page === 'chat') mountAdminChatFrame();
     if (page === 'projects') loadProjects();
+    if (page === 'reports') loadReports();
     location.hash = '#' + page;
     closeSidebar();
   }
@@ -943,7 +1035,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     }
     token = r.data.token;
     localStorage.setItem('oc_admin_token', token);
+    localStorage.removeItem('oc_impersonator_token');
     currentUser = r.data.user;
+    impersonatedBy = null;
     await showApp();
   });
 
@@ -955,6 +1049,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     chatFrameMounted = false;
     localStorage.removeItem('oc_admin_token');
     localStorage.removeItem('oc_portal_token');
+    localStorage.removeItem('oc_impersonator_token');
     document.getElementById('admin-chat-frame').src = 'about:blank';
     location.reload();
   });
@@ -964,6 +1059,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     const r = await api('GET', '/auth/me');
     if (!r.ok) { token = null; localStorage.removeItem('oc_admin_token'); return false; }
     currentUser = r.data;
+    impersonatedBy = r.data.impersonatedBy || null;
     return true;
   }
 
@@ -980,6 +1076,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('sidebar-username').textContent = currentUser.username;
     document.getElementById('sidebar-role').textContent = currentUser.role;
+    updateImpersonationBanner();
     // Hide admin-only nav for non-admins
     document.querySelectorAll('.admin-only').forEach(el => {
       el.classList.toggle('hidden', !isAdmin());
@@ -1082,6 +1179,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <div class="flex gap-2">
             <button class="btn btn-ghost btn-sm" onclick="openEditUser('\${esc(u.id)}','\${esc(u.username)}','\${esc(u.role)}')">Edit</button>
             <button class="btn btn-ghost btn-sm" onclick="openPermsModal('\${esc(u.id)}','\${esc(u.username)}')">Permissions</button>
+            \${isSuperAdmin() && u.id !== currentUser.id ? \`<button class="btn btn-ghost btn-sm" onclick="loginAsUser('\${esc(u.id)}','\${esc(u.username)}')">Login as</button>\` : ''}
             \${u.id !== currentUser.id ? \`<button class="btn btn-danger btn-sm" onclick="deleteUser('\${esc(u.id)}','\${esc(u.username)}')">Delete</button>\` : ''}
           </div>
         </td>
@@ -1675,6 +1773,111 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       alertEl.textContent = 'Password updated successfully.';
       document.getElementById('change-pw-form').reset();
     }
+  });
+
+  // ── Reports ──────────────────────────────────────────────────────────────
+  let reportMonths = [];
+
+  function monthLabel(m) {
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(Date.UTC(y, mo - 1, 1)).toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  function populateReportMonthSelects() {
+    const fromSel = document.getElementById('report-from-sel');
+    const toSel = document.getElementById('report-to-sel');
+    if (fromSel.options.length) return;
+    const opts = reportMonths.map(m => \`<option value="\${m}">\${monthLabel(m)}</option>\`).join('');
+    fromSel.innerHTML = opts;
+    toSel.innerHTML = opts;
+    fromSel.value = reportMonths[0];
+    toSel.value = reportMonths[reportMonths.length - 1];
+  }
+
+  async function loadReportMarkets() {
+    const from = document.getElementById('report-from-sel').value;
+    const to = document.getElementById('report-to-sel').value;
+    const r = await api('GET', '/reports/agent-cancellations/markets?from=' + from + '&to=' + to);
+    const sel = document.getElementById('report-market-sel');
+    const current = sel.value;
+    const markets = r.ok ? (r.data.markets || []) : [];
+    sel.innerHTML = '<option value="">All markets</option>' + markets.map(m => \`<option value="\${esc(m)}">\${esc(m)}</option>\`).join('');
+    if (markets.includes(current)) sel.value = current;
+  }
+
+  async function loadReportStatus() {
+    const r = await api('GET', '/reports/agent-cancellations/status');
+    const el = document.getElementById('report-refreshed-at');
+    if (!r.ok) { el.textContent = ''; return; }
+    const statuses = (r.data.status || []).filter(s => s.refreshedAt);
+    if (statuses.length === 0) { el.textContent = 'Never refreshed'; return; }
+    const latest = statuses.reduce((a, b) => (b.refreshedAt > a.refreshedAt ? b : a));
+    el.textContent = 'Last refreshed: ' + new Date(latest.refreshedAt).toLocaleString();
+  }
+
+  async function loadReportTable() {
+    const from = document.getElementById('report-from-sel').value;
+    const to = document.getElementById('report-to-sel').value;
+    const market = document.getElementById('report-market-sel').value;
+    const qs = new URLSearchParams({ from, to });
+    if (market) qs.set('market', market);
+    const r = await api('GET', '/reports/agent-cancellations?' + qs.toString());
+    const tbody = document.getElementById('report-table-body');
+    const statsEl = document.getElementById('report-stats-grid');
+    if (!r.ok) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load report.</td></tr>';
+      statsEl.innerHTML = '';
+      return;
+    }
+    const report = r.data.report;
+    statsEl.innerHTML = \`
+      <div class="stat-card"><div class="stat-label">Total Orders</div><div class="stat-value">\${report.totals.totalOrders}</div></div>
+      <div class="stat-card"><div class="stat-label">Cancellations</div><div class="stat-value">\${report.totals.cancellations}</div></div>
+      <div class="stat-card"><div class="stat-label">Reschedules</div><div class="stat-value">\${report.totals.reschedules}</div></div>
+      <div class="stat-card"><div class="stat-label">% Cancelled/Rescheduled</div><div class="stat-value">\${report.totals.cancelledOrRescheduledPct.toFixed(1)}%</div></div>\`;
+    if (report.rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No orders cached for this range yet. Try Refresh now.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = report.rows.map(row => \`
+      <tr>
+        <td>\${esc(row.client)}</td>
+        <td>\${row.totalOrders}</td>
+        <td>\${row.cancellations}</td>
+        <td>\${row.reschedules}</td>
+        <td>\${row.cancelledOrRescheduledPct.toFixed(1)}%</td>
+      </tr>\`).join('');
+  }
+
+  async function loadReports() {
+    if (reportMonths.length === 0) {
+      reportMonths = Array.from({ length: 12 }, (_, i) => {
+        const d = new Date();
+        d.setUTCDate(1);
+        d.setUTCMonth(d.getUTCMonth() - (11 - i));
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+      });
+      populateReportMonthSelects();
+    }
+    await loadReportMarkets();
+    await Promise.all([loadReportTable(), loadReportStatus()]);
+  }
+
+  document.getElementById('report-from-sel').addEventListener('change', () => { loadReportMarkets(); loadReportTable(); });
+  document.getElementById('report-to-sel').addEventListener('change', () => { loadReportMarkets(); loadReportTable(); });
+  document.getElementById('report-market-sel').addEventListener('change', loadReportTable);
+  document.getElementById('report-refresh-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('report-refresh-btn');
+    const from = document.getElementById('report-from-sel').value;
+    const to = document.getElementById('report-to-sel').value;
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    const r = await api('POST', '/reports/agent-cancellations/refresh', { from, to });
+    btn.disabled = false;
+    btn.innerHTML = '↻ Refresh now';
+    if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
+    await loadReportMarkets();
+    await Promise.all([loadReportTable(), loadReportStatus()]);
   });
 
   // ── Projects ──────────────────────────────────────────────────────────────

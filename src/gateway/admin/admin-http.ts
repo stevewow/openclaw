@@ -38,6 +38,14 @@ import {
   resolveResourceFilePath,
   updateResource,
 } from "./resource-store.js";
+import {
+  ensureSpiroReportScheduler,
+  getAgentCancellationReport,
+  getRefreshStatus,
+  last12Months,
+  listAvailableMarkets,
+  refreshMonth,
+} from "./spiro-report-store.js";
 import type { AdminUserRole } from "./types.js";
 import {
   createSession,
@@ -45,6 +53,7 @@ import {
   deleteSession,
   deleteUser,
   ensureSuperadminExists,
+  getUserById,
   getUserByUsername,
   getUserPermissions,
   listUsers,
@@ -206,6 +215,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   if (initialized) return;
   initialized = true;
   await ensureSuperadminExists();
+  ensureSpiroReportScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -285,11 +295,19 @@ export async function handleAdminHttpRequest(
   // GET /api/admin/auth/me
   if (subPath === "/auth/me" && req.method === "GET") {
     const perms = await getUserPermissions(sessionUser.id);
+    let impersonatedBy: { id: string; username: string } | null = null;
+    if (sessionUser.impersonatorId) {
+      const impersonator = await getUserById(sessionUser.impersonatorId);
+      if (impersonator) {
+        impersonatedBy = { id: impersonator.id, username: impersonator.username };
+      }
+    }
     sendJson(res, 200, {
       id: sessionUser.id,
       username: sessionUser.username,
       role: sessionUser.role,
       permissions: perms,
+      impersonatedBy,
     });
     return true;
   }
@@ -411,6 +429,33 @@ export async function handleAdminHttpRequest(
     }
     await deleteUser(targetId);
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // POST /api/admin/users/:id/impersonate — superadmin only
+  const impersonateMatch = subPath.match(/^\/users\/([^/]+)\/impersonate$/);
+  if (impersonateMatch && req.method === "POST") {
+    if (!isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const targetId = impersonateMatch[1]!;
+    if (targetId === sessionUser.id) {
+      sendBadRequest(res, "cannot impersonate your own account");
+      return true;
+    }
+    const targetUser = await getUserById(targetId);
+    if (!targetUser) {
+      sendNotFound(res);
+      return true;
+    }
+    const session = await createSession(targetUser.id, { impersonatorId: sessionUser.id });
+    sendJson(res, 200, {
+      token: session.token,
+      expiresAt: session.expiresAt,
+      user: { id: targetUser.id, username: targetUser.username, role: targetUser.role },
+      impersonatedBy: { id: sessionUser.id, username: sessionUser.username },
+    });
     return true;
   }
 
@@ -959,6 +1004,78 @@ export async function handleAdminHttpRequest(
   if (taskEditMatch && req.method === "DELETE") {
     const id = taskEditMatch[1]!;
     await deleteTask(id);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/reports/agent-cancellations — 12-month order/cancellation report (admin only)
+  if (subPath === "/reports/agent-cancellations" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const months = last12Months();
+    const from = normalizeString(url.searchParams.get("from")) ?? months[0]!;
+    const to = normalizeString(url.searchParams.get("to")) ?? months[months.length - 1]!;
+    const market = normalizeString(url.searchParams.get("market"));
+    const report = await getAgentCancellationReport({ from, to, market });
+    sendJson(res, 200, { report });
+    return true;
+  }
+
+  // GET /api/admin/reports/agent-cancellations/markets — distinct markets in range (admin only)
+  if (subPath === "/reports/agent-cancellations/markets" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const months = last12Months();
+    const from = normalizeString(url.searchParams.get("from")) ?? months[0]!;
+    const to = normalizeString(url.searchParams.get("to")) ?? months[months.length - 1]!;
+    const markets = await listAvailableMarkets(from, to);
+    sendJson(res, 200, { markets });
+    return true;
+  }
+
+  // GET /api/admin/reports/agent-cancellations/status — last-refreshed timestamp per month (admin only)
+  if (subPath === "/reports/agent-cancellations/status" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const status = await getRefreshStatus(last12Months());
+    sendJson(res, 200, { status });
+    return true;
+  }
+
+  // POST /api/admin/reports/agent-cancellations/refresh — manual refresh (admin only)
+  if (subPath === "/reports/agent-cancellations/refresh" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const months = last12Months();
+    const from = normalizeString(data.from) ?? months[0]!;
+    const to = normalizeString(data.to) ?? months[months.length - 1]!;
+    const targetMonths = months.filter((m) => m >= from && m <= to);
+    if (targetMonths.length === 0) {
+      sendBadRequest(res, "no months in range");
+      return true;
+    }
+    try {
+      for (const month of targetMonths) {
+        await refreshMonth(month, { manual: true });
+      }
+    } catch (err) {
+      sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+      return true;
+    }
     sendJson(res, 200, { ok: true });
     return true;
   }

@@ -5,7 +5,13 @@ import { resolveStateDir } from "../../config/paths.js";
 import { NodeSqliteKyselyDialect } from "../../infra/kysely-node-sqlite.js";
 import { requireNodeSqlite } from "../../infra/node-sqlite.js";
 import { configureSqliteWalMaintenance } from "../../infra/sqlite-wal.js";
-import type { AdminUser, AdminUserRole, AdminSession, UserPermission } from "./types.js";
+import type {
+  AdminUser,
+  AdminUserRole,
+  AdminSession,
+  SessionUser,
+  UserPermission,
+} from "./types.js";
 
 type UsersTable = {
   id: string;
@@ -22,6 +28,7 @@ type SessionsTable = {
   user_id: string;
   created_at: number;
   expires_at: number;
+  impersonator_id: string | null;
 };
 
 type PermissionsTable = {
@@ -78,6 +85,21 @@ type TasksTable = {
   updated_at: number;
 };
 
+type SpiroOrdersTable = {
+  id: string;
+  month: string;
+  client: string;
+  market: string | null;
+  status: string;
+  cached_at: number;
+};
+
+type SpiroRefreshLogTable = {
+  month: string;
+  refreshed_at: number;
+  manual: number;
+};
+
 type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -85,6 +107,8 @@ type AdminDb = {
   admin_resources: ResourcesTable;
   admin_projects: ProjectsTable;
   admin_tasks: TasksTable;
+  admin_spiro_orders: SpiroOrdersTable;
+  admin_spiro_refresh_log: SpiroRefreshLogTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -158,7 +182,8 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
       created_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
+      expires_at INTEGER NOT NULL,
+      impersonator_id TEXT REFERENCES admin_users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS admin_sessions_user_id ON admin_sessions(user_id);
     CREATE INDEX IF NOT EXISTS admin_sessions_expires_at ON admin_sessions(expires_at);
@@ -217,11 +242,34 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_tasks_project_id ON admin_tasks(project_id);
     CREATE INDEX IF NOT EXISTS admin_tasks_due_date ON admin_tasks(due_date);
+    CREATE TABLE IF NOT EXISTS admin_spiro_orders (
+      id TEXT PRIMARY KEY,
+      month TEXT NOT NULL,
+      client TEXT NOT NULL,
+      market TEXT,
+      status TEXT NOT NULL DEFAULT '',
+      cached_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_spiro_orders_month ON admin_spiro_orders(month);
+    CREATE INDEX IF NOT EXISTS admin_spiro_orders_market ON admin_spiro_orders(market);
+    CREATE TABLE IF NOT EXISTS admin_spiro_refresh_log (
+      month TEXT PRIMARY KEY,
+      refreshed_at INTEGER NOT NULL,
+      manual INTEGER NOT NULL DEFAULT 0
+    );
   `);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {
     db.exec(
       "ALTER TABLE admin_tasks ADD COLUMN recurrence TEXT CHECK(recurrence IN ('daily','weekly','monthly','yearly'))",
+    );
+  }
+  const sessionColumns = db.prepare("PRAGMA table_info(admin_sessions)").all() as Array<{
+    name: string;
+  }>;
+  if (!sessionColumns.some((c) => c.name === "impersonator_id")) {
+    db.exec(
+      "ALTER TABLE admin_sessions ADD COLUMN impersonator_id TEXT REFERENCES admin_users(id) ON DELETE CASCADE",
     );
   }
 }
@@ -363,11 +411,15 @@ export async function deleteUser(id: string): Promise<void> {
   await db.deleteFrom("admin_users").where("id", "=", id).execute();
 }
 
-export async function createSession(userId: string): Promise<AdminSession> {
+export async function createSession(
+  userId: string,
+  options?: { impersonatorId?: string },
+): Promise<AdminSession> {
   const db = getAdminDb();
   const token = crypto.randomBytes(32).toString("hex");
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;
+  const impersonatorId = options?.impersonatorId ?? null;
   await db
     .insertInto("admin_sessions")
     .values({
@@ -375,29 +427,35 @@ export async function createSession(userId: string): Promise<AdminSession> {
       user_id: userId,
       created_at: now,
       expires_at: expiresAt,
+      impersonator_id: impersonatorId,
     })
     .execute();
-  await db
-    .updateTable("admin_users")
-    .set({ last_login_at: now, updated_at: now })
-    .where("id", "=", userId)
-    .execute();
+  // Impersonated sessions shouldn't overwrite the target user's own login history.
+  if (!impersonatorId) {
+    await db
+      .updateTable("admin_users")
+      .set({ last_login_at: now, updated_at: now })
+      .where("id", "=", userId)
+      .execute();
+  }
   // Purge expired sessions periodically
   await db.deleteFrom("admin_sessions").where("expires_at", "<", now).execute();
-  return { token, userId, createdAt: now, expiresAt };
+  return { token, userId, createdAt: now, expiresAt, impersonatorId };
 }
 
-export async function resolveSessionUser(token: string): Promise<AdminUser | null> {
+export async function resolveSessionUser(token: string): Promise<SessionUser | null> {
   if (!token) return null;
   const db = getAdminDb();
   const row = await db
     .selectFrom("admin_sessions")
     .innerJoin("admin_users", "admin_users.id", "admin_sessions.user_id")
     .selectAll("admin_users")
+    .select("admin_sessions.impersonator_id")
     .where("admin_sessions.token", "=", token)
     .where("admin_sessions.expires_at", ">", Date.now())
     .executeTakeFirst();
-  return row ? rowToUser(row as UsersTable) : null;
+  if (!row) return null;
+  return { ...rowToUser(row as UsersTable), impersonatorId: row.impersonator_id ?? null };
 }
 
 export async function deleteSession(token: string): Promise<void> {

@@ -23,6 +23,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     --radius: 10px;
     --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
     --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --banner-h: 0px;
   }
   html, body { height: 100%; }
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
@@ -46,9 +47,14 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     .login-right { width: 100%; min-height: 100vh; }
   }
 
+  /* Impersonation banner */
+  .impersonation-banner { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 0.5rem 1rem; background: #f59e0b; color: #111; font-size: 0.8rem; font-weight: 600; text-align: center; }
+  .impersonation-banner .btn { padding: 0.3rem 0.75rem; font-size: 0.75rem; background: #111; color: #fff; border: none; }
+  .impersonation-banner .btn:hover { background: #292929; }
+
   /* App layout — full height with sidebar */
-  .app { display: flex; height: 100vh; overflow: hidden; }
-  .sidebar { width: 220px; background: var(--sidebar-bg); display: flex; flex-direction: column; flex-shrink: 0; height: 100vh; }
+  .app { display: flex; height: calc(100vh - var(--banner-h)); overflow: hidden; }
+  .sidebar { width: 220px; background: var(--sidebar-bg); display: flex; flex-direction: column; flex-shrink: 0; height: calc(100vh - var(--banner-h)); }
   .sidebar-logo { padding: 1.25rem 1.25rem 1rem; display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--sidebar-border); }
   .sidebar-logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
   .sidebar-logo-name { color: #ffffff; font-weight: 700; font-size: 1rem; letter-spacing: -0.01em; }
@@ -151,6 +157,11 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   </div>
 </div>
 
+<div id="impersonation-banner" class="impersonation-banner hidden">
+  <span>Viewing as <strong id="impersonation-target"></strong></span>
+  <button type="button" class="btn" id="return-to-admin-btn">Return to admin</button>
+</div>
+
 <!-- Main app -->
 <div id="app" class="app hidden">
   <aside class="sidebar">
@@ -226,6 +237,27 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   let token = localStorage.getItem('oc_portal_token');
   let currentUser = null;
   let gatewayConfig = null;
+  let impersonatedBy = null;
+
+  function updateImpersonationBanner() {
+    const banner = document.getElementById('impersonation-banner');
+    document.documentElement.style.setProperty('--banner-h', impersonatedBy ? '40px' : '0px');
+    banner.classList.toggle('hidden', !impersonatedBy);
+    if (impersonatedBy) {
+      document.getElementById('impersonation-target').textContent =
+        (currentUser ? currentUser.username : '') + ' (impersonated by ' + impersonatedBy.username + ')';
+    }
+  }
+
+  document.getElementById('return-to-admin-btn').addEventListener('click', async () => {
+    const returnToken = localStorage.getItem('oc_impersonator_token');
+    await api('POST', '/auth/logout').catch(() => {});
+    localStorage.removeItem('oc_impersonator_token');
+    localStorage.removeItem('oc_portal_token');
+    localStorage.removeItem('oc_admin_token');
+    if (returnToken) localStorage.setItem('oc_admin_token', returnToken);
+    window.location.replace('/admin');
+  });
 
   function esc(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -346,7 +378,9 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
 
     token = loginRes.token;
     localStorage.setItem('oc_portal_token', token);
+    localStorage.removeItem('oc_impersonator_token');
     currentUser = loginRes.user;
+    impersonatedBy = null;
 
     // Admins belong in the admin panel — share the token so they don't have to log in twice
     if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin')) {
@@ -366,6 +400,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     document.getElementById('sidebar-role').textContent = currentUser.role;
     document.getElementById('account-info').innerHTML =
       'Signed in as <strong>' + esc(currentUser.username) + '</strong> (' + esc(currentUser.role) + ')';
+    updateImpersonationBanner();
 
     // Fetch gateway config then mount the chat iframe
     const cfgRes = await api('GET', '/portal/config');
@@ -387,6 +422,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     gatewayConfig = null;
     localStorage.removeItem('oc_portal_token');
     localStorage.removeItem('oc_admin_token');
+    localStorage.removeItem('oc_impersonator_token');
     document.getElementById('chat-frame').src = 'about:blank';
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').classList.remove('hidden');
@@ -429,6 +465,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     const r = await api('GET', '/auth/me');
     if (!r.ok) { token = null; localStorage.removeItem('oc_portal_token'); return; }
     currentUser = r.data;
+    impersonatedBy = r.data.impersonatedBy || null;
     if (currentUser.role === 'admin' || currentUser.role === 'superadmin') {
       localStorage.setItem('oc_admin_token', token);
       window.location.replace('/admin');
