@@ -694,10 +694,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div id="task-subtasks-section" class="hidden" style="margin-bottom:1.125rem">
         <label style="display:block;margin-bottom:0.5rem;font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted)">Subtasks</label>
         <div id="subtasks-list" style="min-height:1rem;margin-bottom:0.5rem"></div>
-        <form id="add-subtask-form" style="display:flex;gap:0.4rem;margin-top:0.4rem">
+        <div id="add-subtask-form" style="display:flex;gap:0.4rem;margin-top:0.4rem">
           <input id="new-subtask-title" placeholder="Add a subtask…" style="flex:1;padding:0.45rem 0.75rem;font-size:13px">
-          <button type="submit" class="btn btn-ghost btn-sm">Add</button>
-        </form>
+          <button type="button" class="btn btn-ghost btn-sm" id="add-subtask-btn">Add</button>
+        </div>
       </div>
       <div class="modal-actions" style="justify-content:flex-start">
         <button type="button" class="btn btn-danger btn-sm hidden" id="task-modal-delete">Delete</button>
@@ -1842,8 +1842,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     renderProjectsPage();
   }
 
-  document.getElementById('add-subtask-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
+  async function submitNewSubtask() {
     const inp = document.getElementById('new-subtask-title');
     const title = inp.value.trim();
     if (!title || !editingTaskId) return;
@@ -1854,6 +1853,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       renderSubtasks(editingTaskId);
       renderProjectsPage();
     }
+  }
+  document.getElementById('add-subtask-btn').addEventListener('click', submitNewSubtask);
+  document.getElementById('new-subtask-title').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); submitNewSubtask(); }
   });
 
   function renderTaskModalTags() {
