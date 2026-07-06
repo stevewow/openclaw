@@ -253,6 +253,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .task-card-project-badge { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; margin-bottom: 0.35rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .task-card-meta { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.2rem; }
   .task-due { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; }
+  .task-recurrence { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; text-transform: capitalize; }
   .task-due-overdue { color: #ef4444 !important; font-weight: 700; }
   .task-assignee { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .task-subtask-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; }
@@ -285,6 +286,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .subtask-done { text-decoration: line-through; color: var(--text-muted); }
   .subtask-delete { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; line-height: 1; padding: 0 0.2rem; transition: color 0.1s; }
   .subtask-delete:hover { color: var(--danger); }
+  .proj-status-tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; flex-shrink: 0; }
+  .projects-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+  .project-list-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
+  .project-list-card-bar { height: 5px; flex-shrink: 0; }
+  .project-list-card-body { padding: 1.125rem 1.25rem; flex: 1; }
+  .project-list-card-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .project-list-card-tasks { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+  .proj-status-badge-planning { background: #eef2ff; color: #4338ca; }
+  .proj-status-badge-active { background: #dbeafe; color: #1d4ed8; }
+  .proj-status-badge-completed { background: #dcfce7; color: #166534; }
+  .proj-status-badge-archived { background: var(--surface2); color: var(--text-muted); }
   @media (max-width: 640px) {
     .board-column { flex: 0 0 240px; }
     .cal-day { min-height: 64px; padding: 0.25rem; }
@@ -466,6 +478,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <div class="view-toggle">
             <button class="view-btn active" id="view-board-btn">⊞ Board</button>
             <button class="view-btn" id="view-cal-btn">📅 Calendar</button>
+            <button class="view-btn" id="view-projects-btn">📁 Projects</button>
           </div>
           <div class="proj-filter-wrap">
             <select class="project-select" id="project-filter-sel">
@@ -530,6 +543,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
             </div>
             <div class="cal-days" id="cal-days"></div>
           </div>
+        </div>
+
+        <div id="projects-list" class="hidden">
+          <div class="proj-status-tabs mb-4" id="proj-status-tabs">
+            <button class="view-btn active" data-status="all">All</button>
+            <button class="view-btn" data-status="planning">Planning</button>
+            <button class="view-btn" data-status="active">Active</button>
+            <button class="view-btn" data-status="completed">Completed</button>
+            <button class="view-btn" data-status="archived">Archived</button>
+          </div>
+          <div id="projects-list-grid" class="projects-list-grid"></div>
         </div>
       </div>
 
@@ -684,6 +708,16 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <label>Assigned To</label>
           <input id="task-assigned" placeholder="Username…">
         </div>
+      </div>
+      <div class="form-group" style="margin-top:1.125rem">
+        <label>Repeat</label>
+        <select id="task-recurrence">
+          <option value="">Does not repeat</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+        </select>
       </div>
       <div class="form-group" style="margin-top:1.125rem">
         <label>Tags</label>
@@ -1588,8 +1622,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   // ── Projects ──────────────────────────────────────────────────────────────
   let allProjects = [];
   let allTasks = [];
-  let projectsView = 'board'; // 'board' | 'calendar'
+  let projectsView = 'board'; // 'board' | 'calendar' | 'list'
   let projectsFilter = ''; // project id or ''
+  let projectsStatusFilter = 'all'; // 'all' | ProjectStatus
   let calYear = new Date().getFullYear();
   let calMonth = new Date().getMonth(); // 0-11
   let taskModalTags = [];
@@ -1619,31 +1654,75 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   function renderProjectsPage() {
-    if (projectsView === 'board') {
-      document.getElementById('projects-board').classList.remove('hidden');
-      document.getElementById('projects-calendar').classList.add('hidden');
-      renderBoard();
-    } else {
-      document.getElementById('projects-board').classList.add('hidden');
-      document.getElementById('projects-calendar').classList.remove('hidden');
-      renderCalendar();
-    }
+    document.getElementById('projects-board').classList.toggle('hidden', projectsView !== 'board');
+    document.getElementById('projects-calendar').classList.toggle('hidden', projectsView !== 'calendar');
+    document.getElementById('projects-list').classList.toggle('hidden', projectsView !== 'list');
+    if (projectsView === 'board') renderBoard();
+    else if (projectsView === 'calendar') renderCalendar();
+    else renderProjectsList();
     const editBtn = document.getElementById('edit-project-btn');
     editBtn.disabled = !projectsFilter;
   }
 
   // View toggle
-  document.getElementById('view-board-btn').addEventListener('click', function() {
-    projectsView = 'board';
-    document.getElementById('view-board-btn').classList.add('active');
-    document.getElementById('view-cal-btn').classList.remove('active');
+  function switchProjectsView(view) {
+    projectsView = view;
+    document.getElementById('view-board-btn').classList.toggle('active', view === 'board');
+    document.getElementById('view-cal-btn').classList.toggle('active', view === 'calendar');
+    document.getElementById('view-projects-btn').classList.toggle('active', view === 'list');
     renderProjectsPage();
-  });
-  document.getElementById('view-cal-btn').addEventListener('click', function() {
-    projectsView = 'calendar';
-    document.getElementById('view-cal-btn').classList.add('active');
-    document.getElementById('view-board-btn').classList.remove('active');
-    renderProjectsPage();
+  }
+  document.getElementById('view-board-btn').addEventListener('click', function() { switchProjectsView('board'); });
+  document.getElementById('view-cal-btn').addEventListener('click', function() { switchProjectsView('calendar'); });
+  document.getElementById('view-projects-btn').addEventListener('click', function() { switchProjectsView('list'); });
+
+  function renderProjectsList() {
+    const grid = document.getElementById('projects-list-grid');
+    const filtered = allProjects.filter(function(p) {
+      return projectsStatusFilter === 'all' || p.status === projectsStatusFilter;
+    });
+    if (!filtered.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No projects here yet.</div>';
+      return;
+    }
+    grid.innerHTML = filtered.map(function(p) {
+      const tasksForProj = allTasks.filter(function(t) { return t.projectId === p.id && !t.parentTaskId; });
+      const doneCount = tasksForProj.filter(function(t) { return t.status === 'done'; }).length;
+      return '<div class="project-list-card">' +
+        '<div class="project-list-card-bar" style="background:' + esc(p.color) + '"></div>' +
+        '<div class="project-list-card-body">' +
+          '<div class="project-list-card-title-row">' +
+            '<div class="resource-title-text">' + esc(p.title) + '</div>' +
+            '<span class="badge proj-status-badge-' + esc(p.status) + '">' + esc(p.status) + '</span>' +
+          '</div>' +
+          (p.description ? '<div class="resource-desc mb-4">' + esc(p.description) + '</div>' : '') +
+          '<div class="project-list-card-tasks">' + doneCount + ' / ' + tasksForProj.length + ' tasks done</div>' +
+          (p.tags && p.tags.length ? '<div class="resource-tags">' + p.tags.map(function(t) { return '<span class="resource-tag">' + esc(t) + '</span>'; }).join('') + '</div>' : '') +
+        '</div>' +
+        '<div class="resource-card-footer">' +
+          '<button type="button" class="btn btn-ghost btn-sm proj-list-view-btn" data-id="' + esc(p.id) + '">View Tasks</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm proj-list-edit-btn" data-id="' + esc(p.id) + '">Edit</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    grid.querySelectorAll('.proj-list-view-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        projectsFilter = this.dataset.id;
+        document.getElementById('project-filter-sel').value = this.dataset.id;
+        switchProjectsView('board');
+      });
+    });
+    grid.querySelectorAll('.proj-list-edit-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { openEditProject(this.dataset.id); });
+    });
+  }
+
+  document.getElementById('proj-status-tabs').addEventListener('click', function(e) {
+    const btn = e.target.closest('button[data-status]');
+    if (!btn) return;
+    projectsStatusFilter = btn.dataset.status;
+    document.querySelectorAll('#proj-status-tabs button').forEach(function(b) { b.classList.toggle('active', b === btn); });
+    renderProjectsList();
   });
 
   // Project filter
@@ -1720,6 +1799,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       html += '<span class="task-due' + (overdue ? ' overdue' : '') + '">📅 ' + esc(formatDateShort(task.dueDate)) + '</span>';
     }
     if (task.assignedTo) html += '<span class="task-assignee">👤 ' + esc(task.assignedTo) + '</span>';
+    if (task.recurrence) html += '<span class="task-recurrence">🔁 ' + esc(task.recurrence) + '</span>';
     html += '</div>';
     if (task.tags && task.tags.length) {
       html += '<div class="task-tags">' + task.tags.map(function(t) { return '<span class="tag-chip">' + esc(t) + '</span>'; }).join('') + '</div>';
@@ -1794,6 +1874,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('task-priority').value = task.priority;
     document.getElementById('task-due').value = task.dueDate ? new Date(task.dueDate).toISOString().slice(0,10) : '';
     document.getElementById('task-assigned').value = task.assignedTo || '';
+    document.getElementById('task-recurrence').value = task.recurrence || '';
     populateTaskProjectSelect(task.projectId || '');
     renderTaskModalTags();
     document.getElementById('task-modal-delete').classList.remove('hidden');
@@ -1912,6 +1993,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       projectId: document.getElementById('task-project').value || null,
       dueDate: dueVal ? new Date(dueVal).getTime() : null,
       assignedTo: document.getElementById('task-assigned').value.trim() || null,
+      recurrence: document.getElementById('task-recurrence').value || null,
       tags: taskModalTags.slice(),
     };
     const r = editingTaskId

@@ -72,6 +72,7 @@ type TasksTable = {
   assigned_to: string | null;
   tags: string;
   position: number;
+  recurrence: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
@@ -209,6 +210,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       assigned_to TEXT,
       tags TEXT NOT NULL DEFAULT '[]',
       position INTEGER NOT NULL DEFAULT 0,
+      recurrence TEXT CHECK(recurrence IN ('daily','weekly','monthly','yearly')),
       created_by TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -216,6 +218,12 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS admin_tasks_project_id ON admin_tasks(project_id);
     CREATE INDEX IF NOT EXISTS admin_tasks_due_date ON admin_tasks(due_date);
   `);
+  const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
+  if (!taskColumns.some((c) => c.name === "recurrence")) {
+    db.exec(
+      "ALTER TABLE admin_tasks ADD COLUMN recurrence TEXT CHECK(recurrence IN ('daily','weekly','monthly','yearly'))",
+    );
+  }
 }
 
 export async function ensureSuperadminExists(): Promise<{ created: boolean; username: string }> {

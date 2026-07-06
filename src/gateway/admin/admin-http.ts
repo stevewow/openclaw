@@ -15,10 +15,12 @@ export function setPortalAuthResolver(fn: () => ResolvedGatewayAuth): void {
   _getResolvedAuth = fn;
 }
 import {
+  computeNextDueDate,
   createProject,
   createTask,
   deleteProject,
   deleteTask,
+  getTask,
   listProjects,
   listTasks,
   updateProject,
@@ -853,6 +855,7 @@ export async function handleAdminHttpRequest(
     }
     const validStatuses = ["todo", "in_progress", "review", "done"] as const;
     const validPriorities = ["low", "medium", "high", "urgent"] as const;
+    const validRecurrences = ["daily", "weekly", "monthly", "yearly"] as const;
     const task = await createTask({
       title,
       description: normalizeString(data.description),
@@ -869,6 +872,9 @@ export async function handleAdminHttpRequest(
       tags: Array.isArray(data.tags)
         ? (data.tags as string[]).filter((t) => typeof t === "string")
         : [],
+      recurrence: validRecurrences.includes(data.recurrence as (typeof validRecurrences)[number])
+        ? (data.recurrence as (typeof validRecurrences)[number])
+        : null,
       createdBy: sessionUser.id,
     });
     sendJson(res, 201, { task });
@@ -887,6 +893,7 @@ export async function handleAdminHttpRequest(
     const data = body.value as Record<string, unknown>;
     const validStatuses = ["todo", "in_progress", "review", "done"] as const;
     const validPriorities = ["low", "medium", "high", "urgent"] as const;
+    const validRecurrences = ["daily", "weekly", "monthly", "yearly"] as const;
     const params: UpdateTaskParams = {};
     const newTitle = normalizeString(data.title);
     if (newTitle) params.title = newTitle;
@@ -909,10 +916,33 @@ export async function handleAdminHttpRequest(
     if (data.assignedTo !== undefined) params.assignedTo = normalizeString(data.assignedTo);
     if (Array.isArray(data.tags))
       params.tags = (data.tags as string[]).filter((t) => typeof t === "string");
+    if (data.recurrence !== undefined) {
+      params.recurrence = validRecurrences.includes(
+        data.recurrence as (typeof validRecurrences)[number],
+      )
+        ? (data.recurrence as (typeof validRecurrences)[number])
+        : null;
+    }
+    const before = await getTask(id);
     const updated = await updateTask(id, params);
     if (!updated) {
       sendNotFound(res);
       return true;
+    }
+    if (updated.status === "done" && before?.status !== "done" && updated.recurrence) {
+      await createTask({
+        title: updated.title,
+        description: updated.description,
+        status: "todo",
+        priority: updated.priority,
+        projectId: updated.projectId,
+        parentTaskId: updated.parentTaskId,
+        dueDate: computeNextDueDate(updated.dueDate ?? Date.now(), updated.recurrence),
+        assignedTo: updated.assignedTo,
+        tags: updated.tags,
+        recurrence: updated.recurrence,
+        createdBy: updated.createdBy,
+      });
     }
     sendJson(res, 200, { task: updated });
     return true;

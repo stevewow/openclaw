@@ -4,6 +4,7 @@ import { getAdminDb } from "./user-store.js";
 export type ProjectStatus = "planning" | "active" | "completed" | "archived";
 export type TaskStatus = "todo" | "in_progress" | "review" | "done";
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
+export type TaskRecurrence = "daily" | "weekly" | "monthly" | "yearly";
 
 export type Project = {
   id: string;
@@ -29,6 +30,7 @@ export type Task = {
   assignedTo: string | null;
   tags: string[];
   position: number;
+  recurrence: TaskRecurrence | null;
   createdBy: string | null;
   createdAt: number;
   updatedAt: number;
@@ -56,6 +58,7 @@ export type CreateTaskParams = {
   assignedTo?: string | null;
   tags?: string[];
   position?: number;
+  recurrence?: TaskRecurrence | null;
   createdBy?: string | null;
 };
 
@@ -103,6 +106,7 @@ function rowToTask(row: {
   assigned_to: string | null;
   tags: string;
   position: number;
+  recurrence: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
@@ -125,10 +129,30 @@ function rowToTask(row: {
     assignedTo: row.assigned_to,
     tags,
     position: row.position,
+    recurrence: (row.recurrence as TaskRecurrence | null) ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+export function computeNextDueDate(fromMs: number, recurrence: TaskRecurrence): number {
+  const d = new Date(fromMs);
+  switch (recurrence) {
+    case "daily":
+      d.setDate(d.getDate() + 1);
+      break;
+    case "weekly":
+      d.setDate(d.getDate() + 7);
+      break;
+    case "monthly":
+      d.setMonth(d.getMonth() + 1);
+      break;
+    case "yearly":
+      d.setFullYear(d.getFullYear() + 1);
+      break;
+  }
+  return d.getTime();
 }
 
 // ── Projects ──
@@ -237,6 +261,7 @@ export async function createTask(params: CreateTaskParams): Promise<Task> {
       assigned_to: params.assignedTo ?? null,
       tags: JSON.stringify(params.tags ?? []),
       position: params.position ?? 0,
+      recurrence: params.recurrence ?? null,
       created_by: params.createdBy ?? null,
       created_at: now,
       updated_at: now,
@@ -258,6 +283,7 @@ export async function updateTask(id: string, params: UpdateTaskParams): Promise<
   if (params.assignedTo !== undefined) updates.assigned_to = params.assignedTo;
   if (params.tags !== undefined) updates.tags = JSON.stringify(params.tags);
   if (params.position !== undefined) updates.position = params.position;
+  if (params.recurrence !== undefined) updates.recurrence = params.recurrence;
   await db.updateTable("admin_tasks").set(updates).where("id", "=", id).execute();
   return getTask(id);
 }
