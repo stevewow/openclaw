@@ -355,13 +355,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="nav-section">Main</div>
       <a href="#dashboard" class="nav-link" data-page="dashboard"><span class="icon">⊞</span> Dashboard</a>
       <a href="#users" class="nav-link admin-only" data-page="users"><span class="icon">👥</span> Users</a>
-      <a href="#agents" class="nav-link" data-page="agents"><span class="icon">🤖</span> Agents</a>
+      <a href="#agents" class="nav-link superadmin-only" data-page="agents"><span class="icon">🤖</span> Agents</a>
       <a href="#chat" class="nav-link" data-page="chat"><span class="icon">💬</span> Chat</a>
       <div class="nav-section">Workspace</div>
       <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
       <div class="nav-section">Settings</div>
       <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
-      <a href="#system" class="nav-link admin-only" data-page="system"><span class="icon">⚙</span> System</a>
+      <a href="#system" class="nav-link superadmin-only" data-page="system"><span class="icon">⚙</span> System</a>
       <a href="#account" class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
     </nav>
     <div class="sidebar-footer">
@@ -382,8 +382,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div id="page-dashboard" class="page">
         <div class="stats-grid" id="stats-grid"></div>
         <div class="card">
-          <div class="card-title">Welcome to OpenClaw Admin</div>
-          <p class="text-muted">Manage your AI assistant, users, agents, and system settings from this dashboard.</p>
+          <div class="card-title" id="dashboard-greeting">Welcome back!</div>
+          <p class="text-muted" id="dashboard-quote" style="font-style:italic"></p>
+        </div>
+        <div class="card">
+          <div class="card-title">Your Tasks</div>
+          <div id="dashboard-task-summary"></div>
         </div>
       </div>
 
@@ -849,14 +853,14 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
   // ── Routing ──────────────────────────────────────────────────────────────
   const pages = {
-    dashboard: { el: 'page-dashboard', title: 'Dashboard', adminOnly: false },
-    users: { el: 'page-users', title: 'Users', adminOnly: true },
-    agents: { el: 'page-agents', title: 'Agents', adminOnly: false },
-    chat: { el: 'page-chat', title: 'Chat', adminOnly: false },
-    resources: { el: 'page-resources', title: 'Resource Library', adminOnly: true },
-    system: { el: 'page-system', title: 'System', adminOnly: true },
-    account: { el: 'page-account', title: 'My Account', adminOnly: false },
-    projects: { el: 'page-projects', title: 'Projects', adminOnly: false },
+    dashboard: { el: 'page-dashboard', title: 'Dashboard', adminOnly: false, superAdminOnly: false },
+    users: { el: 'page-users', title: 'Users', adminOnly: true, superAdminOnly: false },
+    agents: { el: 'page-agents', title: 'Agents', adminOnly: false, superAdminOnly: true },
+    chat: { el: 'page-chat', title: 'Chat', adminOnly: false, superAdminOnly: false },
+    resources: { el: 'page-resources', title: 'Resource Library', adminOnly: true, superAdminOnly: false },
+    system: { el: 'page-system', title: 'System', adminOnly: true, superAdminOnly: true },
+    account: { el: 'page-account', title: 'My Account', adminOnly: false, superAdminOnly: false },
+    projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
   };
 
   function mountAdminChatFrame() {
@@ -873,9 +877,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   function navigate(page) {
-    const def = pages[page];
-    if (!def) page = 'dashboard', def = pages.dashboard;
-    if (def.adminOnly && !isAdmin()) { page = 'dashboard'; }
+    let def = pages[page];
+    if (!def) { page = 'dashboard'; def = pages.dashboard; }
+    if ((def.adminOnly && !isAdmin()) || (def.superAdminOnly && !isSuperAdmin())) {
+      page = 'dashboard';
+      def = pages.dashboard;
+    }
     const isChatPage = page === 'chat';
     document.getElementById('main-topbar').classList.toggle('hidden', isChatPage);
     document.getElementById('main-content').classList.toggle('hidden', isChatPage);
@@ -977,6 +984,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.querySelectorAll('.admin-only').forEach(el => {
       el.classList.toggle('hidden', !isAdmin());
     });
+    // Hide superadmin-only nav (Agents, System) for admins and below
+    document.querySelectorAll('.superadmin-only').forEach(el => {
+      el.classList.toggle('hidden', !isSuperAdmin());
+    });
     // Fetch gateway config for the chat iframe
     const cfgRes = await api('GET', '/portal/config');
     if (cfgRes.ok) gatewayConfig = cfgRes.data;
@@ -986,23 +997,70 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   // ── Dashboard ────────────────────────────────────────────────────────────
+  const DASHBOARD_QUOTES = [
+    "Behind every great tour video is a coffee that went cold three takes ago.",
+    "We don't do boring walkthroughs — we do \\"wow, I need to see this in person\\" walkthroughs.",
+    "Shaky footage is a warning sign. So is a Monday with no coffee.",
+    "A good drone shot fixes a lot of problems. Sadly, not this many emails.",
+    "Somewhere right now, a client is watching our video on repeat. No pressure.",
+    "Lighting, framing, and one perfect take — the holy trinity of not re-shooting tomorrow.",
+    "Our videos travel further than we do. That's the job.",
+    "Nobody says \\"take twenty-three's the charm\\" and means it, but here we are.",
+    "Every great tour starts with someone yelling \\"one more take!\\"",
+    "We make places look incredible on camera. Mondays, we're still working on.",
+  ];
+
+  function pickDashboardQuote() {
+    return DASHBOARD_QUOTES[Math.floor(Math.random() * DASHBOARD_QUOTES.length)];
+  }
+
   async function loadDashboard() {
+    document.getElementById('dashboard-greeting').textContent = 'Welcome back, ' + (currentUser.username || '') + '!';
+    document.getElementById('dashboard-quote').textContent = '\\u201c' + pickDashboardQuote() + '\\u201d';
     const grid = document.getElementById('stats-grid');
+    const summaryEl = document.getElementById('dashboard-task-summary');
     grid.innerHTML = '';
-    if (isAdmin()) {
-      const [usersR, agentsR] = await Promise.all([api('GET', '/users'), api('GET', '/agents')]);
-      const stats = [
-        { label: 'Users', value: usersR.ok ? usersR.data.users.length : '—' },
-        { label: 'Agents', value: agentsR.ok ? agentsR.data.agents.length : '—' },
-        { label: 'Your Role', value: currentUser.role },
-      ];
-      grid.innerHTML = stats.map(s => \`
+    if (!isAdmin()) {
+      grid.innerHTML = \`<div class="stat-card"><div class="stat-label">Your Role</div><div class="stat-value">\${currentUser.role}</div></div>\`;
+      summaryEl.innerHTML = '';
+      return;
+    }
+    const calls = [api('GET', '/users'), api('GET', '/tasks')];
+    if (isSuperAdmin()) calls.push(api('GET', '/agents'));
+    const [usersR, tasksR, agentsR] = await Promise.all(calls);
+    const tasks = tasksR.ok ? (tasksR.data.tasks || []).filter(function(t) { return !t.parentTaskId; }) : [];
+    const openTasks = tasks.filter(function(t) { return t.status !== 'done'; });
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const overdue = openTasks.filter(function(t) { return t.dueDate && t.dueDate < now.getTime(); });
+
+    const stats = [
+      { label: 'Users', value: usersR.ok ? usersR.data.users.length : '—' },
+      { label: 'Open Tasks', value: tasksR.ok ? openTasks.length : '—' },
+      { label: 'Overdue', value: tasksR.ok ? overdue.length : '—' },
+    ];
+    if (isSuperAdmin()) stats.push({ label: 'Agents', value: agentsR && agentsR.ok ? agentsR.data.agents.length : '—' });
+    stats.push({ label: 'Your Role', value: currentUser.role });
+    grid.innerHTML = stats.map(s => \`
         <div class="stat-card">
           <div class="stat-label">\${s.label}</div>
           <div class="stat-value">\${s.value}</div>
         </div>\`).join('');
+
+    if (!tasksR.ok) {
+      summaryEl.innerHTML = '<p class="text-muted">Could not load tasks.</p>';
+    } else if (!openTasks.length) {
+      summaryEl.innerHTML = '<p class="text-muted">Nothing on your plate right now. 🎉</p>';
     } else {
-      grid.innerHTML = \`<div class="stat-card"><div class="stat-label">Your Role</div><div class="stat-value">\${currentUser.role}</div></div>\`;
+      const upcoming = openTasks.slice().sort(function(a, b) {
+        return (a.dueDate || Infinity) - (b.dueDate || Infinity);
+      }).slice(0, 5);
+      summaryEl.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Task</th><th>Status</th><th>Due</th></tr></thead><tbody>' +
+        upcoming.map(function(t) {
+          return '<tr><td>' + esc(t.title) + '</td><td>' + esc(t.status) + '</td><td>' + (t.dueDate ? esc(formatDateShort(t.dueDate)) : '—') + '</td></tr>';
+        }).join('') +
+        '</tbody></table></div>' +
+        '<p class="text-muted mt-4" style="font-size:0.8rem">' + openTasks.length + ' open, ' + overdue.length + ' overdue &mdash; ' +
+        '<a href="#projects" onclick="navigate(\\'projects\\');return false;">View all →</a></p>';
     }
   }
 

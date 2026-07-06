@@ -273,6 +273,7 @@ export async function handleAdminHttpRequest(
   }
 
   const isAdmin = sessionUser.role === "superadmin" || sessionUser.role === "admin";
+  const isSuperAdmin = sessionUser.role === "superadmin";
 
   // POST /api/admin/auth/logout
   if (subPath === "/auth/logout" && req.method === "POST") {
@@ -449,8 +450,12 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/agents — list agents from config
+  // GET /api/admin/agents — list agents from config (superadmin only)
   if (subPath === "/agents" && req.method === "GET") {
+    if (!isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const cfg = getRuntimeConfig();
     const { listGatewayAgentsBasic } = await import("../agent-list.js");
     const result = listGatewayAgentsBasic(cfg);
@@ -469,9 +474,13 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/agents/:id — agent detail (skills + recent sessions)
+  // GET /api/admin/agents/:id — agent detail (skills + recent sessions) (superadmin only)
   const agentDetailMatch = subPath.match(/^\/agents\/([^/]+)$/);
   if (agentDetailMatch && req.method === "GET") {
+    if (!isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const agentId = agentDetailMatch[1]!;
     const cfg = getRuntimeConfig();
     const { resolveAgentWorkspaceDir } = await import("../../agents/agent-scope-config.js");
@@ -530,9 +539,9 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/system — system info (admin only)
+  // GET /api/admin/system — system info (superadmin only)
   if (subPath === "/system" && req.method === "GET") {
-    if (!isAdmin) {
+    if (!isSuperAdmin) {
       sendForbidden(res);
       return true;
     }
