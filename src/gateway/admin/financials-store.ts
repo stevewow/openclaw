@@ -291,15 +291,26 @@ const REFRESH_LOG_KEY = "invoices";
 export async function refreshInvoices(opts: { manual: boolean }): Promise<{ count: number }> {
   const toolName = await resolveInvoicesToolName();
 
+  // The account holds ~75k invoices but only a few hundred are unpaid. Sorting by
+  // dateFullyPaid ascending places every unpaid invoice (dateFullyPaid = null)
+  // strictly before any paid one — verified live against the connected account —
+  // so we page through the unpaid block and stop the moment a page yields a paid
+  // invoice. A refresh then reads only the relevant few hundred rows, not all 75k,
+  // and stays complete regardless of which status values count as unpaid.
   const cached: CachedInvoice[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const result = await callTool(toolName, { page, pageSize: PAGE_SIZE });
+    const result = await callTool(toolName, { sort: "dateFullyPaid", page, pageSize: PAGE_SIZE });
     const { invoices, hasNextPage } = parsePagedInvoicesResult(result);
+    let sawPaid = false;
     for (const raw of invoices) {
+      if (parseDateMs(raw, ["dateFullyPaid", "date_fully_paid"]) !== null) {
+        sawPaid = true; // sorted null-first: this row and all after it are paid
+        break;
+      }
       const inv = extractInvoice(raw);
       if (inv) cached.push(inv);
     }
-    if (!hasNextPage || invoices.length === 0) break;
+    if (sawPaid || !hasNextPage || invoices.length === 0) break;
   }
 
   const db = getAdminDb();
