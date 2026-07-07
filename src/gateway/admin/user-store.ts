@@ -100,6 +100,34 @@ type SpiroRefreshLogTable = {
   manual: number;
 };
 
+type SpiroInvoicesTable = {
+  invoice_id: string;
+  reference_number: string | null;
+  status: string | null;
+  account_key: string;
+  account_name: string;
+  account_type: string;
+  amount_total: number;
+  date_created: number | null;
+  date_due: number;
+  order_count: number;
+  cached_at: number;
+};
+
+type SpiroInvoiceRefreshLogTable = {
+  id: string;
+  refreshed_at: number;
+  manual: number;
+};
+
+type FinancialNotesTable = {
+  id: string;
+  account_key: string;
+  body: string;
+  created_by: string | null;
+  created_at: number;
+};
+
 type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -109,6 +137,9 @@ type AdminDb = {
   admin_tasks: TasksTable;
   admin_spiro_orders: SpiroOrdersTable;
   admin_spiro_refresh_log: SpiroRefreshLogTable;
+  admin_spiro_invoices: SpiroInvoicesTable;
+  admin_spiro_invoice_refresh_log: SpiroInvoiceRefreshLogTable;
+  admin_financial_notes: FinancialNotesTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -257,6 +288,34 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       refreshed_at INTEGER NOT NULL,
       manual INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS admin_spiro_invoices (
+      invoice_id TEXT PRIMARY KEY,
+      reference_number TEXT,
+      status TEXT,
+      account_key TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      account_type TEXT NOT NULL DEFAULT 'unknown',
+      amount_total REAL NOT NULL DEFAULT 0,
+      date_created INTEGER,
+      date_due INTEGER NOT NULL,
+      order_count INTEGER NOT NULL DEFAULT 0,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_spiro_invoices_account ON admin_spiro_invoices(account_key);
+    CREATE INDEX IF NOT EXISTS admin_spiro_invoices_date_due ON admin_spiro_invoices(date_due);
+    CREATE TABLE IF NOT EXISTS admin_spiro_invoice_refresh_log (
+      id TEXT PRIMARY KEY,
+      refreshed_at INTEGER NOT NULL,
+      manual INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS admin_financial_notes (
+      id TEXT PRIMARY KEY,
+      account_key TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_by TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_financial_notes_account ON admin_financial_notes(account_key);
   `);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {

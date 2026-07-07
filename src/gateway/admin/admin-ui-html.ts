@@ -130,6 +130,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .badge-superadmin { background: var(--accent); color: #ffffff; }
   .badge-admin { background: #fee2e2; color: var(--accent); }
   .badge-user { background: #f4f4f5; color: #52525b; }
+  .bucket-1-44 { background: #64748b; color: #fff; }
+  .bucket-45-59 { background: #d97706; color: #fff; }
+  .bucket-60-89 { background: #ea580c; color: #fff; }
+  .bucket-90-119 { background: #dc2626; color: #fff; }
+  .bucket-120plus { background: #7f1d1d; color: #fff; }
+  .fin-note { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; background: var(--surface2); }
+  .fin-note-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; justify-content: space-between; gap: 0.5rem; }
+  .fin-row-click { cursor: pointer; }
+  .fin-row-click:hover { background: var(--surface2); }
 
   /* Modal */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
@@ -371,6 +380,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="nav-section">Workspace</div>
       <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
       <a href="#reports" class="nav-link admin-only" data-page="reports"><span class="icon">📊</span> Reports</a>
+      <div class="nav-section">Financials</div>
+      <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
       <div class="nav-section">Settings</div>
       <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
       <a href="#system" class="nav-link superadmin-only" data-page="system"><span class="icon">⚙</span> System</a>
@@ -610,6 +621,46 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               </thead>
               <tbody id="report-table-body">
                 <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Financials: Past Due Accounts page -->
+      <div id="page-financials" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div>
+              <div style="font-weight:700;font-size:1rem">Past Due Accounts</div>
+              <div class="text-muted" style="font-size:0.8rem;max-width:640px;margin-top:0.15rem">
+                Unpaid Spiro invoices past their due date, grouped by payee and staged against the collections policy.
+                Outstanding equals the invoice total; partial payments are not exposed by the Spiro API.
+              </div>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+              <span class="text-muted" id="fin-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-primary btn-sm" id="fin-refresh-btn">↻ Refresh now</button>
+            </div>
+          </div>
+        </div>
+        <div class="stats-grid" id="fin-stats-grid"></div>
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Type</th>
+                  <th>Balance</th>
+                  <th>Invoices</th>
+                  <th>Oldest Past Due</th>
+                  <th>Stage</th>
+                  <th>Next Action</th>
+                </tr>
+              </thead>
+              <tbody id="fin-table-body">
+                <tr><td colspan="7" class="empty-state">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -881,6 +932,32 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   </div>
 </div>
 
+<div id="fin-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:660px;overflow-y:auto;max-height:calc(100dvh - 48px)">
+    <div class="flex items-center" style="justify-content:space-between;gap:1rem">
+      <div class="modal-title" id="fin-modal-title" style="margin:0">Account</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="fin-modal-close">✕</button>
+    </div>
+    <div id="fin-modal-summary" style="font-size:0.85rem;margin:0.4rem 0 1rem"></div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" id="fin-followup-btn">+ Create follow-up task</button>
+    </div>
+    <div style="font-weight:700;margin-bottom:0.5rem">Past-due invoices</div>
+    <div class="table-wrap" style="margin-bottom:1.25rem">
+      <table>
+        <thead><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Due</th><th>Days</th></tr></thead>
+        <tbody id="fin-modal-invoices"></tbody>
+      </table>
+    </div>
+    <div style="font-weight:700;margin-bottom:0.5rem">Notes &amp; follow-ups</div>
+    <form id="fin-note-form" style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
+      <input type="text" id="fin-note-input" placeholder="Add a note…" autocomplete="off" style="flex:1" />
+      <button type="submit" class="btn btn-primary btn-sm">Add</button>
+    </form>
+    <div id="fin-notes-list"></div>
+  </div>
+</div>
+
 <script>
 (function() {
   'use strict';
@@ -952,6 +1029,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     account: { el: 'page-account', title: 'My Account', adminOnly: false, superAdminOnly: false },
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
     reports: { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
+    financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
   };
 
   function mountAdminChatFrame() {
@@ -991,6 +1069,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'chat') mountAdminChatFrame();
     if (page === 'projects') loadProjects();
     if (page === 'reports') loadReports();
+    if (page === 'financials') loadFinancials();
     location.hash = '#' + page;
     closeSidebar();
   }
@@ -1878,6 +1957,188 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
     await loadReportMarkets();
     await Promise.all([loadReportTable(), loadReportStatus()]);
+  });
+
+  // ── Financials: Past Due Accounts ──────────────────────────────────────────
+  let finBreakdown = null;
+  let finAccount = null; // currently open account detail
+
+  function money(n) {
+    return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function finDate(ms) {
+    return ms ? new Date(ms).toLocaleDateString() : '—';
+  }
+  function bucketClass(bucket) {
+    return 'badge bucket-' + String(bucket).replace('+', 'plus');
+  }
+  function bucketPriority(bucket) {
+    if (bucket === '120+') return 'urgent';
+    if (bucket === '90-119') return 'high';
+    if (bucket === '60-89') return 'high';
+    return 'medium';
+  }
+
+  async function loadFinancials() {
+    const r = await api('GET', '/financials/past-due');
+    const tbody = document.getElementById('fin-table-body');
+    const statsEl = document.getElementById('fin-stats-grid');
+    const refEl = document.getElementById('fin-refreshed-at');
+    if (!r.ok) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load past-due accounts.</td></tr>';
+      statsEl.innerHTML = '';
+      return;
+    }
+    finBreakdown = r.data.breakdown;
+    refEl.textContent = finBreakdown.refreshedAt
+      ? 'Last refreshed: ' + new Date(finBreakdown.refreshedAt).toLocaleString()
+      : 'Never refreshed — click Refresh now';
+
+    const bucketAmt = {};
+    (finBreakdown.byBucket || []).forEach(b => { bucketAmt[b.bucket] = b; });
+    const tile = (label, value) => \`<div class="stat-card"><div class="stat-label">\${label}</div><div class="stat-value">\${value}</div></div>\`;
+    statsEl.innerHTML =
+      tile('Total Past Due', money(finBreakdown.totalPastDue)) +
+      tile('Accounts', finBreakdown.accountCount) +
+      tile('Invoices', finBreakdown.invoiceCount) +
+      tile('90+ Days', money((bucketAmt['90-119'] ? bucketAmt['90-119'].amount : 0) + (bucketAmt['120+'] ? bucketAmt['120+'].amount : 0)));
+
+    renderFinTable();
+  }
+
+  function renderFinTable() {
+    const tbody = document.getElementById('fin-table-body');
+    const accounts = (finBreakdown && finBreakdown.accounts) || [];
+    if (accounts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No past-due accounts. If this looks wrong, click Refresh now to pull the latest invoices from Spiro.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = accounts.map(a => \`
+      <tr class="fin-row-click" data-account="\${esc(a.accountKey)}">
+        <td>\${esc(a.accountName)}</td>
+        <td class="text-muted" style="text-transform:capitalize">\${esc(a.accountType)}</td>
+        <td>\${money(a.balance)}</td>
+        <td>\${a.invoiceCount}</td>
+        <td>\${a.oldestDaysPastDue} days</td>
+        <td><span class="\${bucketClass(a.bucket)}">\${esc(a.bucket)}</span></td>
+        <td>\${esc(a.action.label)}</td>
+      </tr>\`).join('');
+    tbody.querySelectorAll('.fin-row-click').forEach(row => {
+      row.addEventListener('click', () => openFinAccount(row.dataset.account));
+    });
+  }
+
+  async function openFinAccount(accountKey) {
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === accountKey);
+    const r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey));
+    if (!r.ok) { alert('Failed to load account.'); return; }
+    finAccount = Object.assign({}, r.data, { bucket: acct && acct.bucket, action: acct && acct.action });
+    document.getElementById('fin-modal-title').textContent = r.data.accountName;
+    const balance = (r.data.invoices || []).reduce((s, i) => s + i.amount, 0);
+    const plan = r.data.paymentPlan || {};
+    const action = acct ? acct.action : null;
+    document.getElementById('fin-modal-summary').innerHTML =
+      '<div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:0.5rem">' +
+        '<span><strong>' + money(balance) + '</strong> outstanding</span>' +
+        (acct ? '<span class="' + bucketClass(acct.bucket) + '">' + esc(acct.bucket) + ' days</span>' : '') +
+      '</div>' +
+      (action ? '<div class="text-muted"><strong>' + esc(action.label) + ':</strong> ' + esc(action.detail) + '</div>' : '') +
+      '<div class="text-muted" style="margin-top:0.4rem">Payment plan per policy: ' + money(plan.requiredDown) +
+        ' down (10%), up to ' + plan.maxMonths + ' months.</div>';
+
+    const invBody = document.getElementById('fin-modal-invoices');
+    invBody.innerHTML = (r.data.invoices || []).map(i => \`
+      <tr>
+        <td>\${esc(i.referenceNumber || i.invoiceId)}</td>
+        <td class="text-muted">\${esc(i.status || '—')}</td>
+        <td>\${money(i.amount)}</td>
+        <td>\${finDate(i.dateDue)}</td>
+        <td>\${i.daysPastDue}</td>
+      </tr>\`).join('') || '<tr><td colspan="5" class="empty-state">No past-due invoices.</td></tr>';
+
+    renderFinNotes(r.data.notes || []);
+    const followBtn = document.getElementById('fin-followup-btn');
+    followBtn.disabled = false;
+    followBtn.textContent = '+ Create follow-up task';
+    document.getElementById('fin-modal').classList.remove('hidden');
+  }
+
+  function renderFinNotes(notes) {
+    const el = document.getElementById('fin-notes-list');
+    if (!notes.length) { el.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No notes yet.</div>'; return; }
+    el.innerHTML = notes.map(n => \`
+      <div class="fin-note">
+        <div>\${esc(n.body)}</div>
+        <div class="fin-note-meta">
+          <span>\${new Date(n.createdAt).toLocaleString()}</span>
+          <span class="fin-note-del" data-id="\${esc(n.id)}" style="cursor:pointer;color:var(--accent)">Delete</span>
+        </div>
+      </div>\`).join('');
+    el.querySelectorAll('.fin-note-del').forEach(x => {
+      x.addEventListener('click', async () => {
+        if (!confirm('Delete this note?')) return;
+        const rr = await api('DELETE', '/financials/notes/' + encodeURIComponent(x.dataset.id));
+        if (rr.ok && finAccount) {
+          const nr = await api('GET', '/financials/notes?accountKey=' + encodeURIComponent(finAccount.accountKey));
+          if (nr.ok) renderFinNotes(nr.data.notes || []);
+        }
+      });
+    });
+  }
+
+  function closeFinModal() {
+    document.getElementById('fin-modal').classList.add('hidden');
+    finAccount = null;
+  }
+  document.getElementById('fin-modal-close').addEventListener('click', closeFinModal);
+  document.getElementById('fin-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('fin-modal')) closeFinModal();
+  });
+
+  document.getElementById('fin-note-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!finAccount) return;
+    const input = document.getElementById('fin-note-input');
+    const body = input.value.trim();
+    if (!body) return;
+    const r = await api('POST', '/financials/notes', { accountKey: finAccount.accountKey, body });
+    if (!r.ok) { alert(r.data.error || 'Failed to add note.'); return; }
+    input.value = '';
+    const nr = await api('GET', '/financials/notes?accountKey=' + encodeURIComponent(finAccount.accountKey));
+    if (nr.ok) renderFinNotes(nr.data.notes || []);
+  });
+
+  document.getElementById('fin-followup-btn').addEventListener('click', async () => {
+    if (!finAccount) return;
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === finAccount.accountKey);
+    const balance = (finAccount.invoices || []).reduce((s, i) => s + i.amount, 0);
+    const bucket = acct ? acct.bucket : '';
+    const action = acct ? acct.action : { label: 'Follow up', detail: '' };
+    const title = 'Collections: ' + finAccount.accountName + ' — ' + action.label;
+    const desc = action.label + '. ' + action.detail + '\\n\\n' +
+      'Account: ' + finAccount.accountName + '\\n' +
+      'Outstanding: ' + money(balance) + '\\n' +
+      'Oldest past due: ' + (acct ? acct.oldestDaysPastDue + ' days (' + bucket + ')' : 'n/a') + '\\n' +
+      'Invoices past due: ' + (finAccount.invoices || []).length;
+    const btn = document.getElementById('fin-followup-btn');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    const r = await api('POST', '/financials/follow-up-task', {
+      title, description: desc, priority: bucketPriority(bucket), dueDate: Date.now(),
+    });
+    if (!r.ok) { btn.disabled = false; btn.textContent = '+ Create follow-up task'; alert(r.data.error || 'Failed to create task.'); return; }
+    btn.textContent = '✓ Added to Collections';
+  });
+
+  document.getElementById('fin-refresh-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('fin-refresh-btn');
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    const r = await api('POST', '/financials/past-due/refresh');
+    btn.disabled = false;
+    btn.innerHTML = '↻ Refresh now';
+    if (!r.ok) { alert(r.data.error || 'Refresh failed. Is Spiro connected? Run /spiro-auth if not.'); return; }
+    await loadFinancials();
   });
 
   // ── Projects ──────────────────────────────────────────────────────────────

@@ -15,6 +15,16 @@ export function setPortalAuthResolver(fn: () => ResolvedGatewayAuth): void {
   _getResolvedAuth = fn;
 }
 import {
+  addNote,
+  deleteNote,
+  ensureFinancialsScheduler,
+  getAccountInvoices,
+  getPastDueBreakdown,
+  listNotes,
+  paymentPlanTerms,
+  refreshInvoices,
+} from "./financials-store.js";
+import {
   computeNextDueDate,
   createProject,
   createTask,
@@ -210,12 +220,32 @@ async function readWorkspaceSkills(workspaceDir: string): Promise<WorkspaceSkill
   return skills;
 }
 
+const COLLECTIONS_PROJECT_TITLE = "Collections";
+
+// Follow-up tasks from the Past Due page land in a dedicated auto-managed
+// project so they surface in the existing board/calendar without manual setup.
+async function ensureCollectionsProject(createdBy: string | null): Promise<string> {
+  const projects = await listProjects();
+  const existing = projects.find((p) => p.title === COLLECTIONS_PROJECT_TITLE);
+  if (existing) return existing.id;
+  const project = await createProject({
+    title: COLLECTIONS_PROJECT_TITLE,
+    description: "Past-due account follow-ups generated from the Financials dashboard.",
+    status: "active",
+    color: "#c0000a",
+    tags: ["collections", "financials"],
+    createdBy,
+  });
+  return project.id;
+}
+
 let initialized = false;
 export async function ensureAdminInitialized(): Promise<void> {
   if (initialized) return;
   initialized = true;
   await ensureSuperadminExists();
   ensureSpiroReportScheduler();
+  ensureFinancialsScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -1077,6 +1107,137 @@ export async function handleAdminHttpRequest(
       return true;
     }
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/financials/past-due — grouped past-due breakdown (admin only)
+  if (subPath === "/financials/past-due" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const breakdown = await getPastDueBreakdown();
+    sendJson(res, 200, { breakdown });
+    return true;
+  }
+
+  // POST /api/admin/financials/past-due/refresh — manual invoice refresh (admin only)
+  if (subPath === "/financials/past-due/refresh" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    try {
+      const { count } = await refreshInvoices({ manual: true });
+      sendJson(res, 200, { ok: true, count });
+    } catch (err) {
+      sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+
+  // GET /api/admin/financials/accounts/:accountKey — invoices + notes for an account (admin only)
+  const acctMatch = subPath.match(/^\/financials\/accounts\/([^/]+)$/);
+  if (acctMatch && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const accountKey = decodeURIComponent(acctMatch[1]!);
+    const { accountName, invoices } = await getAccountInvoices(accountKey);
+    const notes = await listNotes(accountKey);
+    const balance = invoices.reduce((s, i) => s + i.amount, 0);
+    sendJson(res, 200, {
+      accountKey,
+      accountName,
+      invoices,
+      notes,
+      paymentPlan: paymentPlanTerms(balance),
+    });
+    return true;
+  }
+
+  // GET/POST /api/admin/financials/notes — list (by ?accountKey) or create (admin only)
+  if (subPath === "/financials/notes" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const accountKey = normalizeString(url.searchParams.get("accountKey"));
+    if (!accountKey) {
+      sendBadRequest(res, "accountKey required");
+      return true;
+    }
+    const notes = await listNotes(accountKey);
+    sendJson(res, 200, { notes });
+    return true;
+  }
+  if (subPath === "/financials/notes" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const accountKey = normalizeString(data.accountKey);
+    const noteBody = normalizeString(data.body);
+    if (!accountKey || !noteBody) {
+      sendBadRequest(res, "accountKey and body required");
+      return true;
+    }
+    const note = await addNote({ accountKey, body: noteBody, createdBy: sessionUser.id });
+    sendJson(res, 201, { note });
+    return true;
+  }
+
+  // DELETE /api/admin/financials/notes/:id (admin only)
+  const noteDeleteMatch = subPath.match(/^\/financials\/notes\/([^/]+)$/);
+  if (noteDeleteMatch && req.method === "DELETE") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    await deleteNote(noteDeleteMatch[1]!);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // POST /api/admin/financials/follow-up-task — create a task in the Collections project (admin only)
+  if (subPath === "/financials/follow-up-task" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const title = normalizeString(data.title);
+    if (!title) {
+      sendBadRequest(res, "title required");
+      return true;
+    }
+    const validPriorities = ["low", "medium", "high", "urgent"] as const;
+    const projectId = await ensureCollectionsProject(sessionUser.id);
+    const task = await createTask({
+      title,
+      description: normalizeString(data.description),
+      projectId,
+      priority: validPriorities.includes(data.priority as (typeof validPriorities)[number])
+        ? (data.priority as (typeof validPriorities)[number])
+        : "high",
+      dueDate: typeof data.dueDate === "number" ? data.dueDate : null,
+      assignedTo: normalizeString(data.assignedTo),
+      tags: ["collections"],
+      createdBy: sessionUser.id,
+    });
+    sendJson(res, 201, { task, projectId });
     return true;
   }
 
