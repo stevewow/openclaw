@@ -19,6 +19,11 @@ import {
   getConnection as getSpiroConnection,
 } from "../../../extensions/spiro/api.js";
 import {
+  ensureClevelandScheduler,
+  getClevelandInvestment,
+  refreshClevelandOrders,
+} from "./cleveland-store.js";
+import {
   addNote,
   deleteNote,
   ensureFinancialsScheduler,
@@ -250,6 +255,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   await ensureSuperadminExists();
   ensureSpiroReportScheduler();
   ensureFinancialsScheduler();
+  ensureClevelandScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -1137,6 +1143,32 @@ export async function handleAdminHttpRequest(
       return true;
     }
     sendJson(res, 200, { authorizeUrl: result.authorizeUrl });
+    return true;
+  }
+
+  // GET /api/admin/financials/cleveland — Cleveland investment P&L + projection (admin only)
+  if (subPath === "/financials/cleveland" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const investment = await getClevelandInvestment();
+    sendJson(res, 200, { investment });
+    return true;
+  }
+
+  // POST /api/admin/financials/cleveland/refresh — pull Cleveland order revenue (admin only)
+  if (subPath === "/financials/cleveland/refresh" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    try {
+      const { count } = await refreshClevelandOrders({ manual: true });
+      sendJson(res, 200, { ok: true, count });
+    } catch (err) {
+      sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 

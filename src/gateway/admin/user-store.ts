@@ -128,6 +128,20 @@ type FinancialNotesTable = {
   created_at: number;
 };
 
+type ClevelandOrdersTable = {
+  order_id: string;
+  photographer: string;
+  revenue: number;
+  delivered_at: number;
+  cached_at: number;
+};
+
+type ClevelandRefreshLogTable = {
+  id: string;
+  refreshed_at: number;
+  manual: number;
+};
+
 type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -140,6 +154,8 @@ type AdminDb = {
   admin_spiro_invoices: SpiroInvoicesTable;
   admin_spiro_invoice_refresh_log: SpiroInvoiceRefreshLogTable;
   admin_financial_notes: FinancialNotesTable;
+  admin_cleveland_orders: ClevelandOrdersTable;
+  admin_cleveland_refresh_log: ClevelandRefreshLogTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -316,6 +332,19 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_financial_notes_account ON admin_financial_notes(account_key);
+    CREATE TABLE IF NOT EXISTS admin_cleveland_orders (
+      order_id TEXT PRIMARY KEY,
+      photographer TEXT NOT NULL,
+      revenue REAL NOT NULL DEFAULT 0,
+      delivered_at INTEGER NOT NULL,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_cleveland_orders_delivered ON admin_cleveland_orders(delivered_at);
+    CREATE TABLE IF NOT EXISTS admin_cleveland_refresh_log (
+      id TEXT PRIMARY KEY,
+      refreshed_at INTEGER NOT NULL,
+      manual INTEGER NOT NULL DEFAULT 0
+    );
   `);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {

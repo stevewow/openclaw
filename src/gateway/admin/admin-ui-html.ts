@@ -98,6 +98,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); border-top: 3px solid var(--accent); }
   .stat-label { color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
   .stat-value { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em; color: var(--text); }
+  .cle-chart-wrap { position: relative; }
+  .cle-chart-wrap svg { display: block; width: 100%; height: auto; }
+  .cle-legend { display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text); }
+  .cle-legend .item { display: inline-flex; align-items: center; gap: 0.45rem; }
+  .cle-legend .swatch { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
+  .cle-tooltip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 0.5rem 0.65rem; font-size: 0.75rem; line-height: 1.55; white-space: nowrap; transform: translate(-50%, -112%); opacity: 0; transition: opacity 0.08s; z-index: 6; }
+  .cle-tt-date { font-weight: 700; margin-bottom: 0.2rem; }
+  .cle-tt-row { display: flex; align-items: center; gap: 0.4rem; }
+  .cle-tt-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; display: inline-block; }
 
   /* Forms */
   .form-group { margin-bottom: 1.125rem; }
@@ -382,6 +391,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <a href="#reports" class="nav-link admin-only" data-page="reports"><span class="icon">📊</span> Reports</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
+      <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
       <div class="nav-section">Settings</div>
       <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
       <a href="#system" class="nav-link superadmin-only" data-page="system"><span class="icon">⚙</span> System</a>
@@ -644,13 +654,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
             </div>
           </div>
         </div>
-        <div class="card hidden" id="fin-spiro-banner" style="margin-bottom:1rem;border-left:3px solid #d97706;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+        <div class="card hidden js-spiro-banner" style="margin-bottom:1rem;border-left:3px solid #d97706;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
           <span style="font-size:1.15rem">⚠️</span>
           <div style="flex:1;min-width:220px">
-            <div style="font-weight:600" id="fin-spiro-banner-title">Spiro session expired</div>
-            <div class="text-muted" style="font-size:0.8rem" id="fin-spiro-banner-msg">Showing the last cached snapshot. Reconnect to pull fresh invoices.</div>
+            <div style="font-weight:600" class="js-spiro-title">Spiro session expired</div>
+            <div class="text-muted js-spiro-msg" style="font-size:0.8rem">Showing the last cached snapshot. Reconnect to pull fresh invoices.</div>
           </div>
-          <button class="btn btn-primary btn-sm" id="fin-spiro-reconnect">Reconnect Spiro</button>
+          <button class="btn btn-primary btn-sm js-spiro-reconnect">Reconnect Spiro</button>
         </div>
         <div class="stats-grid" id="fin-stats-grid"></div>
         <div class="card" style="padding:0">
@@ -672,6 +682,38 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- Financials: Cleveland Investment page -->
+      <div id="page-cleveland" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div>
+              <div style="font-weight:700;font-size:1rem">Cleveland Investment</div>
+              <div class="text-muted" style="font-size:0.8rem;max-width:700px;margin-top:0.15rem">
+                Cumulative revenue (Spiro orders delivered by John Kickham &amp; Brandon Kralovic) vs cumulative
+                cost (payroll + 10% editing). Dashed segments project forward on the revenue trend to estimate
+                when weekly revenue covers weekly cost, and when total revenue repays total investment.
+              </div>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+              <span class="text-muted" id="cle-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-primary btn-sm" id="cle-refresh-btn">↻ Refresh now</button>
+            </div>
+          </div>
+        </div>
+        <div class="card hidden js-spiro-banner" style="margin-bottom:1rem;border-left:3px solid #d97706;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <span style="font-size:1.15rem">⚠️</span>
+          <div style="flex:1;min-width:220px">
+            <div style="font-weight:600" class="js-spiro-title">Spiro session expired</div>
+            <div class="text-muted js-spiro-msg" style="font-size:0.8rem">Showing the last cached snapshot. Reconnect to pull fresh data.</div>
+          </div>
+          <button class="btn btn-primary btn-sm js-spiro-reconnect">Reconnect Spiro</button>
+        </div>
+        <div class="stats-grid" id="cle-stats-grid"></div>
+        <div class="card">
+          <div id="cle-chart" class="cle-chart-wrap"><div class="empty-state">Loading…</div></div>
         </div>
       </div>
 
@@ -1038,6 +1080,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
     reports: { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
     financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
+    cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
   };
 
   function mountAdminChatFrame() {
@@ -1078,6 +1121,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'projects') loadProjects();
     if (page === 'reports') loadReports();
     if (page === 'financials') loadFinancials();
+    if (page === 'cleveland') loadCleveland();
     location.hash = '#' + page;
     closeSidebar();
   }
@@ -1987,23 +2031,22 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     return 'medium';
   }
 
-  // Reflect Spiro connection state in the banner. Returns whether connected.
+  // Reflect Spiro connection state in every Spiro banner on the page. Returns connected.
   async function updateSpiroBanner() {
-    const banner = document.getElementById('fin-spiro-banner');
-    if (!banner) return false;
+    const banners = document.querySelectorAll('.js-spiro-banner');
+    if (!banners.length) return false;
     const s = await api('GET', '/financials/spiro/status');
     const connected = !!(s.ok && s.data && s.data.connected);
     const everConnected = !!(s.ok && s.data && s.data.expiresAt);
-    if (connected) {
-      banner.classList.add('hidden');
-    } else {
-      document.getElementById('fin-spiro-banner-title').textContent =
+    banners.forEach(banner => {
+      if (connected) { banner.classList.add('hidden'); return; }
+      banner.querySelector('.js-spiro-title').textContent =
         everConnected ? 'Spiro session expired' : 'Spiro not connected';
-      document.getElementById('fin-spiro-banner-msg').textContent = everConnected
-        ? 'Showing the last cached snapshot. Reconnect to pull fresh invoices.'
-        : 'Connect Spiro to pull invoices into the past-due report.';
+      banner.querySelector('.js-spiro-msg').textContent = everConnected
+        ? 'Showing the last cached snapshot. Reconnect to pull fresh data.'
+        : 'Connect Spiro to pull data into this report.';
       banner.classList.remove('hidden');
-    }
+    });
     return connected;
   }
 
@@ -2175,8 +2218,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
   document.getElementById('fin-refresh-btn').addEventListener('click', refreshFinancials);
 
-  document.getElementById('fin-spiro-reconnect').addEventListener('click', async () => {
-    const btn = document.getElementById('fin-spiro-reconnect');
+  // Shared handler for any "Reconnect Spiro" button (Past Due + Cleveland pages).
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest && e.target.closest('.js-spiro-reconnect');
+    if (!btn) return;
     btn.disabled = true;
     btn.textContent = 'Opening…';
     const r = await api('POST', '/financials/spiro/connect');
@@ -2188,7 +2233,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     }
     window.open(r.data.authorizeUrl, '_blank', 'noopener');
     btn.textContent = 'Waiting for Spiro…';
-    // Poll until the OAuth callback lands, then auto-refresh the report.
+    // Poll until the OAuth callback lands, then auto-refresh the visible report.
     let waited = 0;
     const poll = setInterval(async () => {
       waited += 3;
@@ -2197,10 +2242,173 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         clearInterval(poll);
         btn.disabled = false;
         btn.textContent = 'Reconnect Spiro';
-        if (connected) await refreshFinancials();
+        if (connected) {
+          const fin = document.getElementById('page-financials');
+          const cle = document.getElementById('page-cleveland');
+          if (fin && !fin.classList.contains('hidden')) refreshFinancials();
+          else if (cle && !cle.classList.contains('hidden')) refreshCleveland();
+        }
       }
     }, 3000);
   });
+
+  // ── Financials: Cleveland Investment ───────────────────────────────────────
+  let clevelandData = null;
+  const CLE_REVENUE_COLOR = '#1baf7a';
+  const CLE_COST_COLOR = '#eb6834';
+
+  function cleShortMoney(v) {
+    const a = Math.abs(v);
+    if (a >= 1000) return '$' + (v / 1000).toFixed(a % 1000 < 50 ? 0 : 1) + 'k';
+    return '$' + Math.round(v);
+  }
+  function cleNiceCeil(v) {
+    if (v <= 0) return 1000;
+    const exp = Math.floor(Math.log10(v));
+    const f = v / Math.pow(10, exp);
+    const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+    return nf * Math.pow(10, exp);
+  }
+  function cleFmtDate(ms) {
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  async function loadCleveland() {
+    await updateSpiroBanner();
+    const r = await api('GET', '/financials/cleveland');
+    const chartEl = document.getElementById('cle-chart');
+    const statsEl = document.getElementById('cle-stats-grid');
+    const refEl = document.getElementById('cle-refreshed-at');
+    if (!r.ok) {
+      chartEl.innerHTML = '<div class="empty-state">Failed to load Cleveland investment.</div>';
+      statsEl.innerHTML = '';
+      return;
+    }
+    clevelandData = r.data.investment;
+    const s = clevelandData.summary;
+    refEl.textContent = clevelandData.refreshedAt
+      ? 'Last refreshed: ' + new Date(clevelandData.refreshedAt).toLocaleString()
+      : 'Never refreshed — click Refresh now';
+    const tile = (label, value, sub) =>
+      '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value">' + value + '</div>' +
+      (sub ? '<div class="text-muted" style="font-size:0.72rem;margin-top:0.3rem">' + sub + '</div>' : '') + '</div>';
+    statsEl.innerHTML =
+      tile('Total Revenue', money(s.totalRevenue), s.orderCount + ' delivered orders') +
+      tile('Total Cost', money(s.totalCost), 'payroll + 10% editing') +
+      tile('Net Position', (s.net < 0 ? '-' : '') + money(Math.abs(s.net)), s.net >= 0 ? 'in the black' : 'still to recoup') +
+      tile('Weekly Breakeven', s.weeklyBreakevenWeek ? cleFmtDate(s.weeklyBreakevenWeek) : 'beyond 3 yrs', 'weekly revenue ≥ weekly cost') +
+      tile('Total Breakeven', s.totalBreakevenWeek ? cleFmtDate(s.totalBreakevenWeek) : 'beyond 3 yrs', 'total revenue ≥ total investment');
+    renderClevelandChart(clevelandData);
+  }
+
+  function renderClevelandChart(inv) {
+    const host = document.getElementById('cle-chart');
+    const weeks = (inv && inv.weeks) || [];
+    if (weeks.length < 2) {
+      host.innerHTML = '<div class="empty-state">Not enough data yet. Connect Spiro and click Refresh now to pull order revenue.</div>';
+      return;
+    }
+    const W = 920, H = 380, mL = 62, mR = 96, mT = 18, mB = 44;
+    const plotW = W - mL - mR, plotH = H - mT - mB;
+    const x0 = weeks[0].weekStart, x1 = weeks[weeks.length - 1].weekStart;
+    let rawMax = 0;
+    weeks.forEach(w => { rawMax = Math.max(rawMax, w.cumulativeRevenue, w.cumulativeCost); });
+    const yMax = cleNiceCeil(rawMax);
+    const xOf = ms => mL + (x1 === x0 ? 0 : (ms - x0) / (x1 - x0)) * plotW;
+    const yOf = v => mT + plotH - (yMax ? v / yMax : 0) * plotH;
+
+    let bIdx = 0;
+    for (let i = 0; i < weeks.length; i++) if (!weeks[i].projected) bIdx = i;
+    const pathFor = (arr, key) => arr.map((w, i) => (i ? 'L' : 'M') + xOf(w.weekStart).toFixed(1) + ',' + yOf(w[key]).toFixed(1)).join(' ');
+    const actual = weeks.slice(0, bIdx + 1);
+    const proj = weeks.slice(bIdx);
+
+    let parts = [];
+    for (let i = 0; i <= 4; i++) {
+      const val = yMax * i / 4, y = yOf(val).toFixed(1);
+      parts.push('<line x1="' + mL + '" y1="' + y + '" x2="' + (mL + plotW) + '" y2="' + y + '" stroke="var(--border)" stroke-width="1"/>');
+      parts.push('<text x="' + (mL - 8) + '" y="' + (yOf(val) + 3).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + cleShortMoney(val) + '</text>');
+    }
+    const d0 = new Date(x0);
+    let mk = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1);
+    while (mk <= x1) {
+      if (mk >= x0) {
+        parts.push('<text x="' + xOf(mk).toFixed(1) + '" y="' + (H - mB + 18) + '" text-anchor="middle" font-size="10" fill="var(--text-muted)">' +
+          new Date(mk).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) + '</text>');
+      }
+      const nd = new Date(mk); mk = Date.UTC(nd.getUTCFullYear(), nd.getUTCMonth() + 1, 1);
+    }
+    const be = inv.summary.totalBreakevenWeek;
+    if (be && be >= x0 && be <= x1) {
+      const bx = xOf(be).toFixed(1);
+      const bw = weeks.find(w => w.weekStart === be);
+      const by = (bw ? yOf(bw.cumulativeRevenue) : mT).toFixed(1);
+      parts.push('<line x1="' + bx + '" y1="' + mT + '" x2="' + bx + '" y2="' + (mT + plotH) + '" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3 3"/>');
+      parts.push('<circle cx="' + bx + '" cy="' + by + '" r="4" fill="var(--surface)" stroke="' + CLE_REVENUE_COLOR + '" stroke-width="2"/>');
+      parts.push('<text x="' + bx + '" y="' + (mT - 5) + '" text-anchor="middle" font-size="10" font-weight="700" fill="var(--text)">Breakeven ' + cleFmtDate(be) + '</text>');
+    }
+    parts.push('<path d="' + pathFor(actual, 'cumulativeCost') + '" fill="none" stroke="' + CLE_COST_COLOR + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>');
+    parts.push('<path d="' + pathFor(proj, 'cumulativeCost') + '" fill="none" stroke="' + CLE_COST_COLOR + '" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>');
+    parts.push('<path d="' + pathFor(actual, 'cumulativeRevenue') + '" fill="none" stroke="' + CLE_REVENUE_COLOR + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>');
+    parts.push('<path d="' + pathFor(proj, 'cumulativeRevenue') + '" fill="none" stroke="' + CLE_REVENUE_COLOR + '" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>');
+    const lastRev = weeks[weeks.length - 1].cumulativeRevenue, lastCost = weeks[weeks.length - 1].cumulativeCost;
+    parts.push('<text x="' + (mL + plotW + 6) + '" y="' + (yOf(lastRev) + 3).toFixed(1) + '" font-size="11" font-weight="700" fill="' + CLE_REVENUE_COLOR + '">Revenue</text>');
+    parts.push('<text x="' + (mL + plotW + 6) + '" y="' + (yOf(lastCost) + 3).toFixed(1) + '" font-size="11" font-weight="700" fill="' + CLE_COST_COLOR + '">Cost</text>');
+    parts.push('<line id="cle-cross" x1="0" y1="' + mT + '" x2="0" y2="' + (mT + plotH) + '" stroke="var(--text-muted)" stroke-width="1" opacity="0"/>');
+    parts.push('<circle id="cle-dot-rev" r="4" fill="' + CLE_REVENUE_COLOR + '" opacity="0"/>');
+    parts.push('<circle id="cle-dot-cost" r="4" fill="' + CLE_COST_COLOR + '" opacity="0"/>');
+    parts.push('<rect id="cle-overlay" x="' + mL + '" y="' + mT + '" width="' + plotW + '" height="' + plotH + '" fill="transparent"/>');
+    const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cleveland cumulative revenue versus cost over time">' + parts.join('') + '</svg>';
+
+    const legend =
+      '<div class="cle-legend"><span class="item"><span class="swatch" style="background:' + CLE_REVENUE_COLOR + '"></span>Cumulative revenue</span>' +
+      '<span class="item"><span class="swatch" style="background:' + CLE_COST_COLOR + '"></span>Cumulative cost</span>' +
+      '<span class="item text-muted" style="font-size:0.75rem">Dashed = projected (linear revenue trend)</span></div>';
+
+    host.innerHTML = legend + svg + '<div class="cle-tooltip" id="cle-tooltip"></div>';
+
+    const svgEl = host.querySelector('svg');
+    const overlay = host.querySelector('#cle-overlay');
+    const cross = host.querySelector('#cle-cross');
+    const dotRev = host.querySelector('#cle-dot-rev');
+    const dotCost = host.querySelector('#cle-dot-cost');
+    const tip = host.querySelector('#cle-tooltip');
+    const xs = weeks.map(w => xOf(w.weekStart));
+    const showAt = (clientX) => {
+      const rect = svgEl.getBoundingClientRect();
+      if (!rect.width) return;
+      const sx = (clientX - rect.left) / rect.width * W;
+      let idx = 0, best = Infinity;
+      for (let i = 0; i < xs.length; i++) { const dd = Math.abs(xs[i] - sx); if (dd < best) { best = dd; idx = i; } }
+      const w = weeks[idx], cx = xOf(w.weekStart);
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('opacity', '1');
+      dotRev.setAttribute('cx', cx); dotRev.setAttribute('cy', yOf(w.cumulativeRevenue)); dotRev.setAttribute('opacity', '1');
+      dotCost.setAttribute('cx', cx); dotCost.setAttribute('cy', yOf(w.cumulativeCost)); dotCost.setAttribute('opacity', '1');
+      const net = w.cumulativeRevenue - w.cumulativeCost;
+      tip.innerHTML =
+        '<div class="cle-tt-date">' + cleFmtDate(w.weekStart) + (w.projected ? ' (projected)' : '') + '</div>' +
+        '<div class="cle-tt-row"><span class="cle-tt-swatch" style="background:' + CLE_REVENUE_COLOR + '"></span>Revenue ' + money(w.cumulativeRevenue) + '</div>' +
+        '<div class="cle-tt-row"><span class="cle-tt-swatch" style="background:' + CLE_COST_COLOR + '"></span>Cost ' + money(w.cumulativeCost) + '</div>' +
+        '<div class="cle-tt-row" style="margin-top:0.15rem;font-weight:700">Net ' + (net < 0 ? '-' : '') + money(Math.abs(net)) + '</div>';
+      tip.style.left = (cx / W * svgEl.clientWidth) + 'px';
+      tip.style.top = (yOf(Math.max(w.cumulativeRevenue, w.cumulativeCost)) / H * svgEl.clientHeight) + 'px';
+      tip.style.opacity = '1';
+    };
+    overlay.addEventListener('mousemove', e => showAt(e.clientX));
+    svgEl.addEventListener('mouseleave', () => {
+      cross.setAttribute('opacity', '0'); dotRev.setAttribute('opacity', '0'); dotCost.setAttribute('opacity', '0'); tip.style.opacity = '0';
+    });
+  }
+
+  async function refreshCleveland() {
+    const btn = document.getElementById('cle-refresh-btn');
+    btn.disabled = true; btn.textContent = 'Refreshing…';
+    const r = await api('POST', '/financials/cleveland/refresh');
+    btn.disabled = false; btn.innerHTML = '↻ Refresh now';
+    if (!r.ok) { await updateSpiroBanner(); alert((r.data && r.data.error) || 'Refresh failed. Reconnect Spiro and try again.'); return; }
+    await loadCleveland();
+  }
+  document.getElementById('cle-refresh-btn').addEventListener('click', refreshCleveland);
 
   // ── Projects ──────────────────────────────────────────────────────────────
   let allProjects = [];
