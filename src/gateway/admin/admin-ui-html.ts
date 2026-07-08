@@ -697,8 +697,16 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
                 when weekly revenue covers weekly cost, and when total revenue repays total investment.
               </div>
             </div>
-            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
               <span class="text-muted" id="cle-refreshed-at" style="font-size:0.8rem"></span>
+              <label class="text-muted" style="font-size:0.8rem;display:flex;align-items:center;gap:0.35rem">Trend
+                <select id="cle-window" style="font-size:0.8rem;padding:0.25rem 0.4rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
+                  <option value="4" selected>Last 4 weeks</option>
+                  <option value="6">Last 6 weeks</option>
+                  <option value="8">Last 8 weeks</option>
+                  <option value="all">All time</option>
+                </select>
+              </label>
               <button class="btn btn-primary btn-sm" id="cle-refresh-btn">↻ Refresh now</button>
             </div>
           </div>
@@ -2275,7 +2283,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
   async function loadCleveland() {
     await updateSpiroBanner();
-    const r = await api('GET', '/financials/cleveland');
+    const winSel = document.getElementById('cle-window');
+    const win = winSel ? winSel.value : '4';
+    const r = await api('GET', '/financials/cleveland?window=' + encodeURIComponent(win));
     const chartEl = document.getElementById('cle-chart');
     const statsEl = document.getElementById('cle-stats-grid');
     const refEl = document.getElementById('cle-refreshed-at');
@@ -2360,10 +2370,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     parts.push('<rect id="cle-overlay" x="' + mL + '" y="' + mT + '" width="' + plotW + '" height="' + plotH + '" fill="transparent"/>');
     const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cleveland cumulative revenue versus cost over time">' + parts.join('') + '</svg>';
 
+    const basis = inv.summary.trendWindowWeeks ? ('last ' + inv.summary.trendWindowWeeks + ' weeks') : 'all weeks';
     const legend =
       '<div class="cle-legend"><span class="item"><span class="swatch" style="background:' + CLE_REVENUE_COLOR + '"></span>Cumulative revenue</span>' +
       '<span class="item"><span class="swatch" style="background:' + CLE_COST_COLOR + '"></span>Cumulative cost</span>' +
-      '<span class="item text-muted" style="font-size:0.75rem">Dashed = projected (linear revenue trend)</span></div>';
+      '<span class="item text-muted" style="font-size:0.75rem">Dashed = projected (revenue trend of ' + basis + ')</span></div>';
 
     host.innerHTML = legend + svg + '<div class="cle-tooltip" id="cle-tooltip"></div>';
 
@@ -2409,6 +2420,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     await loadCleveland();
   }
   document.getElementById('cle-refresh-btn').addEventListener('click', refreshCleveland);
+  document.getElementById('cle-window').addEventListener('change', loadCleveland);
 
   // ── Projects ──────────────────────────────────────────────────────────────
   let allProjects = [];

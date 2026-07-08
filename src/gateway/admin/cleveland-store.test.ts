@@ -80,4 +80,48 @@ describe("computeInvestment", () => {
       inv.summary.weeklyBreakevenWeek!,
     );
   });
+
+  it("recent-window trend captures a late ramp that the all-weeks fit dilutes", () => {
+    const now = Date.UTC(2026, 8, 1); // 2026-09-01
+    const events: Array<{ deliveredAt: number; revenue: number }> = [];
+    // Long stagnant stretch: small weekly revenue from May through mid-July.
+    for (let d = Date.UTC(2026, 4, 1); d < Date.UTC(2026, 6, 20); d += WEEK_MS) {
+      events.push({ deliveredAt: d, revenue: 120 });
+    }
+    // Recent ramp: the last 4 weeks climb steeply.
+    [28, 21, 14, 7].forEach((back, i) =>
+      events.push({ deliveredAt: now - back * DAY_MS, revenue: 1500 + i * 400 }),
+    );
+
+    const win4 = computeInvestment({
+      revenueEvents: events,
+      refreshedAt: null,
+      orderCount: events.length,
+      now,
+      trendWindowWeeks: 4,
+    });
+    const all = computeInvestment({
+      revenueEvents: events,
+      refreshedAt: null,
+      orderCount: events.length,
+      now,
+      trendWindowWeeks: null,
+    });
+
+    expect(win4.summary.trendWindowWeeks).toBe(4);
+    expect(all.summary.trendWindowWeeks).toBeNull();
+    // The recent ramp reads as a much steeper trend than the diluted full-history fit.
+    expect(win4.summary.trendSlopePerWeek).toBeGreaterThan(all.summary.trendSlopePerWeek);
+    expect(win4.summary.totalBreakevenWeek).not.toBeNull();
+  });
+
+  it("defaults the trend window to 4 weeks", () => {
+    const inv = computeInvestment({
+      revenueEvents: [],
+      refreshedAt: null,
+      orderCount: 0,
+      now: NOW,
+    });
+    expect(inv.summary.trendWindowWeeks).toBe(4);
+  });
 });

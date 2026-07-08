@@ -19,6 +19,7 @@ import {
   getConnection as getSpiroConnection,
 } from "../../../extensions/spiro/api.js";
 import {
+  DEFAULT_TREND_WINDOW,
   ensureClevelandScheduler,
   getClevelandInvestment,
   refreshClevelandOrders,
@@ -1146,13 +1147,18 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/financials/cleveland — Cleveland investment P&L + projection (admin only)
+  // GET /api/admin/financials/cleveland — Cleveland investment P&L + projection (admin only).
+  // ?window=4|6|8|all controls how many recent weeks the revenue trend is fit on.
   if (subPath === "/financials/cleveland" && req.method === "GET") {
     if (!isAdmin) {
       sendForbidden(res);
       return true;
     }
-    const investment = await getClevelandInvestment();
+    const w = url.searchParams.get("window");
+    let trendWindow: number | null = DEFAULT_TREND_WINDOW;
+    if (w === "all") trendWindow = null;
+    else if (w && Number.isFinite(Number(w)) && Number(w) > 0) trendWindow = Number(w);
+    const investment = await getClevelandInvestment(Date.now(), trendWindow);
     sendJson(res, 200, { investment });
     return true;
   }

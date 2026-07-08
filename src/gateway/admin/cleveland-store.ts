@@ -57,6 +57,10 @@ const FETCH_FROM = "2026-03-01";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_PROJECTION_WEEKS = 156; // 3 years — projection horizon for breakeven search.
+// Fit the revenue trend on the most recent N complete weeks so an early stagnant
+// stretch doesn't dilute a recent ramp. null = fit the full history. Defaults to
+// the last 4 weeks — the window that reflects the current new-business push.
+export const DEFAULT_TREND_WINDOW = 4;
 
 // ── Date helpers (UTC, week anchored on Monday) ────────────────────────────
 function parseYmd(s: string): number {
@@ -92,6 +96,7 @@ export type ClevelandInvestment = {
     latestWeeklyRevenue: number;
     latestWeeklyCost: number;
     trendSlopePerWeek: number;
+    trendWindowWeeks: number | null; // weeks the trend was fit on (null = all)
     weeklyBreakevenWeek: number | null;
     totalBreakevenWeek: number | null;
     orderCount: number;
@@ -128,8 +133,11 @@ export function computeInvestment(params: {
   refreshedAt: number | null;
   orderCount: number;
   now: number;
+  trendWindowWeeks?: number | null;
 }): ClevelandInvestment {
   const { revenueEvents, refreshedAt, orderCount, now } = params;
+  const trendWindowWeeks =
+    params.trendWindowWeeks === undefined ? DEFAULT_TREND_WINDOW : params.trendWindowWeeks;
   const ongoingWeeklyWage = ONGOING_WAGES.reduce((s, w) => s + w.weekly, 0);
 
   // Actual revenue bucketed by delivered week.
@@ -157,11 +165,17 @@ export function computeInvestment(params: {
       : [currentWeek]),
   );
 
-  // Trend from complete actual weeks only (a partial current week would drag it down).
-  const fitPoints: Array<{ x: number; y: number }> = [];
+  // Trend from complete actual weeks only (a partial current week would drag it
+  // down). Fit on just the most recent `trendWindowWeeks` so a stagnant early
+  // stretch doesn't dilute a recent ramp; null fits the full history.
+  const completeWeeks: Array<{ x: number; y: number }> = [];
   for (let wk = firstWeek; wk + WEEK_MS <= now; wk += WEEK_MS) {
-    fitPoints.push({ x: (wk - firstWeek) / WEEK_MS, y: actualRevenueByWeek.get(wk) ?? 0 });
+    completeWeeks.push({ x: (wk - firstWeek) / WEEK_MS, y: actualRevenueByWeek.get(wk) ?? 0 });
   }
+  const fitPoints =
+    trendWindowWeeks && trendWindowWeeks > 0
+      ? completeWeeks.slice(-trendWindowWeeks)
+      : completeWeeks;
   const { slope, intercept } = linearFit(fitPoints);
 
   const ongoingWageForWeek = (wk: number): number =>
@@ -241,6 +255,7 @@ export function computeInvestment(params: {
       latestWeeklyRevenue: round2(latestWeeklyRevenue),
       latestWeeklyCost: round2(latestWeeklyCost),
       trendSlopePerWeek: round2(slope),
+      trendWindowWeeks: trendWindowWeeks ?? null,
       weeklyBreakevenWeek,
       totalBreakevenWeek,
       orderCount,
@@ -418,7 +433,10 @@ export async function refreshClevelandOrders(opts: {
   return { count: cached.length };
 }
 
-export async function getClevelandInvestment(now = Date.now()): Promise<ClevelandInvestment> {
+export async function getClevelandInvestment(
+  now = Date.now(),
+  trendWindowWeeks: number | null = DEFAULT_TREND_WINDOW,
+): Promise<ClevelandInvestment> {
   const db = getAdminDb();
   const rows = await db.selectFrom("admin_cleveland_orders").selectAll().execute();
   const log = await db
@@ -431,6 +449,7 @@ export async function getClevelandInvestment(now = Date.now()): Promise<Clevelan
     refreshedAt: log?.refreshed_at ?? null,
     orderCount: rows.length,
     now,
+    trendWindowWeeks,
   });
 }
 
