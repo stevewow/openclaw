@@ -644,6 +644,14 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
             </div>
           </div>
         </div>
+        <div class="card hidden" id="fin-spiro-banner" style="margin-bottom:1rem;border-left:3px solid #d97706;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <span style="font-size:1.15rem">⚠️</span>
+          <div style="flex:1;min-width:220px">
+            <div style="font-weight:600" id="fin-spiro-banner-title">Spiro session expired</div>
+            <div class="text-muted" style="font-size:0.8rem" id="fin-spiro-banner-msg">Showing the last cached snapshot. Reconnect to pull fresh invoices.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="fin-spiro-reconnect">Reconnect Spiro</button>
+        </div>
         <div class="stats-grid" id="fin-stats-grid"></div>
         <div class="card" style="padding:0">
           <div class="table-wrap">
@@ -1979,7 +1987,28 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     return 'medium';
   }
 
+  // Reflect Spiro connection state in the banner. Returns whether connected.
+  async function updateSpiroBanner() {
+    const banner = document.getElementById('fin-spiro-banner');
+    if (!banner) return false;
+    const s = await api('GET', '/financials/spiro/status');
+    const connected = !!(s.ok && s.data && s.data.connected);
+    const everConnected = !!(s.ok && s.data && s.data.expiresAt);
+    if (connected) {
+      banner.classList.add('hidden');
+    } else {
+      document.getElementById('fin-spiro-banner-title').textContent =
+        everConnected ? 'Spiro session expired' : 'Spiro not connected';
+      document.getElementById('fin-spiro-banner-msg').textContent = everConnected
+        ? 'Showing the last cached snapshot. Reconnect to pull fresh invoices.'
+        : 'Connect Spiro to pull invoices into the past-due report.';
+      banner.classList.remove('hidden');
+    }
+    return connected;
+  }
+
   async function loadFinancials() {
+    await updateSpiroBanner();
     const r = await api('GET', '/financials/past-due');
     const tbody = document.getElementById('fin-table-body');
     const statsEl = document.getElementById('fin-stats-grid');
@@ -2130,15 +2159,47 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     btn.textContent = '✓ Added to Collections';
   });
 
-  document.getElementById('fin-refresh-btn').addEventListener('click', async () => {
+  async function refreshFinancials() {
     const btn = document.getElementById('fin-refresh-btn');
     btn.disabled = true;
     btn.textContent = 'Refreshing…';
     const r = await api('POST', '/financials/past-due/refresh');
     btn.disabled = false;
     btn.innerHTML = '↻ Refresh now';
-    if (!r.ok) { alert(r.data.error || 'Refresh failed. Is Spiro connected? Run /spiro-auth if not.'); return; }
+    if (!r.ok) {
+      await updateSpiroBanner();
+      alert((r.data && r.data.error) || 'Refresh failed. Reconnect Spiro and try again.');
+      return;
+    }
     await loadFinancials();
+  }
+  document.getElementById('fin-refresh-btn').addEventListener('click', refreshFinancials);
+
+  document.getElementById('fin-spiro-reconnect').addEventListener('click', async () => {
+    const btn = document.getElementById('fin-spiro-reconnect');
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+    const r = await api('POST', '/financials/spiro/connect');
+    if (!r.ok || !r.data || !r.data.authorizeUrl) {
+      btn.disabled = false;
+      btn.textContent = 'Reconnect Spiro';
+      alert((r.data && r.data.error) || 'Could not start Spiro authentication.');
+      return;
+    }
+    window.open(r.data.authorizeUrl, '_blank', 'noopener');
+    btn.textContent = 'Waiting for Spiro…';
+    // Poll until the OAuth callback lands, then auto-refresh the report.
+    let waited = 0;
+    const poll = setInterval(async () => {
+      waited += 3;
+      const connected = await updateSpiroBanner();
+      if (connected || waited >= 180) {
+        clearInterval(poll);
+        btn.disabled = false;
+        btn.textContent = 'Reconnect Spiro';
+        if (connected) await refreshFinancials();
+      }
+    }, 3000);
   });
 
   // ── Projects ──────────────────────────────────────────────────────────────

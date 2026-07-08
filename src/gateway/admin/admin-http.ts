@@ -15,6 +15,10 @@ export function setPortalAuthResolver(fn: () => ResolvedGatewayAuth): void {
   _getResolvedAuth = fn;
 }
 import {
+  beginAuth as beginSpiroAuth,
+  getConnection as getSpiroConnection,
+} from "../../../extensions/spiro/api.js";
+import {
   addNote,
   deleteNote,
   ensureFinancialsScheduler,
@@ -1107,6 +1111,32 @@ export async function handleAdminHttpRequest(
       return true;
     }
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/financials/spiro/status — Spiro connection state (admin only)
+  if (subPath === "/financials/spiro/status" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    sendJson(res, 200, getSpiroConnection());
+    return true;
+  }
+
+  // POST /api/admin/financials/spiro/connect — begin Spiro OAuth, return the
+  // authorize URL for the browser to open (admin only)
+  if (subPath === "/financials/spiro/connect" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const result = await beginSpiroAuth();
+    if (!result.ok) {
+      sendJson(res, 502, { error: result.error });
+      return true;
+    }
+    sendJson(res, 200, { authorizeUrl: result.authorizeUrl });
     return true;
   }
 
