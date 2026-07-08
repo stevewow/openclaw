@@ -285,6 +285,7 @@ function parsePagedInvoicesResult(result: unknown): {
 
 const PAGE_SIZE = 200;
 const MAX_PAGES = 200; // 200 * 200 = 40,000 invoices ceiling — generous safety cap.
+const INSERT_CHUNK = 200; // rows per insert; keeps bound-parameter count well under SQLite's cap.
 const REFRESH_LOG_KEY = "invoices";
 
 // ── Refresh ────────────────────────────────────────────────────────────────
@@ -297,7 +298,12 @@ export async function refreshInvoices(opts: { manual: boolean }): Promise<{ coun
   // so we page through the unpaid block and stop the moment a page yields a paid
   // invoice. A refresh then reads only the relevant few hundred rows, not all 75k,
   // and stays complete regardless of which status values count as unpaid.
-  const cached: CachedInvoice[] = [];
+  // Key by invoiceId to dedupe. Sorting by dateFullyPaid puts every unpaid
+  // invoice (dateFullyPaid = null) ahead of any paid one, but the order *within*
+  // that null block is not stable across pages, so the same invoice can surface
+  // on more than one page. Deduping here both prevents a PRIMARY KEY collision
+  // on insert and stops an invoice's balance from being counted twice.
+  const cachedById = new Map<string, CachedInvoice>();
   for (let page = 1; page <= MAX_PAGES; page++) {
     const result = await callTool(toolName, { sort: "dateFullyPaid", page, pageSize: PAGE_SIZE });
     const { invoices, hasNextPage } = parsePagedInvoicesResult(result);
@@ -308,34 +314,39 @@ export async function refreshInvoices(opts: { manual: boolean }): Promise<{ coun
         break;
       }
       const inv = extractInvoice(raw);
-      if (inv) cached.push(inv);
+      if (inv) cachedById.set(inv.invoiceId, inv);
     }
     if (sawPaid || !hasNextPage || invoices.length === 0) break;
   }
+  const cached = [...cachedById.values()];
 
   const db = getAdminDb();
   const now = Date.now();
-  await db.deleteFrom("admin_spiro_invoices").execute();
-  if (cached.length > 0) {
-    await db
-      .insertInto("admin_spiro_invoices")
-      .values(
-        cached.map((inv) => ({
-          invoice_id: inv.invoiceId,
-          reference_number: inv.referenceNumber,
-          status: inv.status,
-          account_key: inv.accountKey,
-          account_name: inv.accountName,
-          account_type: inv.accountType,
-          amount_total: inv.amountTotal,
-          date_created: inv.dateCreated,
-          date_due: inv.dateDue,
-          order_count: inv.orderCount,
-          cached_at: now,
-        })),
-      )
-      .execute();
-  }
+  // Replace the snapshot atomically: the page reads straight from this table, so
+  // a delete that is not followed by a successful insert must never be visible.
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom("admin_spiro_invoices").execute();
+    for (let i = 0; i < cached.length; i += INSERT_CHUNK) {
+      await trx
+        .insertInto("admin_spiro_invoices")
+        .values(
+          cached.slice(i, i + INSERT_CHUNK).map((inv) => ({
+            invoice_id: inv.invoiceId,
+            reference_number: inv.referenceNumber,
+            status: inv.status,
+            account_key: inv.accountKey,
+            account_name: inv.accountName,
+            account_type: inv.accountType,
+            amount_total: inv.amountTotal,
+            date_created: inv.dateCreated,
+            date_due: inv.dateDue,
+            order_count: inv.orderCount,
+            cached_at: now,
+          })),
+        )
+        .execute();
+    }
+  });
 
   await db
     .insertInto("admin_spiro_invoice_refresh_log")
