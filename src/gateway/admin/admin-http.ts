@@ -1156,9 +1156,13 @@ export async function handleAdminHttpRequest(
     }
     const w = url.searchParams.get("window");
     let trendWindow: number | null = DEFAULT_TREND_WINDOW;
-    if (w === "all") trendWindow = null;
+    let trendWeighted = false;
+    if (w === "weighted") {
+      trendWeighted = true;
+      trendWindow = null;
+    } else if (w === "all") trendWindow = null;
     else if (w && Number.isFinite(Number(w)) && Number(w) > 0) trendWindow = Number(w);
-    const investment = await getClevelandInvestment(Date.now(), trendWindow);
+    const investment = await getClevelandInvestment(Date.now(), trendWindow, trendWeighted);
     sendJson(res, 200, { investment });
     return true;
   }

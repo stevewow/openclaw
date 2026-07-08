@@ -61,6 +61,10 @@ const MAX_PROJECTION_WEEKS = 156; // 3 years — projection horizon for breakeve
 // stretch doesn't dilute a recent ramp. null = fit the full history. Defaults to
 // the last 4 weeks — the window that reflects the current new-business push.
 export const DEFAULT_TREND_WINDOW = 4;
+// Recency-weighted mode fits all weeks but halves each week's weight every this
+// many weeks into the past — recent-led like a short window, but a single soft
+// week can't swing it the way a hard cutoff can.
+export const TREND_HALF_LIFE_WEEKS = 3;
 
 // ── Date helpers (UTC, week anchored on Monday) ────────────────────────────
 function parseYmd(s: string): number {
@@ -96,7 +100,8 @@ export type ClevelandInvestment = {
     latestWeeklyRevenue: number;
     latestWeeklyCost: number;
     trendSlopePerWeek: number;
-    trendWindowWeeks: number | null; // weeks the trend was fit on (null = all)
+    trendWindowWeeks: number | null; // weeks the trend was fit on (null = all/weighted)
+    trendWeighted: boolean; // true = recency-weighted fit over all weeks
     weeklyBreakevenWeek: number | null;
     totalBreakevenWeek: number | null;
     orderCount: number;
@@ -126,6 +131,31 @@ function linearFit(points: Array<{ x: number; y: number }>): { slope: number; in
   return { slope, intercept: (sy - slope * sx) / n };
 }
 
+// Weighted least squares: same normal equations as linearFit but each point
+// carries a weight. Used for the recency-weighted trend.
+function weightedLinearFit(points: Array<{ x: number; y: number; w: number }>): {
+  slope: number;
+  intercept: number;
+} {
+  let sw = 0;
+  let swx = 0;
+  let swy = 0;
+  let swxx = 0;
+  let swxy = 0;
+  for (const p of points) {
+    sw += p.w;
+    swx += p.w * p.x;
+    swy += p.w * p.y;
+    swxx += p.w * p.x * p.x;
+    swxy += p.w * p.x * p.y;
+  }
+  if (sw === 0) return { slope: 0, intercept: 0 };
+  const denom = sw * swxx - swx * swx;
+  if (denom === 0) return { slope: 0, intercept: swy / sw };
+  const slope = (sw * swxy - swx * swy) / denom;
+  return { slope, intercept: (swy - slope * swx) / sw };
+}
+
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export function computeInvestment(params: {
@@ -134,8 +164,10 @@ export function computeInvestment(params: {
   orderCount: number;
   now: number;
   trendWindowWeeks?: number | null;
+  trendWeighted?: boolean;
 }): ClevelandInvestment {
   const { revenueEvents, refreshedAt, orderCount, now } = params;
+  const trendWeighted = params.trendWeighted ?? false;
   const trendWindowWeeks =
     params.trendWindowWeeks === undefined ? DEFAULT_TREND_WINDOW : params.trendWindowWeeks;
   const ongoingWeeklyWage = ONGOING_WAGES.reduce((s, w) => s + w.weekly, 0);
@@ -172,11 +204,24 @@ export function computeInvestment(params: {
   for (let wk = firstWeek; wk + WEEK_MS <= now; wk += WEEK_MS) {
     completeWeeks.push({ x: (wk - firstWeek) / WEEK_MS, y: actualRevenueByWeek.get(wk) ?? 0 });
   }
-  const fitPoints =
-    trendWindowWeeks && trendWindowWeeks > 0
-      ? completeWeeks.slice(-trendWindowWeeks)
-      : completeWeeks;
-  const { slope, intercept } = linearFit(fitPoints);
+  let slope: number;
+  let intercept: number;
+  if (trendWeighted) {
+    // Halve each week's weight every TREND_HALF_LIFE_WEEKS into the past.
+    const last = completeWeeks.length - 1;
+    const weighted = completeWeeks.map((p, i) => ({
+      x: p.x,
+      y: p.y,
+      w: Math.pow(0.5, (last - i) / TREND_HALF_LIFE_WEEKS),
+    }));
+    ({ slope, intercept } = weightedLinearFit(weighted));
+  } else {
+    const fitPoints =
+      trendWindowWeeks && trendWindowWeeks > 0
+        ? completeWeeks.slice(-trendWindowWeeks)
+        : completeWeeks;
+    ({ slope, intercept } = linearFit(fitPoints));
+  }
 
   const ongoingWageForWeek = (wk: number): number =>
     ONGOING_WAGES.reduce((s, w) => s + (wk > (lastPaidWeek.get(w.payee) ?? -1) ? w.weekly : 0), 0);
@@ -255,7 +300,8 @@ export function computeInvestment(params: {
       latestWeeklyRevenue: round2(latestWeeklyRevenue),
       latestWeeklyCost: round2(latestWeeklyCost),
       trendSlopePerWeek: round2(slope),
-      trendWindowWeeks: trendWindowWeeks ?? null,
+      trendWindowWeeks: trendWeighted ? null : (trendWindowWeeks ?? null),
+      trendWeighted,
       weeklyBreakevenWeek,
       totalBreakevenWeek,
       orderCount,
@@ -436,6 +482,7 @@ export async function refreshClevelandOrders(opts: {
 export async function getClevelandInvestment(
   now = Date.now(),
   trendWindowWeeks: number | null = DEFAULT_TREND_WINDOW,
+  trendWeighted = false,
 ): Promise<ClevelandInvestment> {
   const db = getAdminDb();
   const rows = await db.selectFrom("admin_cleveland_orders").selectAll().execute();
@@ -450,6 +497,7 @@ export async function getClevelandInvestment(
     orderCount: rows.length,
     now,
     trendWindowWeeks,
+    trendWeighted,
   });
 }
 

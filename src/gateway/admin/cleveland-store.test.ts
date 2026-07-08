@@ -123,5 +123,35 @@ describe("computeInvestment", () => {
       now: NOW,
     });
     expect(inv.summary.trendWindowWeeks).toBe(4);
+    expect(inv.summary.trendWeighted).toBe(false);
+  });
+
+  it("recency-weighted trend sits between the all-weeks fit and a hard recent window", () => {
+    const now = Date.UTC(2026, 8, 1);
+    const events: Array<{ deliveredAt: number; revenue: number }> = [];
+    for (let d = Date.UTC(2026, 4, 1); d < Date.UTC(2026, 6, 20); d += WEEK_MS) {
+      events.push({ deliveredAt: d, revenue: 120 });
+    }
+    [28, 21, 14, 7].forEach((back, i) =>
+      events.push({ deliveredAt: now - back * DAY_MS, revenue: 1500 + i * 400 }),
+    );
+    const mk = (opts: { trendWindowWeeks?: number | null; trendWeighted?: boolean }) =>
+      computeInvestment({
+        revenueEvents: events,
+        refreshedAt: null,
+        orderCount: events.length,
+        now,
+        ...opts,
+      });
+    const weighted = mk({ trendWeighted: true });
+    const all = mk({ trendWindowWeeks: null });
+    const hard4 = mk({ trendWindowWeeks: 4 });
+
+    expect(weighted.summary.trendWeighted).toBe(true);
+    expect(weighted.summary.trendWindowWeeks).toBeNull();
+    // Recent-led: steeper than the diluted all-weeks fit...
+    expect(weighted.summary.trendSlopePerWeek).toBeGreaterThan(all.summary.trendSlopePerWeek);
+    // ...but smoother than the hard 4-week cutoff, since older weeks still count a little.
+    expect(weighted.summary.trendSlopePerWeek).toBeLessThan(hard4.summary.trendSlopePerWeek);
   });
 });
