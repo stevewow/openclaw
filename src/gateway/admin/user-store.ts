@@ -104,6 +104,7 @@ type SpiroOrdersTable = {
   id: string;
   month: string;
   client: string;
+  company: string | null;
   market: string | null;
   status: string;
   cached_at: number;
@@ -327,6 +328,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       id TEXT PRIMARY KEY,
       month TEXT NOT NULL,
       client TEXT NOT NULL,
+      company TEXT,
       market TEXT,
       status TEXT NOT NULL DEFAULT '',
       cached_at INTEGER NOT NULL
@@ -409,6 +411,12 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     if (!projectColumns.some((c) => c.name === col)) {
       db.exec(`ALTER TABLE admin_projects ADD COLUMN ${col} INTEGER`);
     }
+  }
+  const spiroOrderColumns = db.prepare("PRAGMA table_info(admin_spiro_orders)").all() as Array<{
+    name: string;
+  }>;
+  if (!spiroOrderColumns.some((c) => c.name === "company")) {
+    db.exec("ALTER TABLE admin_spiro_orders ADD COLUMN company TEXT");
   }
 }
 

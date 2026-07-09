@@ -150,8 +150,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .fin-row-click:hover { background: var(--surface2); }
 
   /* Modal */
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; overflow-y: auto; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); max-height: calc(100dvh - 2rem); overflow-y: auto; margin: auto; }
   .modal-title { font-weight: 700; font-size: 1.05rem; margin-bottom: 1.25rem; letter-spacing: -0.01em; }
   .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 
@@ -395,6 +395,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="nav-section">Workspace</div>
       <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
       <a href="#reports" class="nav-link admin-only" data-page="reports"><span class="icon">📊</span> Reports</a>
+      <a href="#rankings" class="nav-link admin-only" data-page="rankings"><span class="icon">🏆</span> Rankings</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
       <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
@@ -640,6 +641,54 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
                 <tr><td colspan="5" class="empty-state">Loading...</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rankings page -->
+      <div id="page-rankings" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label>From</label>
+              <select id="rank-from-sel"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>To</label>
+              <select id="rank-to-sel"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Market</label>
+              <select id="rank-market-sel"><option value="">All markets</option></select>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+              <span class="text-muted" id="rank-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-primary btn-sm" id="rank-refresh-btn">↻ Refresh now</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;align-items:start">
+          <div class="card" style="padding:0">
+            <div style="padding:0.875rem 1.25rem;font-weight:700;border-bottom:1px solid var(--border)">🧑‍💼 Agent Ranking</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>#</th><th>Agent</th><th>Orders</th><th>Cancellations</th><th>Reschedules</th><th>% Canc./Resch.</th></tr>
+                </thead>
+                <tbody id="rank-agents-body"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card" style="padding:0">
+            <div style="padding:0.875rem 1.25rem;font-weight:700;border-bottom:1px solid var(--border)">🏢 Company Ranking</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>#</th><th>Company</th><th>Orders</th><th>Cancellations</th><th>Reschedules</th><th>% Canc./Resch.</th></tr>
+                </thead>
+                <tbody id="rank-companies-body"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -1121,6 +1170,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     account: { el: 'page-account', title: 'My Account', adminOnly: false, superAdminOnly: false },
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
     reports: { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
+    rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: true, superAdminOnly: false },
     financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
     cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
   };
@@ -1162,6 +1212,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'chat') mountAdminChatFrame();
     if (page === 'projects') loadProjects();
     if (page === 'reports') loadReports();
+    if (page === 'rankings') loadRankings();
     if (page === 'financials') loadFinancials();
     if (page === 'cleveland') loadCleveland();
     location.hash = '#' + page;
@@ -2081,6 +2132,102 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
     await loadReportMarkets();
     await Promise.all([loadReportTable(), loadReportStatus()]);
+  });
+
+  // ── Rankings (agent + company order volume) ────────────────────────────────
+  function populateRankMonthSelects() {
+    const fromSel = document.getElementById('rank-from-sel');
+    const toSel = document.getElementById('rank-to-sel');
+    if (fromSel.options.length) return;
+    const opts = reportMonths.map(m => \`<option value="\${m}">\${monthLabel(m)}</option>\`).join('');
+    fromSel.innerHTML = opts;
+    toSel.innerHTML = opts;
+    fromSel.value = reportMonths[0];
+    toSel.value = reportMonths[reportMonths.length - 1];
+  }
+
+  async function loadRankMarkets() {
+    const from = document.getElementById('rank-from-sel').value;
+    const to = document.getElementById('rank-to-sel').value;
+    const r = await api('GET', '/reports/agent-cancellations/markets?from=' + from + '&to=' + to);
+    const sel = document.getElementById('rank-market-sel');
+    const current = sel.value;
+    const markets = r.ok ? (r.data.markets || []) : [];
+    sel.innerHTML = '<option value="">All markets</option>' + markets.map(m => \`<option value="\${esc(m)}">\${esc(m)}</option>\`).join('');
+    if (markets.includes(current)) sel.value = current;
+  }
+
+  async function loadRankStatus() {
+    const r = await api('GET', '/reports/agent-cancellations/status');
+    const el = document.getElementById('rank-refreshed-at');
+    if (!r.ok) { el.textContent = ''; return; }
+    const statuses = (r.data.status || []).filter(s => s.refreshedAt);
+    if (statuses.length === 0) { el.textContent = 'Never refreshed'; return; }
+    const latest = statuses.reduce((a, b) => (b.refreshedAt > a.refreshedAt ? b : a));
+    el.textContent = 'Last refreshed: ' + new Date(latest.refreshedAt).toLocaleString();
+  }
+
+  function renderRankRows(rows, emptyMsg) {
+    if (!rows || rows.length === 0) return '<tr><td colspan="6" class="empty-state">' + emptyMsg + '</td></tr>';
+    return rows.map(row => \`
+      <tr>
+        <td style="font-weight:700;color:var(--text-muted)">\${row.rank}</td>
+        <td>\${esc(row.name)}</td>
+        <td>\${row.totalOrders}</td>
+        <td>\${row.cancellations}</td>
+        <td>\${row.reschedules}</td>
+        <td>\${row.cancelledOrRescheduledPct.toFixed(1)}%</td>
+      </tr>\`).join('');
+  }
+
+  async function loadRankTables() {
+    const from = document.getElementById('rank-from-sel').value;
+    const to = document.getElementById('rank-to-sel').value;
+    const market = document.getElementById('rank-market-sel').value;
+    const qs = new URLSearchParams({ from, to });
+    if (market) qs.set('market', market);
+    const agentsBody = document.getElementById('rank-agents-body');
+    const companiesBody = document.getElementById('rank-companies-body');
+    const r = await api('GET', '/reports/rankings?' + qs.toString());
+    if (!r.ok) {
+      agentsBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load rankings.</td></tr>';
+      companiesBody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load rankings.</td></tr>';
+      return;
+    }
+    const report = r.data.report;
+    agentsBody.innerHTML = renderRankRows(report.agents, 'No orders cached for this range yet. Try Refresh now.');
+    companiesBody.innerHTML = renderRankRows(report.companies, 'No company data yet — click Refresh now to pull it.');
+  }
+
+  async function loadRankings() {
+    if (reportMonths.length === 0) {
+      reportMonths = Array.from({ length: 12 }, (_, i) => {
+        const d = new Date();
+        d.setUTCDate(1);
+        d.setUTCMonth(d.getUTCMonth() - (11 - i));
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+      });
+    }
+    populateRankMonthSelects();
+    await loadRankMarkets();
+    await Promise.all([loadRankTables(), loadRankStatus()]);
+  }
+
+  document.getElementById('rank-from-sel').addEventListener('change', () => { loadRankMarkets(); loadRankTables(); });
+  document.getElementById('rank-to-sel').addEventListener('change', () => { loadRankMarkets(); loadRankTables(); });
+  document.getElementById('rank-market-sel').addEventListener('change', loadRankTables);
+  document.getElementById('rank-refresh-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('rank-refresh-btn');
+    const from = document.getElementById('rank-from-sel').value;
+    const to = document.getElementById('rank-to-sel').value;
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    const r = await api('POST', '/reports/agent-cancellations/refresh', { from, to });
+    btn.disabled = false;
+    btn.innerHTML = '↻ Refresh now';
+    if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
+    await loadRankMarkets();
+    await Promise.all([loadRankTables(), loadRankStatus()]);
   });
 
   // ── Financials: Past Due Accounts ──────────────────────────────────────────

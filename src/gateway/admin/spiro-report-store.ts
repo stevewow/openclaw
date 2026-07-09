@@ -17,6 +17,23 @@ export type AgentCancellationReport = {
   totals: Omit<AgentCancellationRow, "client">;
 };
 
+export type RankingRow = {
+  rank: number;
+  name: string;
+  totalOrders: number;
+  cancellations: number;
+  reschedules: number;
+  cancelledOrRescheduledPct: number;
+};
+
+export type RankingsReport = {
+  from: string; // YYYY-MM
+  to: string; // YYYY-MM
+  market: string | null;
+  agents: RankingRow[];
+  companies: RankingRow[];
+};
+
 export type MonthRefreshStatus = {
   month: string;
   refreshedAt: number | null;
@@ -91,6 +108,25 @@ function extractClientName(raw: Record<string, unknown>): string {
     if (nested) return nested;
   }
   return "Unknown";
+}
+
+// The brokerage/company the order belongs to, kept separately from the agent so the
+// rankings report can group by company. OrderClientSummaryModel exposes companyName /
+// brokerage; fall back to the nested client object. Returns null when unknown.
+function extractCompanyName(raw: Record<string, unknown>): string | null {
+  const direct = firstString(raw, ["companyName", "company_name", "brokerage", "brokerageName"]);
+  if (direct) return direct;
+  const client = asObject(raw.client);
+  if (client) {
+    const nested = firstString(client, [
+      "companyName",
+      "company_name",
+      "brokerage",
+      "brokerageName",
+    ]);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 // No single "market" field exists on an order. Spiro's MCP layer documents a "location" filter,
@@ -202,12 +238,14 @@ export async function refreshMonth(
         orders.map((raw, i) => {
           const id = firstString(raw, ["orderId", "order_id", "id"]) ?? `${month}-${i}`;
           const client = extractClientName(raw);
+          const company = extractCompanyName(raw);
           const market = extractMarket(raw);
           const status = firstString(raw, ["status", "order_status", "cancellation_status"]) ?? "";
           return {
             id: `${month}:${id}`,
             month,
             client,
+            company,
             market,
             status,
             cached_at: now,
@@ -333,6 +371,61 @@ export async function getAgentCancellationReport(params: {
     market: params.market ?? null,
     rows: reportRows,
     totals,
+  };
+}
+
+// Rank a set of orders grouped by a name field (agent or company) by total order
+// volume, descending. Rows with no name are skipped for that dimension.
+function rankByName(rows: Array<{ name: string | null; status: string }>): RankingRow[] {
+  const byName = new Map<string, { total: number; cancelled: number; rescheduled: number }>();
+  for (const row of rows) {
+    const name = row.name?.trim();
+    if (!name) continue;
+    const entry = byName.get(name) ?? { total: 0, cancelled: 0, rescheduled: 0 };
+    entry.total += 1;
+    const cls = classifyStatus(row.status);
+    if (cls === "cancelled") entry.cancelled += 1;
+    if (cls === "rescheduled") entry.rescheduled += 1;
+    byName.set(name, entry);
+  }
+  return Array.from(byName.entries())
+    .map(([name, v]) => ({
+      name,
+      totalOrders: v.total,
+      cancellations: v.cancelled,
+      reschedules: v.rescheduled,
+      cancelledOrRescheduledPct: v.total > 0 ? ((v.cancelled + v.rescheduled) / v.total) * 100 : 0,
+    }))
+    .sort((a, b) => b.totalOrders - a.totalOrders || a.name.localeCompare(b.name))
+    .map((row, i) => ({ rank: i + 1, ...row }));
+}
+
+// Agent ranking + company ranking over the same cached orders and the same
+// date/market controls as getAgentCancellationReport.
+export async function getRankingsReport(params: {
+  from: string;
+  to: string;
+  market?: string | null;
+}): Promise<RankingsReport> {
+  const db = getAdminDb();
+  let query = db
+    .selectFrom("admin_spiro_orders")
+    .select(["client", "company", "status"])
+    .where("month", ">=", params.from)
+    .where("month", "<=", params.to);
+  if (params.market) query = query.where("market", "=", params.market);
+  const rows = (await query.execute()) as Array<{
+    client: string;
+    company: string | null;
+    status: string;
+  }>;
+
+  return {
+    from: params.from,
+    to: params.to,
+    market: params.market ?? null,
+    agents: rankByName(rows.map((r) => ({ name: r.client, status: r.status }))),
+    companies: rankByName(rows.map((r) => ({ name: r.company, status: r.status }))),
   };
 }
 

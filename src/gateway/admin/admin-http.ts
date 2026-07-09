@@ -63,6 +63,7 @@ import {
 import {
   ensureSpiroReportScheduler,
   getAgentCancellationReport,
+  getRankingsReport,
   getRefreshStatus,
   last12Months,
   listAvailableMarkets,
@@ -1153,6 +1154,22 @@ export async function handleAdminHttpRequest(
     const to = normalizeString(url.searchParams.get("to")) ?? months[months.length - 1]!;
     const market = normalizeString(url.searchParams.get("market"));
     const report = await getAgentCancellationReport({ from, to, market });
+    sendJson(res, 200, { report });
+    return true;
+  }
+
+  // GET /api/admin/reports/rankings — agent + company order-volume rankings (admin only).
+  // Shares the same cached orders, date range, and market filter as the cancellation report.
+  if (subPath === "/reports/rankings" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const months = last12Months();
+    const from = normalizeString(url.searchParams.get("from")) ?? months[0]!;
+    const to = normalizeString(url.searchParams.get("to")) ?? months[months.length - 1]!;
+    const market = normalizeString(url.searchParams.get("market"));
+    const report = await getRankingsReport({ from, to, market });
     sendJson(res, 200, { report });
     return true;
   }
