@@ -18,6 +18,9 @@ type UsersTable = {
   username: string;
   password_hash: string;
   role: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
   created_at: number;
   updated_at: number;
   last_login_at: number | null;
@@ -62,9 +65,21 @@ type ProjectsTable = {
   status: string;
   color: string;
   tags: string;
+  start_date: number | null;
+  end_date: number | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
+};
+
+type ProjectMembersTable = {
+  project_id: string;
+  user_id: string;
+};
+
+type TaskAssigneesTable = {
+  task_id: string;
+  user_id: string;
 };
 
 type TasksTable = {
@@ -148,7 +163,9 @@ type AdminDb = {
   admin_user_permissions: PermissionsTable;
   admin_resources: ResourcesTable;
   admin_projects: ProjectsTable;
+  admin_project_members: ProjectMembersTable;
   admin_tasks: TasksTable;
+  admin_task_assignees: TaskAssigneesTable;
   admin_spiro_orders: SpiroOrdersTable;
   admin_spiro_refresh_log: SpiroRefreshLogTable;
   admin_spiro_invoices: SpiroInvoicesTable;
@@ -221,6 +238,9 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
+      first_name TEXT,
+      last_name TEXT,
+      email TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       last_login_at INTEGER
@@ -265,11 +285,19 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('planning','active','completed','archived')),
       color TEXT NOT NULL DEFAULT '#3b82f6',
       tags TEXT NOT NULL DEFAULT '[]',
+      start_date INTEGER,
+      end_date INTEGER,
       created_by TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_projects_created_at ON admin_projects(created_at);
+    CREATE TABLE IF NOT EXISTS admin_project_members (
+      project_id TEXT NOT NULL REFERENCES admin_projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+      PRIMARY KEY (project_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS admin_project_members_user ON admin_project_members(user_id);
     CREATE TABLE IF NOT EXISTS admin_tasks (
       id TEXT PRIMARY KEY,
       project_id TEXT REFERENCES admin_projects(id) ON DELETE CASCADE,
@@ -289,6 +317,12 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_tasks_project_id ON admin_tasks(project_id);
     CREATE INDEX IF NOT EXISTS admin_tasks_due_date ON admin_tasks(due_date);
+    CREATE TABLE IF NOT EXISTS admin_task_assignees (
+      task_id TEXT NOT NULL REFERENCES admin_tasks(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+      PRIMARY KEY (task_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS admin_task_assignees_user ON admin_task_assignees(user_id);
     CREATE TABLE IF NOT EXISTS admin_spiro_orders (
       id TEXT PRIMARY KEY,
       month TEXT NOT NULL,
@@ -360,6 +394,22 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       "ALTER TABLE admin_sessions ADD COLUMN impersonator_id TEXT REFERENCES admin_users(id) ON DELETE CASCADE",
     );
   }
+  const userColumns = db.prepare("PRAGMA table_info(admin_users)").all() as Array<{
+    name: string;
+  }>;
+  for (const col of ["first_name", "last_name", "email"] as const) {
+    if (!userColumns.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE admin_users ADD COLUMN ${col} TEXT`);
+    }
+  }
+  const projectColumns = db.prepare("PRAGMA table_info(admin_projects)").all() as Array<{
+    name: string;
+  }>;
+  for (const col of ["start_date", "end_date"] as const) {
+    if (!projectColumns.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE admin_projects ADD COLUMN ${col} INTEGER`);
+    }
+  }
 }
 
 export async function ensureSuperadminExists(): Promise<{ created: boolean; username: string }> {
@@ -387,6 +437,9 @@ export async function ensureSuperadminExists(): Promise<{ created: boolean; user
       username,
       password_hash: passwordHash,
       role: "superadmin",
+      first_name: null,
+      last_name: null,
+      email: null,
       created_at: now,
       updated_at: now,
       last_login_at: null,
@@ -407,6 +460,9 @@ function rowToUser(row: UsersTable): AdminUser {
     id: row.id,
     username: row.username,
     role: row.role as AdminUserRole,
+    firstName: row.first_name ?? null,
+    lastName: row.last_name ?? null,
+    email: row.email ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastLoginAt: row.last_login_at ?? null,
@@ -450,11 +506,17 @@ export async function createUser(params: {
   username: string;
   password: string;
   role: AdminUserRole;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
 }): Promise<AdminUser> {
   const db = getAdminDb();
   const id = crypto.randomUUID();
   const passwordHash = await createPasswordHash(params.password);
   const now = Date.now();
+  const firstName = params.firstName ?? null;
+  const lastName = params.lastName ?? null;
+  const email = params.email ?? null;
   await db
     .insertInto("admin_users")
     .values({
@@ -462,6 +524,9 @@ export async function createUser(params: {
       username: params.username,
       password_hash: passwordHash,
       role: params.role,
+      first_name: firstName,
+      last_name: lastName,
+      email,
       created_at: now,
       updated_at: now,
       last_login_at: null,
@@ -471,6 +536,9 @@ export async function createUser(params: {
     id,
     username: params.username,
     role: params.role,
+    firstName,
+    lastName,
+    email,
     createdAt: now,
     updatedAt: now,
     lastLoginAt: null,
@@ -483,6 +551,9 @@ export async function updateUser(
     username?: string;
     password?: string;
     role?: AdminUserRole;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
   },
 ): Promise<AdminUser | null> {
   const db = getAdminDb();
@@ -490,6 +561,9 @@ export async function updateUser(
   if (params.username) updates.username = params.username;
   if (params.role) updates.role = params.role;
   if (params.password) updates.password_hash = await createPasswordHash(params.password);
+  if (params.firstName !== undefined) updates.first_name = params.firstName;
+  if (params.lastName !== undefined) updates.last_name = params.lastName;
+  if (params.email !== undefined) updates.email = params.email;
   await db.updateTable("admin_users").set(updates).where("id", "=", id).execute();
   return getUserById(id);
 }

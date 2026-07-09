@@ -4,6 +4,9 @@ export type AdminUser = {
   id: string;
   username: string;
   role: AdminUserRole;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
   createdAt: number;
   updatedAt: number;
   lastLoginAt: number | null;

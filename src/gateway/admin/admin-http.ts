@@ -35,6 +35,8 @@ import {
   refreshInvoices,
 } from "./financials-store.js";
 import {
+  canAccessProject,
+  canAccessTask,
   computeNextDueDate,
   createProject,
   createTask,
@@ -128,6 +130,23 @@ function normalizeString(v: unknown): string | null {
 function normalizeRole(v: unknown): AdminUserRole | null {
   if (v === "superadmin" || v === "admin" || v === "user") return v;
   return null;
+}
+
+/** Coerce arbitrary JSON into a de-duplicated array of non-empty string ids. */
+function normalizeIdArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const seen = new Set<string>();
+  for (const item of v) {
+    if (typeof item === "string" && item.trim().length > 0) seen.add(item.trim());
+  }
+  return Array.from(seen);
+}
+
+/** Optional epoch-ms field: number → itself, null → null, absent → undefined. */
+function normalizeEpoch(v: unknown): number | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 type RecentSession = {
@@ -370,6 +389,21 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
+  // GET /api/admin/users/directory — minimal user list for assignee/member pickers.
+  // Available to any authenticated user (so non-admins can attach collaborators).
+  if (subPath === "/users/directory" && req.method === "GET") {
+    const users = await listUsers();
+    sendJson(res, 200, {
+      users: users.map((u) => ({
+        id: u.id,
+        username: u.username,
+        firstName: u.firstName,
+        lastName: u.lastName,
+      })),
+    });
+    return true;
+  }
+
   // GET /api/admin/users — admin only
   if (subPath === "/users" && req.method === "GET") {
     if (!isAdmin) {
@@ -406,7 +440,14 @@ export async function handleAdminHttpRequest(
       return true;
     }
     try {
-      const user = await createUser({ username, password, role });
+      const user = await createUser({
+        username,
+        password,
+        role,
+        firstName: normalizeString(data.firstName),
+        lastName: normalizeString(data.lastName),
+        email: normalizeString(data.email),
+      });
       sendJson(res, 201, { user });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -434,12 +475,22 @@ export async function handleAdminHttpRequest(
       return true;
     }
     const data = body.value as Record<string, unknown>;
-    const params: { username?: string; password?: string; role?: AdminUserRole } = {};
+    const params: {
+      username?: string;
+      password?: string;
+      role?: AdminUserRole;
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+    } = {};
     const newUsername = normalizeString(data.username);
     const newPassword = normalizeString(data.password);
     const newRole = normalizeRole(data.role);
     if (newUsername) params.username = newUsername;
     if (newPassword) params.password = newPassword;
+    if (data.firstName !== undefined) params.firstName = normalizeString(data.firstName);
+    if (data.lastName !== undefined) params.lastName = normalizeString(data.lastName);
+    if (data.email !== undefined) params.email = normalizeString(data.email);
     if (newRole) {
       if (sessionUser.role !== "superadmin") {
         sendForbidden(res);
@@ -850,9 +901,9 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/projects
+  // GET /api/admin/projects — scoped to the viewer (admins see all)
   if (subPath === "/projects" && req.method === "GET") {
-    const projects = await listProjects();
+    const projects = await listProjects({ userId: sessionUser.id, role: sessionUser.role });
     sendJson(res, 200, { projects });
     return true;
   }
@@ -882,6 +933,9 @@ export async function handleAdminHttpRequest(
       tags: Array.isArray(data.tags)
         ? (data.tags as string[]).filter((t) => typeof t === "string")
         : [],
+      startDate: normalizeEpoch(data.startDate) ?? null,
+      endDate: normalizeEpoch(data.endDate) ?? null,
+      memberIds: normalizeIdArray(data.memberIds),
       createdBy: sessionUser.id,
     });
     sendJson(res, 201, { project });
@@ -890,8 +944,13 @@ export async function handleAdminHttpRequest(
 
   // PUT /DELETE /api/admin/projects/:id
   const projectEditMatch = subPath.match(/^\/projects\/([^/]+)$/);
+  const projectViewer = { userId: sessionUser.id, role: sessionUser.role };
   if (projectEditMatch && req.method === "PUT") {
     const id = projectEditMatch[1]!;
+    if (!(await canAccessProject(projectViewer, id))) {
+      sendForbidden(res);
+      return true;
+    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -912,6 +971,9 @@ export async function handleAdminHttpRequest(
     if (typeof data.color === "string") params.color = data.color;
     if (Array.isArray(data.tags))
       params.tags = (data.tags as string[]).filter((t) => typeof t === "string");
+    if (data.startDate !== undefined) params.startDate = normalizeEpoch(data.startDate) ?? null;
+    if (data.endDate !== undefined) params.endDate = normalizeEpoch(data.endDate) ?? null;
+    if (data.memberIds !== undefined) params.memberIds = normalizeIdArray(data.memberIds);
     const updated = await updateProject(id, params);
     if (!updated) {
       sendNotFound(res);
@@ -922,15 +984,22 @@ export async function handleAdminHttpRequest(
   }
   if (projectEditMatch && req.method === "DELETE") {
     const id = projectEditMatch[1]!;
+    if (!(await canAccessProject(projectViewer, id))) {
+      sendForbidden(res);
+      return true;
+    }
     await deleteProject(id);
     sendJson(res, 200, { ok: true });
     return true;
   }
 
-  // GET /api/admin/tasks
+  // GET /api/admin/tasks — scoped to the viewer (admins see all)
   if (subPath === "/tasks" && req.method === "GET") {
     const projectId = url.searchParams.get("projectId") ?? undefined;
-    const tasks = await listTasks(projectId ? { projectId } : {});
+    const tasks = await listTasks(projectId ? { projectId } : {}, {
+      userId: sessionUser.id,
+      role: sessionUser.role,
+    });
     sendJson(res, 200, { tasks });
     return true;
   }
@@ -951,6 +1020,18 @@ export async function handleAdminHttpRequest(
     const validStatuses = ["todo", "in_progress", "review", "done"] as const;
     const validPriorities = ["low", "medium", "high", "urgent"] as const;
     const validRecurrences = ["daily", "weekly", "monthly", "yearly"] as const;
+    // Non-admins may only place tasks in a project / under a parent they can access.
+    const taskViewer = { userId: sessionUser.id, role: sessionUser.role };
+    const targetProjectId = normalizeString(data.projectId);
+    const targetParentId = normalizeString(data.parentTaskId);
+    if (targetProjectId && !(await canAccessProject(taskViewer, targetProjectId))) {
+      sendForbidden(res);
+      return true;
+    }
+    if (targetParentId && !(await canAccessTask(taskViewer, targetParentId))) {
+      sendForbidden(res);
+      return true;
+    }
     const task = await createTask({
       title,
       description: normalizeString(data.description),
@@ -970,6 +1051,7 @@ export async function handleAdminHttpRequest(
       recurrence: validRecurrences.includes(data.recurrence as (typeof validRecurrences)[number])
         ? (data.recurrence as (typeof validRecurrences)[number])
         : null,
+      assigneeIds: normalizeIdArray(data.assigneeIds),
       createdBy: sessionUser.id,
     });
     sendJson(res, 201, { task });
@@ -978,8 +1060,13 @@ export async function handleAdminHttpRequest(
 
   // PUT / DELETE /api/admin/tasks/:id
   const taskEditMatch = subPath.match(/^\/tasks\/([^/]+)$/);
+  const taskEditViewer = { userId: sessionUser.id, role: sessionUser.role };
   if (taskEditMatch && req.method === "PUT") {
     const id = taskEditMatch[1]!;
+    if (!(await canAccessTask(taskEditViewer, id))) {
+      sendForbidden(res);
+      return true;
+    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1018,6 +1105,7 @@ export async function handleAdminHttpRequest(
         ? (data.recurrence as (typeof validRecurrences)[number])
         : null;
     }
+    if (data.assigneeIds !== undefined) params.assigneeIds = normalizeIdArray(data.assigneeIds);
     const before = await getTask(id);
     const updated = await updateTask(id, params);
     if (!updated) {
@@ -1034,6 +1122,7 @@ export async function handleAdminHttpRequest(
         parentTaskId: updated.parentTaskId,
         dueDate: computeNextDueDate(updated.dueDate ?? Date.now(), updated.recurrence),
         assignedTo: updated.assignedTo,
+        assigneeIds: updated.assigneeIds,
         tags: updated.tags,
         recurrence: updated.recurrence,
         createdBy: updated.createdBy,
@@ -1044,6 +1133,10 @@ export async function handleAdminHttpRequest(
   }
   if (taskEditMatch && req.method === "DELETE") {
     const id = taskEditMatch[1]!;
+    if (!(await canAccessTask(taskEditViewer, id))) {
+      sendForbidden(res);
+      return true;
+    }
     await deleteTask(id);
     sendJson(res, 200, { ok: true });
     return true;

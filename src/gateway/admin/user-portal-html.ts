@@ -122,6 +122,42 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
 
   /* Account */
   .account-section { max-width: 480px; }
+
+  /* Projects & Tasks */
+  select, textarea { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 14px; font-family: inherit; }
+  select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
+  .tasks-toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .tasks-toolbar .spacer { margin-left: auto; }
+  .board-wrap { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 0.875rem; align-items: start; }
+  @media (max-width: 900px) { .board-wrap { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .board-wrap { grid-template-columns: 1fr; } }
+  .board-col { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.625rem; }
+  .board-col-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0 0.15rem; }
+  .board-col-count { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0 0.45rem; font-size: 0.7rem; color: var(--text-muted); }
+  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.625rem 0.7rem; margin-bottom: 0.5rem; box-shadow: var(--shadow); cursor: pointer; }
+  .task-card:hover { border-color: #d1d1d6; }
+  .task-card-proj { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task-card-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; }
+  .task-card-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; font-size: 0.7rem; }
+  .task-chip { padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); font-weight: 600; }
+  .task-chip.overdue { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .prio-urgent { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .prio-high { color: #b45309; }
+  .board-empty { color: var(--text-muted); font-size: 0.75rem; padding: 0.5rem 0.15rem; }
+
+  /* Modals */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem; z-index: 50; overflow-y: auto; }
+  .modal-box { background: var(--surface); border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,0.25); width: 100%; max-width: 500px; padding: 1.5rem; }
+  .modal-box h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; }
+  .modal-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 1.25rem; }
+  .modal-actions .spacer { flex: 1; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .member-picker { border: 1px solid var(--border); border-radius: 7px; padding: 0.35rem; max-height: 140px; overflow-y: auto; background: var(--surface); }
+  .member-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.4rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem; }
+  .member-row:hover { background: var(--surface2); }
+  .member-row input { width: auto; margin: 0; }
+  .member-sub { color: var(--text-muted); font-size: 0.75rem; }
+  .member-empty { color: var(--text-muted); font-size: 0.8rem; padding: 0.4rem; }
 </style>
 </head>
 <body>
@@ -175,6 +211,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     </div>
     <nav>
       <a class="nav-link active" data-page="chat"><span class="icon">💬</span> Chat</a>
+      <a class="nav-link" data-page="tasks"><span class="icon">📋</span> Projects &amp; Tasks</a>
       <a class="nav-link" data-page="resources"><span class="icon">📚</span> Resources</a>
       <a class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
     </nav>
@@ -188,6 +225,24 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     <!-- Chat — embedded control UI -->
     <div id="page-chat" class="page active">
       <iframe id="chat-frame" title="OpenClaw Chat" allow="microphone"></iframe>
+    </div>
+
+    <!-- Projects & Tasks -->
+    <div id="page-tasks" class="page">
+      <div class="topbar">
+        <h2>Projects &amp; Tasks</h2>
+        <div class="flex gap-2" style="display:flex;gap:0.5rem">
+          <button class="btn btn-ghost btn-sm" id="pt-new-project">+ New Project</button>
+          <button class="btn btn-primary btn-sm" id="pt-new-task">+ New Task</button>
+        </div>
+      </div>
+      <div class="page-scroll">
+        <div class="tasks-toolbar">
+          <select id="pt-project-filter" style="max-width:260px"><option value="all">All Projects</option></select>
+          <button class="btn btn-ghost btn-sm" id="pt-edit-project" disabled>Edit Project</button>
+        </div>
+        <div id="pt-board"></div>
+      </div>
     </div>
 
     <!-- Resources -->
@@ -231,6 +286,111 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     </div>
 
   </main>
+</div>
+
+<!-- Task modal -->
+<div id="pt-task-modal" class="modal-backdrop hidden">
+  <div class="modal-box">
+    <h3 id="pt-task-title">New Task</h3>
+    <div id="pt-task-error" class="alert alert-error hidden"></div>
+    <form id="pt-task-form">
+      <div class="form-group">
+        <label for="pt-t-title">Title</label>
+        <input id="pt-t-title" required placeholder="What needs to be done?">
+      </div>
+      <div class="form-group">
+        <label for="pt-t-desc">Description</label>
+        <textarea id="pt-t-desc" rows="2"></textarea>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label for="pt-t-status">Status</label>
+          <select id="pt-t-status">
+            <option value="todo">Todo</option>
+            <option value="in_progress">In Progress</option>
+            <option value="review">Review</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="pt-t-priority">Priority</label>
+          <select id="pt-t-priority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label for="pt-t-project">Project</label>
+          <select id="pt-t-project"><option value="">— No Project —</option></select>
+        </div>
+        <div class="form-group">
+          <label for="pt-t-due">Due Date</label>
+          <input id="pt-t-due" type="date">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Assigned To</label>
+        <div id="pt-t-assignees" class="member-picker"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm hidden" id="pt-task-delete" style="color:#991b1b">Delete</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn btn-ghost" id="pt-task-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pt-task-save">Save Task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Project modal -->
+<div id="pt-project-modal" class="modal-backdrop hidden">
+  <div class="modal-box">
+    <h3 id="pt-project-title">New Project</h3>
+    <div id="pt-project-error" class="alert alert-error hidden"></div>
+    <form id="pt-project-form">
+      <div class="form-group">
+        <label for="pt-p-name">Project Name</label>
+        <input id="pt-p-name" required>
+      </div>
+      <div class="form-group">
+        <label for="pt-p-desc">Description</label>
+        <textarea id="pt-p-desc" rows="2"></textarea>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label for="pt-p-start">Begin Date</label>
+          <input id="pt-p-start" type="date">
+        </div>
+        <div class="form-group">
+          <label for="pt-p-end">Goal End Date</label>
+          <input id="pt-p-end" type="date">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="pt-p-status">Status</label>
+        <select id="pt-p-status">
+          <option value="planning">Planning</option>
+          <option value="active" selected>Active</option>
+          <option value="completed">Completed</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Members</label>
+        <div id="pt-p-members" class="member-picker"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm hidden" id="pt-project-delete" style="color:#991b1b">Delete</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn btn-ghost" id="pt-project-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pt-project-save">Save Project</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -283,6 +443,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     const navEl = document.querySelector('.nav-link[data-page="' + page + '"]');
     if (navEl) navEl.classList.add('active');
     if (page === 'resources') loadResources();
+    if (page === 'tasks') loadTasksPage();
   }
 
   document.querySelectorAll('.nav-link').forEach(a => {
@@ -349,6 +510,218 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     }
     container.innerHTML = '<div class="resources-grid">' + resources.map(resourceCardHtml).join('') + '</div>';
   }
+
+  // ── Projects & Tasks ────────────────────────────────────────────────────────
+  let ptProjects = [];
+  let ptTasks = [];
+  let ptUsers = [];
+  let ptFilter = 'all';
+  let ptEditingTask = null;
+  let ptEditingProject = null;
+  const PT_STATUSES = [
+    { key: 'todo', label: 'Todo' },
+    { key: 'in_progress', label: 'In Progress' },
+    { key: 'review', label: 'Review' },
+    { key: 'done', label: '✓ Done' },
+  ];
+
+  function ptFullName(u) { return [u && u.firstName, u && u.lastName].filter(Boolean).join(' '); }
+  function ptUserLabel(id) {
+    const u = ptUsers.find(function(x) { return x.id === id; });
+    if (!u) return id;
+    return ptFullName(u) || u.username;
+  }
+
+  async function ensurePtUsers() {
+    if (ptUsers.length) return;
+    const r = await api('GET', '/users/directory');
+    if (r.ok) ptUsers = r.data.users || [];
+  }
+
+  function ptRenderMemberPicker(containerId, selectedIds) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    const selected = new Set(selectedIds || []);
+    if (!ptUsers.length) { box.innerHTML = '<div class="member-empty">No other users available.</div>'; return; }
+    box.innerHTML = ptUsers.map(function(u) {
+      const name = ptFullName(u);
+      const label = name || u.username;
+      const sub = name ? u.username : '';
+      return '<label class="member-row"><input type="checkbox" value="' + esc(u.id) + '"' + (selected.has(u.id) ? ' checked' : '') + '>' +
+        '<span>' + esc(label) + (sub ? ' <span class="member-sub">' + esc(sub) + '</span>' : '') + '</span></label>';
+    }).join('');
+  }
+  function ptReadMemberPicker(containerId) {
+    return Array.prototype.slice.call(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(function(cb) { return cb.value; });
+  }
+
+  function ptFormatDate(ms) { return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+
+  async function loadTasksPage() {
+    await ensurePtUsers();
+    const [pr, tr] = await Promise.all([api('GET', '/projects'), api('GET', '/tasks')]);
+    ptProjects = pr.ok ? (pr.data.projects || []) : [];
+    ptTasks = tr.ok ? (tr.data.tasks || []) : [];
+    const sel = document.getElementById('pt-project-filter');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="all">All Projects</option>' +
+      ptProjects.map(function(p) { return '<option value="' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('');
+    sel.value = prev && (prev === 'all' || ptProjects.find(function(p) { return p.id === prev; })) ? prev : 'all';
+    ptFilter = sel.value;
+    document.getElementById('pt-edit-project').disabled = ptFilter === 'all';
+    ptRenderBoard();
+  }
+
+  function ptRenderBoard() {
+    const board = document.getElementById('pt-board');
+    const tasks = ptTasks.filter(function(t) {
+      if (t.parentTaskId) return false;
+      if (ptFilter !== 'all') return t.projectId === ptFilter;
+      return true;
+    });
+    board.innerHTML = '<div class="board-wrap">' + PT_STATUSES.map(function(st) {
+      const matching = tasks.filter(function(t) { return t.status === st.key; });
+      const cards = matching.length
+        ? matching.map(ptTaskCard).join('')
+        : '<div class="board-empty">No tasks</div>';
+      return '<div class="board-col">' +
+        '<div class="board-col-head"><span>' + st.label + '</span><span class="board-col-count">' + matching.length + '</span></div>' +
+        cards +
+      '</div>';
+    }).join('') + '</div>';
+    board.querySelectorAll('.task-card').forEach(function(card) {
+      card.addEventListener('click', function() {
+        const t = ptTasks.find(function(x) { return x.id === card.dataset.id; });
+        if (t) ptOpenTask(t);
+      });
+    });
+  }
+
+  function ptTaskCard(task) {
+    const proj = task.projectId ? ptProjects.find(function(p) { return p.id === task.projectId; }) : null;
+    let html = '<div class="task-card" data-id="' + esc(task.id) + '">';
+    if (proj) html += '<div class="task-card-proj" style="border-left:3px solid ' + esc(proj.color || '#3b82f6') + ';padding-left:6px">' + esc(proj.title) + '</div>';
+    html += '<div class="task-card-title">' + esc(task.title) + '</div>';
+    html += '<div class="task-card-meta">';
+    html += '<span class="task-chip prio-' + esc(task.priority) + '">' + esc(task.priority) + '</span>';
+    if (task.dueDate) {
+      const overdue = task.dueDate < Date.now() && task.status !== 'done';
+      html += '<span class="task-chip' + (overdue ? ' overdue' : '') + '">📅 ' + esc(ptFormatDate(task.dueDate)) + '</span>';
+    }
+    const names = (task.assigneeIds || []).map(ptUserLabel);
+    if (names.length) html += '<span class="task-chip">👤 ' + esc(names.slice(0, 2).join(', ')) + (names.length > 2 ? ' +' + (names.length - 2) : '') + '</span>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function ptPopulateProjectSelect(selectedId) {
+    document.getElementById('pt-t-project').innerHTML = '<option value="">— No Project —</option>' +
+      ptProjects.map(function(p) { return '<option value="' + esc(p.id) + '"' + (p.id === selectedId ? ' selected' : '') + '>' + esc(p.title) + '</option>'; }).join('');
+  }
+
+  // Task modal
+  document.getElementById('pt-new-task').addEventListener('click', function() { ptOpenTask(null); });
+  function ptOpenTask(task) {
+    ptEditingTask = task ? task.id : null;
+    document.getElementById('pt-task-title').textContent = task ? 'Edit Task' : 'New Task';
+    document.getElementById('pt-task-error').classList.add('hidden');
+    document.getElementById('pt-t-title').value = task ? task.title : '';
+    document.getElementById('pt-t-desc').value = task ? (task.description || '') : '';
+    document.getElementById('pt-t-status').value = task ? task.status : 'todo';
+    document.getElementById('pt-t-priority').value = task ? task.priority : 'medium';
+    ptPopulateProjectSelect(task ? (task.projectId || '') : (ptFilter !== 'all' ? ptFilter : ''));
+    document.getElementById('pt-t-due').value = task && task.dueDate ? new Date(task.dueDate).toISOString().slice(0,10) : '';
+    ptRenderMemberPicker('pt-t-assignees', task ? (task.assigneeIds || []) : []);
+    document.getElementById('pt-task-delete').classList.toggle('hidden', !task);
+    document.getElementById('pt-task-modal').classList.remove('hidden');
+    document.getElementById('pt-t-title').focus();
+  }
+  document.getElementById('pt-task-cancel').addEventListener('click', function() {
+    document.getElementById('pt-task-modal').classList.add('hidden');
+  });
+  document.getElementById('pt-task-delete').addEventListener('click', async function() {
+    if (!ptEditingTask || !confirm('Delete this task?')) return;
+    const r = await api('DELETE', '/tasks/' + ptEditingTask);
+    if (r.ok) { document.getElementById('pt-task-modal').classList.add('hidden'); await loadTasksPage(); }
+  });
+  document.getElementById('pt-task-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const errEl = document.getElementById('pt-task-error');
+    errEl.classList.add('hidden');
+    const dueVal = document.getElementById('pt-t-due').value;
+    const body = {
+      title: document.getElementById('pt-t-title').value.trim(),
+      description: document.getElementById('pt-t-desc').value.trim() || null,
+      status: document.getElementById('pt-t-status').value,
+      priority: document.getElementById('pt-t-priority').value,
+      projectId: document.getElementById('pt-t-project').value || null,
+      dueDate: dueVal ? new Date(dueVal).getTime() : null,
+      assigneeIds: ptReadMemberPicker('pt-t-assignees'),
+    };
+    const r = ptEditingTask
+      ? await api('PUT', '/tasks/' + ptEditingTask, body)
+      : await api('POST', '/tasks', body);
+    if (!r.ok) { errEl.textContent = (r.data && r.data.error) || 'Failed to save task.'; errEl.classList.remove('hidden'); return; }
+    document.getElementById('pt-task-modal').classList.add('hidden');
+    await loadTasksPage();
+  });
+
+  // Project modal
+  document.getElementById('pt-new-project').addEventListener('click', function() { ptOpenProject(null); });
+  document.getElementById('pt-edit-project').addEventListener('click', function() {
+    const p = ptProjects.find(function(x) { return x.id === ptFilter; });
+    if (p) ptOpenProject(p);
+  });
+  document.getElementById('pt-project-filter').addEventListener('change', function() {
+    ptFilter = this.value;
+    document.getElementById('pt-edit-project').disabled = ptFilter === 'all';
+    ptRenderBoard();
+  });
+  function ptOpenProject(project) {
+    ptEditingProject = project ? project.id : null;
+    document.getElementById('pt-project-title').textContent = project ? 'Edit Project' : 'New Project';
+    document.getElementById('pt-project-error').classList.add('hidden');
+    document.getElementById('pt-p-name').value = project ? project.title : '';
+    document.getElementById('pt-p-desc').value = project ? (project.description || '') : '';
+    document.getElementById('pt-p-status').value = project ? project.status : 'active';
+    document.getElementById('pt-p-start').value = project && project.startDate ? new Date(project.startDate).toISOString().slice(0,10) : '';
+    document.getElementById('pt-p-end').value = project && project.endDate ? new Date(project.endDate).toISOString().slice(0,10) : '';
+    ptRenderMemberPicker('pt-p-members', project ? (project.memberIds || []) : []);
+    document.getElementById('pt-project-delete').classList.toggle('hidden', !project);
+    document.getElementById('pt-project-modal').classList.remove('hidden');
+    document.getElementById('pt-p-name').focus();
+  }
+  document.getElementById('pt-project-cancel').addEventListener('click', function() {
+    document.getElementById('pt-project-modal').classList.add('hidden');
+  });
+  document.getElementById('pt-project-delete').addEventListener('click', async function() {
+    if (!ptEditingProject || !confirm('Delete this project and all its tasks?')) return;
+    const r = await api('DELETE', '/projects/' + ptEditingProject);
+    if (r.ok) { ptFilter = 'all'; document.getElementById('pt-project-filter').value = 'all'; document.getElementById('pt-project-modal').classList.add('hidden'); await loadTasksPage(); }
+  });
+  document.getElementById('pt-project-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const errEl = document.getElementById('pt-project-error');
+    errEl.classList.add('hidden');
+    const startVal = document.getElementById('pt-p-start').value;
+    const endVal = document.getElementById('pt-p-end').value;
+    const body = {
+      title: document.getElementById('pt-p-name').value.trim(),
+      description: document.getElementById('pt-p-desc').value.trim() || null,
+      status: document.getElementById('pt-p-status').value,
+      startDate: startVal ? new Date(startVal).getTime() : null,
+      endDate: endVal ? new Date(endVal).getTime() : null,
+      memberIds: ptReadMemberPicker('pt-p-members'),
+    };
+    const r = ptEditingProject
+      ? await api('PUT', '/projects/' + ptEditingProject, body)
+      : await api('POST', '/projects', body);
+    if (!r.ok) { errEl.textContent = (r.data && r.data.error) || 'Failed to save project.'; errEl.classList.remove('hidden'); return; }
+    if (!ptEditingProject && r.data && r.data.project) { ptFilter = r.data.project.id; }
+    document.getElementById('pt-project-modal').classList.add('hidden');
+    document.getElementById('pt-project-filter').value = ptFilter;
+    await loadTasksPage();
+  });
 
   // ── Login ──────────────────────────────────────────────────────────────────
   document.getElementById('login-form').addEventListener('submit', async e => {

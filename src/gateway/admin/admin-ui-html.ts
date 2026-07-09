@@ -213,6 +213,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .tag-chip-wrap .chip-remove { cursor: pointer; opacity: 0.75; line-height: 1; }
   .tag-chip-wrap .chip-remove:hover { opacity: 1; }
   .tag-chip-input { border: none; outline: none; font-size: 13px; font-family: inherit; background: transparent; min-width: 80px; flex: 1; }
+  .member-picker { border: 1px solid var(--border); border-radius: 7px; padding: 0.35rem; max-height: 150px; overflow-y: auto; background: var(--surface); }
+  .member-picker .member-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.4rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem; }
+  .member-picker .member-row:hover { background: var(--surface2); }
+  .member-picker .member-row input { width: auto; margin: 0; }
+  .member-picker .member-empty { color: var(--text-muted); font-size: 0.8rem; padding: 0.4rem; }
+  .member-picker .member-sub { color: var(--text-muted); font-size: 0.75rem; }
   /* Toggle switch */
   .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 0.625rem 0; border-bottom: 1px solid var(--border); }
   .toggle-row:last-child { border-bottom: none; }
@@ -436,14 +442,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               <thead>
                 <tr>
                   <th>Username</th>
+                  <th>Name</th>
+                  <th>Email</th>
                   <th>Role</th>
                   <th>Last Login</th>
-                  <th>Created</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="users-table-body">
-                <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+                <tr><td colspan="6" class="empty-state">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -747,6 +754,20 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <label>Username</label>
         <input id="modal-username" required>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+        <div class="form-group" style="margin-bottom:1.125rem">
+          <label>First Name</label>
+          <input id="modal-first-name" placeholder="Jane">
+        </div>
+        <div class="form-group" style="margin-bottom:1.125rem">
+          <label>Last Name</label>
+          <input id="modal-last-name" placeholder="Doe">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input id="modal-email" type="email" placeholder="jane@example.com">
+      </div>
       <div class="form-group" id="modal-pw-group">
         <label id="modal-pw-label">Password</label>
         <input id="modal-password" type="password">
@@ -868,15 +889,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <option value="">— No Project —</option>
         </select>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-        <div class="form-group" style="margin-bottom:0">
-          <label>Due Date</label>
-          <input id="task-due" type="date">
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <label>Assigned To</label>
-          <input id="task-assigned" placeholder="Username…">
-        </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input id="task-due" type="date">
+      </div>
+      <div class="form-group">
+        <label>Assigned To <span style="font-weight:400;text-transform:none">(select one or more)</span></label>
+        <div id="task-assignees-list" class="member-picker"></div>
       </div>
       <div class="form-group" style="margin-top:1.125rem">
         <label>Repeat</label>
@@ -926,6 +945,16 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <label>Description <span style="font-weight:400;text-transform:none">(optional)</span></label>
         <textarea id="proj-desc" rows="2" style="resize:vertical" placeholder="What is this project about?"></textarea>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+        <div class="form-group">
+          <label>Begin Date</label>
+          <input id="proj-start" type="date">
+        </div>
+        <div class="form-group">
+          <label>Goal End Date</label>
+          <input id="proj-end" type="date">
+        </div>
+      </div>
       <div class="form-group">
         <label>Status</label>
         <select id="proj-status">
@@ -955,6 +984,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <div class="tag-chip-wrap" id="proj-tag-chip-wrap" onclick="document.getElementById('proj-tag-input').focus()">
           <input id="proj-tag-input" class="tag-chip-input" placeholder="Type a tag, press Enter…">
         </div>
+      </div>
+      <div class="form-group">
+        <label>Members <span style="font-weight:400;text-transform:none">(can view this project & its tasks)</span></label>
+        <div id="proj-members-list" class="member-picker"></div>
       </div>
       <div class="modal-actions" style="justify-content:flex-start">
         <button type="button" class="btn btn-danger btn-sm hidden" id="proj-modal-delete">Delete Project</button>
@@ -1302,22 +1335,35 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   // ── Users ────────────────────────────────────────────────────────────────
+  let adminUsers = [];
+  function fullName(u) {
+    return [u && u.firstName, u && u.lastName].filter(Boolean).join(' ');
+  }
+  // Display label for a user id: "First Last" if known, else username, else the raw id.
+  function userLabel(id) {
+    const u = adminUsers.find(function(x) { return x.id === id; });
+    if (!u) return id;
+    return fullName(u) || u.username;
+  }
+
   async function loadUsers() {
     const body = document.getElementById('users-table-body');
-    body.innerHTML = '<tr><td colspan="5" class="empty-state"><span class="spin">⟳</span> Loading…</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty-state"><span class="spin">⟳</span> Loading…</td></tr>';
     const r = await api('GET', '/users');
-    if (!r.ok) { body.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load users.</td></tr>'; return; }
-    const users = r.data.users;
-    if (!users.length) { body.innerHTML = '<tr><td colspan="5" class="empty-state">No users yet.</td></tr>'; return; }
+    if (!r.ok) { body.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load users.</td></tr>'; return; }
+    adminUsers = r.data.users;
+    const users = adminUsers;
+    if (!users.length) { body.innerHTML = '<tr><td colspan="6" class="empty-state">No users yet.</td></tr>'; return; }
     body.innerHTML = users.map(u => \`
       <tr>
         <td><strong>\${esc(u.username)}</strong></td>
+        <td class="text-muted">\${esc(fullName(u)) || '—'}</td>
+        <td class="text-muted">\${u.email ? esc(u.email) : '—'}</td>
         <td><span class="badge badge-\${u.role}">\${u.role}</span></td>
         <td class="text-muted">\${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</td>
-        <td class="text-muted">\${new Date(u.createdAt).toLocaleDateString()}</td>
         <td>
           <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick="openEditUser('\${esc(u.id)}','\${esc(u.username)}','\${esc(u.role)}')">Edit</button>
+            <button class="btn btn-ghost btn-sm" onclick="openEditUser('\${esc(u.id)}')">Edit</button>
             <button class="btn btn-ghost btn-sm" onclick="openPermsModal('\${esc(u.id)}','\${esc(u.username)}')">Permissions</button>
             \${isSuperAdmin() && u.id !== currentUser.id ? \`<button class="btn btn-ghost btn-sm" onclick="loginAsUser('\${esc(u.id)}','\${esc(u.username)}')">Login as</button>\` : ''}
             \${u.id !== currentUser.id ? \`<button class="btn btn-danger btn-sm" onclick="deleteUser('\${esc(u.id)}','\${esc(u.username)}')">Delete</button>\` : ''}
@@ -1326,14 +1372,25 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       </tr>\`).join('');
   }
 
-  window.openEditUser = function(id, username, role) {
+  // Ensure the directory cache is populated for member/assignee pickers.
+  async function ensureUsersLoaded() {
+    if (adminUsers.length) return;
+    const r = await api('GET', '/users');
+    if (r.ok) adminUsers = r.data.users;
+  }
+
+  window.openEditUser = function(id) {
+    const u = adminUsers.find(function(x) { return x.id === id; }) || { id: id, username: '', role: 'user' };
     document.getElementById('user-modal-title').textContent = 'Edit User';
-    document.getElementById('modal-user-id').value = id;
-    document.getElementById('modal-username').value = username;
+    document.getElementById('modal-user-id').value = u.id;
+    document.getElementById('modal-username').value = u.username;
+    document.getElementById('modal-first-name').value = u.firstName || '';
+    document.getElementById('modal-last-name').value = u.lastName || '';
+    document.getElementById('modal-email').value = u.email || '';
     document.getElementById('modal-password').value = '';
     document.getElementById('modal-pw-label').textContent = 'New Password (leave blank to keep)';
     document.getElementById('modal-password').required = false;
-    document.getElementById('modal-role').value = role;
+    document.getElementById('modal-role').value = u.role;
     document.getElementById('user-modal-submit').textContent = 'Save Changes';
     document.getElementById('modal-role-group').classList.toggle('hidden', !isSuperAdmin());
     document.getElementById('user-modal-error').classList.add('hidden');
@@ -1344,6 +1401,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('user-modal-title').textContent = 'Add User';
     document.getElementById('modal-user-id').value = '';
     document.getElementById('modal-username').value = '';
+    document.getElementById('modal-first-name').value = '';
+    document.getElementById('modal-last-name').value = '';
+    document.getElementById('modal-email').value = '';
     document.getElementById('modal-password').value = '';
     document.getElementById('modal-pw-label').textContent = 'Password';
     document.getElementById('modal-password').required = true;
@@ -1364,15 +1424,18 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     const username = document.getElementById('modal-username').value.trim();
     const password = document.getElementById('modal-password').value;
     const role = document.getElementById('modal-role').value;
+    const firstName = document.getElementById('modal-first-name').value.trim();
+    const lastName = document.getElementById('modal-last-name').value.trim();
+    const email = document.getElementById('modal-email').value.trim();
     const errEl = document.getElementById('user-modal-error');
     errEl.classList.add('hidden');
     let r;
     if (id) {
-      const body = { username, role };
+      const body = { username, role, firstName, lastName, email };
       if (password) body.password = password;
       r = await api('PUT', '/users/' + id, body);
     } else {
-      r = await api('POST', '/users', { username, password, role });
+      r = await api('POST', '/users', { username, password, role, firstName, lastName, email });
     }
     if (!r.ok) {
       errEl.textContent = r.data.error || 'An error occurred.';
@@ -2436,7 +2499,26 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   let editingTaskId = null;
   let editingProjectId = null;
 
+  // Reusable checkbox picker of users, used for project members & task assignees.
+  function renderMemberPicker(containerId, selectedIds) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    const selected = new Set(selectedIds || []);
+    if (!adminUsers.length) { box.innerHTML = '<div class="member-empty">No users available.</div>'; return; }
+    box.innerHTML = adminUsers.map(function(u) {
+      const name = fullName(u);
+      const label = name || u.username;
+      const sub = name ? u.username : (u.email || '');
+      return '<label class="member-row"><input type="checkbox" value="' + esc(u.id) + '"' + (selected.has(u.id) ? ' checked' : '') + '>' +
+        '<span>' + esc(label) + (sub ? ' <span class="member-sub">' + esc(sub) + '</span>' : '') + '</span></label>';
+    }).join('');
+  }
+  function readMemberPicker(containerId) {
+    return Array.prototype.slice.call(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(function(cb) { return cb.value; });
+  }
+
   async function loadProjects() {
+    await ensureUsersLoaded();
     const [pr, tr] = await Promise.all([api('GET', '/projects'), api('GET', '/tasks')]);
     if (pr.ok) allProjects = pr.data.projects || [];
     if (tr.ok) allTasks = tr.data.tasks || [];
@@ -2501,6 +2583,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           '</div>' +
           (p.description ? '<div class="resource-desc mb-4">' + esc(p.description) + '</div>' : '') +
           '<div class="project-list-card-tasks">' + doneCount + ' / ' + tasksForProj.length + ' tasks done</div>' +
+          (p.startDate || p.endDate ? '<div class="text-muted" style="font-size:0.78rem;margin-bottom:0.5rem">📅 ' + esc(formatDateRange(p.startDate, p.endDate)) + '</div>' : '') +
+          (p.memberIds && p.memberIds.length ? '<div class="text-muted" style="font-size:0.78rem;margin-bottom:0.5rem">👥 ' + esc(p.memberIds.map(userLabel).join(', ')) + '</div>' : '') +
           (p.tags && p.tags.length ? '<div class="resource-tags">' + p.tags.map(function(t) { return '<span class="resource-tag">' + esc(t) + '</span>'; }).join('') + '</div>' : '') +
         '</div>' +
         '<div class="resource-card-footer">' +
@@ -2602,7 +2686,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       const overdue = d < now && task.status !== 'done';
       html += '<span class="task-due' + (overdue ? ' overdue' : '') + '">📅 ' + esc(formatDateShort(task.dueDate)) + '</span>';
     }
-    if (task.assignedTo) html += '<span class="task-assignee">👤 ' + esc(task.assignedTo) + '</span>';
+    const assigneeNames = (task.assigneeIds || []).map(userLabel);
+    if (!assigneeNames.length && task.assignedTo) assigneeNames.push(task.assignedTo);
+    if (assigneeNames.length) {
+      const shown = assigneeNames.slice(0, 2).map(esc).join(', ');
+      const extra = assigneeNames.length > 2 ? ' +' + (assigneeNames.length - 2) : '';
+      html += '<span class="task-assignee" style="width:auto;border-radius:999px;padding:0 0.4rem">👤 ' + shown + extra + '</span>';
+    }
     if (task.recurrence) html += '<span class="task-recurrence">🔁 ' + esc(task.recurrence) + '</span>';
     html += '</div>';
     if (task.tags && task.tags.length) {
@@ -2661,6 +2751,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     }
     populateTaskProjectSelect(projectsFilter || '');
     renderTaskModalTags();
+    renderMemberPicker('task-assignees-list', []);
     document.getElementById('task-modal').classList.remove('hidden');
     document.getElementById('task-title').focus();
   }
@@ -2677,10 +2768,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('task-status').value = task.status;
     document.getElementById('task-priority').value = task.priority;
     document.getElementById('task-due').value = task.dueDate ? new Date(task.dueDate).toISOString().slice(0,10) : '';
-    document.getElementById('task-assigned').value = task.assignedTo || '';
     document.getElementById('task-recurrence').value = task.recurrence || '';
     populateTaskProjectSelect(task.projectId || '');
     renderTaskModalTags();
+    renderMemberPicker('task-assignees-list', task.assigneeIds || []);
     document.getElementById('task-modal-delete').classList.remove('hidden');
     document.getElementById('task-subtasks-section').classList.remove('hidden');
     renderSubtasks(id);
@@ -2796,7 +2887,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       priority: document.getElementById('task-priority').value,
       projectId: document.getElementById('task-project').value || null,
       dueDate: dueVal ? new Date(dueVal).getTime() : null,
-      assignedTo: document.getElementById('task-assigned').value.trim() || null,
+      assigneeIds: readMemberPicker('task-assignees-list'),
       recurrence: document.getElementById('task-recurrence').value || null,
       tags: taskModalTags.slice(),
     };
@@ -2826,8 +2917,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('proj-modal-form').reset();
     document.getElementById('proj-modal-delete').classList.add('hidden');
     document.getElementById('proj-status').value = 'active';
+    document.getElementById('proj-start').value = '';
+    document.getElementById('proj-end').value = '';
     setProjColor('#3b82f6');
     renderProjModalTags();
+    renderMemberPicker('proj-members-list', []);
     document.getElementById('proj-modal').classList.remove('hidden');
     document.getElementById('proj-name').focus();
   }
@@ -2842,8 +2936,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('proj-name').value = proj.title;
     document.getElementById('proj-desc').value = proj.description || '';
     document.getElementById('proj-status').value = proj.status;
+    document.getElementById('proj-start').value = proj.startDate ? new Date(proj.startDate).toISOString().slice(0,10) : '';
+    document.getElementById('proj-end').value = proj.endDate ? new Date(proj.endDate).toISOString().slice(0,10) : '';
     setProjColor(proj.color || '#3b82f6');
     renderProjModalTags();
+    renderMemberPicker('proj-members-list', proj.memberIds || []);
     document.getElementById('proj-modal-delete').classList.remove('hidden');
     document.getElementById('proj-modal').classList.remove('hidden');
     document.getElementById('proj-name').focus();
@@ -2907,12 +3004,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     e.preventDefault();
     const errEl = document.getElementById('proj-modal-error');
     errEl.classList.add('hidden');
+    const startVal = document.getElementById('proj-start').value;
+    const endVal = document.getElementById('proj-end').value;
     const body = {
       title: document.getElementById('proj-name').value.trim(),
       description: document.getElementById('proj-desc').value.trim() || null,
       status: document.getElementById('proj-status').value,
       color: document.getElementById('proj-color-val').value,
       tags: projModalTags.slice(),
+      startDate: startVal ? new Date(startVal).getTime() : null,
+      endDate: endVal ? new Date(endVal).getTime() : null,
+      memberIds: readMemberPicker('proj-members-list'),
     };
     const r = editingProjectId
       ? await api('PUT', '/projects/' + editingProjectId, body)
@@ -2936,6 +3038,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   function formatDateShort(ms) {
     const d = new Date(ms);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function formatDateMed(ms) {
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function formatDateRange(start, end) {
+    if (start && end) return formatDateMed(start) + ' → ' + formatDateMed(end);
+    if (start) return 'Begins ' + formatDateMed(start);
+    if (end) return 'Goal: ' + formatDateMed(end);
+    return '';
   }
   function isSameDay(a, b) {
     const da = new Date(a), db = new Date(b);
