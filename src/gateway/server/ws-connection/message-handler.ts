@@ -1556,6 +1556,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
 
         const snapshot = buildGatewaySnapshot({
           includeSensitive: scopes.includes(ADMIN_SCOPE),
+          ...(resolvedPortalUser ? { portalUserId: resolvedPortalUser.id } : {}),
         });
         const cachedHealth = getHealthCache();
         if (cachedHealth) {

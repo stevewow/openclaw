@@ -5,7 +5,8 @@ import { STATE_DIR } from "../../config/paths.js";
 import { resolveMainSessionKey } from "../../config/sessions.js";
 import { listSystemPresence } from "../../infra/system-presence.js";
 import { getUpdateAvailable } from "../../infra/update-startup.js";
-import { normalizeMainKey } from "../../routing/session-key.js";
+import { buildAgentMainSessionKey, normalizeMainKey } from "../../routing/session-key.js";
+import { portalUserSessionPrefix } from "../admin/portal-session-scope.js";
 import { resolveGatewayAuth } from "../auth.js";
 import type { Snapshot } from "../protocol/index.js";
 import type { ChannelRuntimeSnapshot } from "../server-channel-runtime.types.js";
@@ -18,11 +19,21 @@ let healthRefresh: Promise<HealthSummary> | null = null;
 let sensitiveHealthRefresh: Promise<HealthSummary> | null = null;
 let broadcastHealthUpdate: ((snap: HealthSummary) => void) | null = null;
 
-export function buildGatewaySnapshot(opts?: { includeSensitive?: boolean }): Snapshot {
+export function buildGatewaySnapshot(opts?: {
+  includeSensitive?: boolean;
+  portalUserId?: string;
+}): Snapshot {
   const cfg = getRuntimeConfig();
   const defaultAgentId = resolveDefaultAgentId(cfg);
-  const mainKey = normalizeMainKey(cfg.session?.mainKey);
-  const mainSessionKey = resolveMainSessionKey(cfg);
+  // Portal users share one gateway credential, so give each a distinct default
+  // session key (`agent:<id>:u-<userId>`) to isolate their web chat. The gateway
+  // also filters sessions.list to this namespace (see portal-session-scope.ts).
+  const mainKey = opts?.portalUserId
+    ? portalUserSessionPrefix(opts.portalUserId)
+    : normalizeMainKey(cfg.session?.mainKey);
+  const mainSessionKey = opts?.portalUserId
+    ? buildAgentMainSessionKey({ agentId: defaultAgentId, mainKey })
+    : resolveMainSessionKey(cfg);
   const scope = cfg.session?.scope ?? "per-sender";
   const presence = listSystemPresence();
   const uptimeMs = Math.round(process.uptime() * 1000);

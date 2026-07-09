@@ -53,6 +53,7 @@ import {
   normalizeOptionalString,
   readStringValue,
 } from "../../shared/string-coerce.js";
+import { sessionKeyBelongsToPortalUser } from "../admin/portal-session-scope.js";
 import { ADMIN_SCOPE } from "../operator-scopes.js";
 import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
 import {
@@ -696,7 +697,7 @@ async function handleSessionSend(params: {
   }
 }
 export const sessionsHandlers: GatewayRequestHandlers = {
-  "sessions.list": async ({ params, respond, context }) => {
+  "sessions.list": async ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateSessionsListParams, "sessions.list", respond)) {
       return;
     }
@@ -783,7 +784,18 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         },
       },
     );
-    respond(true, payload, undefined);
+    // Portal users share one gateway credential; scope their session list to
+    // their own per-user namespace so each user only sees their own chats.
+    const portalUserId = client?.portalUser?.id;
+    const scopedPayload = portalUserId
+      ? {
+          ...payload,
+          sessions: payload.sessions.filter((s) =>
+            sessionKeyBelongsToPortalUser(s.key, portalUserId),
+          ),
+        }
+      : payload;
+    respond(true, scopedPayload, undefined);
   },
   "sessions.cleanup": async ({ params, respond, context }) => {
     if (!assertValidParams(params, validateSessionsCleanupParams, "sessions.cleanup", respond)) {

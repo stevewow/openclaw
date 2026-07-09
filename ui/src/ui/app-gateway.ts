@@ -102,6 +102,7 @@ type GatewayHost = {
   serverVersion: string | null;
   pendingUpdateExpectedVersion: string | null;
   updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
+  portalSessionToken?: string | null;
   sessionKey: string;
   chatRunId: string | null;
   pendingAbort?: { runId?: string | null; sessionKey: string } | null;
