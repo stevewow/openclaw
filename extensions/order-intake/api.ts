@@ -21,6 +21,12 @@ export {
   type HandoffSender,
   type HandoffNotification,
 } from "./src/handoff.js";
+export {
+  SlackHandoffSender,
+  resolveSlackTransport,
+  type SlackHandoffOptions,
+  type SlackTransport,
+} from "./src/slack-handoff.js";
 export { BUNDLES, SERVICES, TIER_SETS, TRIP_FEES } from "./src/catalog.js";
 export {
   InMemorySessionStore,

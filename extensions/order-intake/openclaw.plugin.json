@@ -20,10 +20,46 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
+      "basePath": {
+        "type": "string",
+        "description": "URL path the web chat is served under. Defaults to /wow-intake."
+      },
+      "brain": {
+        "type": "string",
+        "enum": ["scripted", "llm"],
+        "description": "Intake brain: deterministic slot-filling (scripted, default, no LLM) or the LLM-backed conversational brain."
+      },
+      "provider": {
+        "type": "string",
+        "description": "Provider id for the LLM brain (defaults to the agent default model's provider)."
+      },
+      "model": {
+        "type": "string",
+        "description": "Model id for the LLM brain (defaults to the agent default model)."
+      },
       "handoffChannel": {
         "type": "string",
         "enum": ["stub", "slack", "email"],
         "description": "Where completed order drafts are delivered. Defaults to stub until a channel is configured."
+      },
+      "slack": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Slack handoff settings (used when handoffChannel is \"slack\"). Provide a webhook URL, or a bot token plus channel. Secrets may also come from the ORDER_INTAKE_SLACK_* env vars.",
+        "properties": {
+          "webhookUrl": {
+            "type": "string",
+            "description": "Slack incoming webhook URL. Preferred: no bot user or OAuth scopes needed."
+          },
+          "botToken": {
+            "type": "string",
+            "description": "Slack bot token (xoxb-…) for chat.postMessage. Requires channel."
+          },
+          "channel": {
+            "type": "string",
+            "description": "Target channel id or name for the bot-token transport (e.g. #new-orders)."
+          }
+        }
       }
     }
   }

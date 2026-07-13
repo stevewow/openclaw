@@ -4,14 +4,36 @@ import { createChatService } from "./src/chat-service.js";
 import { StubHandoffSender, type HandoffSender } from "./src/handoff.js";
 import { createQuoteTool, createSubmitTool } from "./src/intake-tools.js";
 import { InMemorySessionStore } from "./src/session-store.js";
+import { SlackHandoffSender, resolveSlackTransport } from "./src/slack-handoff.js";
+
+type SlackCfg = { webhookUrl?: string; botToken?: string; channel?: string };
 
 type PluginCfg = {
   basePath?: string;
   brain?: "scripted" | "llm";
   handoffChannel?: "stub" | "slack" | "email";
+  slack?: SlackCfg;
   provider?: string;
   model?: string;
 };
+
+// Choose the handoff sender from config. Slack is used when selected AND a
+// transport (webhook URL, or bot token + channel) resolves from config/env;
+// otherwise fall back to the stub so intake still works and nothing throws.
+function selectHandoffSender(api: OpenClawPluginApi, cfg: PluginCfg): HandoffSender {
+  if (cfg.handoffChannel === "slack") {
+    const transport = resolveSlackTransport(cfg.slack);
+    if (transport) {
+      api.logger.info?.(`[order-intake] handoff via Slack (${transport.kind})`);
+      return new SlackHandoffSender({ transport, logger: api.logger });
+    }
+    api.logger.warn?.(
+      "[order-intake] handoffChannel=slack but no Slack transport configured " +
+        "(set slack.webhookUrl or slack.botToken+slack.channel, or the ORDER_INTAKE_SLACK_* env vars). Falling back to stub.",
+    );
+  }
+  return new StubHandoffSender();
+}
 
 export default definePluginEntry({
   id: "order-intake",
@@ -22,9 +44,9 @@ export default definePluginEntry({
     const cfg = (api.pluginConfig ?? {}) as PluginCfg;
     const basePath = (cfg.basePath ?? "/wow-intake").replace(/\/+$/, "") || "/wow-intake";
 
-    // Handoff channel is deferred (Slack vs email). M0 records notifications
-    // with a stub sender. Swap in a real HandoffSender when the channel is chosen.
-    const sender: HandoffSender = new StubHandoffSender();
+    // Handoff channel: Slack when configured (handoffChannel="slack" + a
+    // webhook or bot token), otherwise the stub sender that just records drafts.
+    const sender: HandoffSender = selectHandoffSender(api, cfg);
 
     // Tools for an agent-loop brain.
     api.registerTool(createQuoteTool() as unknown as AnyAgentTool, { optional: true });
