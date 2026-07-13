@@ -1,0 +1,18 @@
+{
+  "name": "@openclaw/order-intake",
+  "version": "2026.7.13-beta.1",
+  "private": true,
+  "description": "OpenClaw conversational order-intake plugin (catalog quoting + draft handoff)",
+  "type": "module",
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

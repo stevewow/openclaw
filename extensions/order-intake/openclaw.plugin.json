@@ -1,0 +1,30 @@
+{
+  "id": "order-intake",
+  "activation": {
+    "onStartup": true
+  },
+  "name": "Order Intake",
+  "description": "Conversational order-intake assistant for property media orders: catalog-based quoting and completeness-checked draft handoff.",
+  "contracts": {
+    "tools": ["quote_order", "submit_order_draft"]
+  },
+  "toolMetadata": {
+    "quote_order": {
+      "optional": true
+    },
+    "submit_order_draft": {
+      "optional": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "handoffChannel": {
+        "type": "string",
+        "enum": ["stub", "slack", "email"],
+        "description": "Where completed order drafts are delivered. Defaults to stub until a channel is configured."
+      }
+    }
+  }
+}

@@ -284,6 +284,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/open-prose/**"
+"extensions: order-intake":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/order-intake/**"
 "extensions: tokenjuice":
   - changed-files:
       - any-glob-to-any-file:
