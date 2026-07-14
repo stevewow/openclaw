@@ -14,7 +14,7 @@ import type { OpenClawPluginApi } from "../api.js";
 import { runningEstimate, type BrainTurn, type IntakeBrain } from "./brain.js";
 import { formatHandoff, type HandoffSender } from "./handoff.js";
 import { checkCompleteness, coerceDraft, type OrderDraft } from "./order-draft.js";
-import { INTAKE_SYSTEM_PROMPT } from "./prompt.js";
+import { GREETING, INTAKE_SYSTEM_PROMPT } from "./prompt.js";
 import type { IntakeSession } from "./session-store.js";
 
 type LlmTurnResult = { reply: string; draft: OrderDraft; readyToSubmit: boolean };
@@ -52,7 +52,7 @@ export class RuntimeBrain implements IntakeBrain {
   constructor(private readonly opts: RuntimeBrainOptions) {}
 
   greeting(): string {
-    return "Welcome to WOW Video Tours! Tell me about your listing and I'll help you put together an order. What are you looking to book?";
+    return GREETING;
   }
 
   async respond({

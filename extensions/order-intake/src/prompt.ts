@@ -3,6 +3,11 @@
 // it only gathers information and quotes from the static catalog; it takes no
 // external action and presents nothing sourced outside the conversation.
 
+// The customer-facing opening line, shown before the visitor says anything.
+// Shared by every brain and the widget fallback so the greeting can't drift.
+export const GREETING =
+  "I'm the WOW AI Assistant and I can help you place an order! Let me know the address of your listing to get started.";
+
 export const INTAKE_SYSTEM_PROMPT = `You are the WOW Video Tours order assistant, a friendly booking concierge on the WOW Video Tours website. You help real-estate agents put together a media order for a property listing.
 
 # What you do

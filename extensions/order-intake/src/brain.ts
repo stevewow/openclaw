@@ -7,6 +7,7 @@ import { bundleById, serviceById } from "./catalog.js";
 import { quote } from "./estimator.js";
 import { formatHandoff, type HandoffNotification, type HandoffSender } from "./handoff.js";
 import { toQuoteRequest, type OrderDraft } from "./order-draft.js";
+import { GREETING } from "./prompt.js";
 import type { IntakeSession } from "./session-store.js";
 
 export type BrainTurn = {
@@ -68,10 +69,18 @@ function matchSelection(s: string): { bundleId?: string; serviceId?: string } {
 
 const SLOTS: Slot[] = [
   {
+    id: "address",
+    filled: (d) => !!d.property.address,
+    question: "What's the address of the listing you'd like to book?",
+    apply: (d, a) => {
+      d.property.address = a.trim();
+    },
+  },
+  {
     id: "service",
     filled: (d) => !!d.service.bundleId || (d.service.singleServiceIds?.length ?? 0) > 0,
     question:
-      "Welcome to WOW Video Tours! What are you looking to book for your listing? We have bundles like WOW Essentials, WOW Essentials + Aerial Silver, and the Luxury Listing Package, or individual services.",
+      "Great — what would you like to book for it? We have bundles like WOW Essentials, WOW Essentials + Aerial Silver, and the Luxury Listing Package, or individual services.",
     apply: (d, a) => {
       const m = matchSelection(a);
       if (m.bundleId) d.service.bundleId = m.bundleId;
@@ -82,19 +91,10 @@ const SLOTS: Slot[] = [
   {
     id: "squareFeet",
     filled: (d) => d.property.squareFeet != null,
-    question:
-      "Great choice! Roughly how many square feet is the home? (Pricing is based on square footage.)",
+    question: "Roughly how many square feet is the home? (Pricing is based on square footage.)",
     apply: (d, a) => {
       const n = firstNumber(a);
       if (n != null) d.property.squareFeet = n;
-    },
-  },
-  {
-    id: "address",
-    filled: (d) => !!d.property.address,
-    question: "What's the property address?",
-    apply: (d, a) => {
-      d.property.address = a.trim();
     },
   },
   {
@@ -208,7 +208,7 @@ export class ScriptedBrain implements IntakeBrain {
   constructor(private readonly sender: HandoffSender) {}
 
   greeting(): string {
-    return SLOTS[0].question;
+    return GREETING;
   }
 
   async respond({

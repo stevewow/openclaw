@@ -7,8 +7,10 @@
 //   POST {base}/chat        -> { visitorId, listingId?, message } -> { reply, done }
 //   GET  {base}/session     -> { history, done } for resume
 
+import { GREETING } from "./prompt.js";
+
 const BRAND = "WOW Video Tours";
-const ACCENT = "#0E6E63";
+const ACCENT = "#E11B22";
 
 export function chatPageHtml(base: string): string {
   return `<!DOCTYPE html>
@@ -18,7 +20,7 @@ export function chatPageHtml(base: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${BRAND} — Book your shoot</title>
 <style>
-  :root { --accent: ${ACCENT}; --ink: #1a1d1f; --ink-2: #5a6066; --line: #e4e4de; --bg: #f6f6f3; --bubble: #eef4f3; }
+  :root { --accent: ${ACCENT}; --ink: #1a1d1f; --ink-2: #5a6066; --line: #e4e4de; --bg: #f6f6f3; --bubble: #f0eeec; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -91,7 +93,7 @@ export function chatPageHtml(base: string): string {
       }
       if (s && s.done) setBusy(true);
     })
-    .catch(function () { bubble("assistant", "Welcome to ${BRAND}! How can we help with your listing today?"); });
+    .catch(function () { bubble("assistant", ${JSON.stringify(GREETING)}); });
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();

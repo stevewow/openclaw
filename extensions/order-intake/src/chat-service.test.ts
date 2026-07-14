@@ -78,10 +78,10 @@ describe("web-chat service (M0)", () => {
 
   it("runs a full intake to handoff and persists/ resumes", async () => {
     const v = "v-full";
+    await say(v, "850 E Dorothy Ln, Kettering OH 45419");
     await say(v, "I'd like the WOW Essentials bundle");
     const afterSqft = await say(v, "About 2400 square feet");
     expect(afterSqft.reply).toContain("2,400");
-    await say(v, "850 E Dorothy Ln, Kettering OH 45419");
     await say(v, "$425,000");
     await say(v, "occupied");
     await say(v, "Wendy Klawon");
