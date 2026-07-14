@@ -128,7 +128,14 @@ export function chatPageHtml(base: string): string {
 // floating launcher button that opens the chat page in an iframe overlay.
 export function embedJs(base: string): string {
   return `(function(){
-  var BASE=${JSON.stringify(base)};
+  // The iframe must load from the gateway origin (where this script is served),
+  // not the host page's origin — otherwise a path-relative src resolves against
+  // the customer's own site and loads a blank/404 page. Derive the origin from
+  // this script tag and build an absolute base URL.
+  var self=document.currentScript;
+  if(!self){var ss=document.getElementsByTagName("script");for(var i=ss.length-1;i>=0;i--){if(ss[i].src&&ss[i].src.indexOf("/embed.js")>-1){self=ss[i];break;}}}
+  var ORIGIN=self&&self.src?new URL(self.src,location.href).origin:location.origin;
+  var BASE=ORIGIN+${JSON.stringify(base)};
   var open=false, frame, btn;
   function el(t,s){var e=document.createElement(t);for(var k in s)e.style[k]=s[k];return e;}
   btn=el("button",{position:"fixed",right:"20px",bottom:"20px",zIndex:"2147483000",width:"58px",height:"58px",borderRadius:"50%",border:"0",background:"${ACCENT}",color:"#fff",fontSize:"24px",cursor:"pointer",boxShadow:"0 6px 20px rgba(0,0,0,.25)"});

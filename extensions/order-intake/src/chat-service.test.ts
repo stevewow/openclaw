@@ -59,6 +59,16 @@ describe("web-chat service (M0)", () => {
     expect(r.headers.get("content-type")).toContain("javascript");
   });
 
+  it("embed snippet resolves the iframe origin from its own script tag", async () => {
+    // Guards against the launcher pointing the iframe at the host page's origin
+    // (a path-relative src), which loads a blank/404 page on the customer site.
+    const js = await (await fetch(`${ctx.url}${BASE}/embed.js`)).text();
+    expect(js).toContain("document.currentScript");
+    expect(js).toContain("new URL(self.src,location.href).origin");
+    expect(js).toContain("var BASE=ORIGIN+");
+    expect(js).not.toContain('var BASE="/wow-intake"');
+  });
+
   it("greets a fresh visitor via /session", async () => {
     const r = await fetch(`${ctx.url}${BASE}/session?visitorId=v1`);
     const s = (await r.json()) as { history: unknown[]; greeting?: string };
