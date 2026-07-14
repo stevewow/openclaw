@@ -43,6 +43,10 @@ export type RuntimeBrainOptions = {
   sender: HandoffSender;
   provider?: string;
   model?: string;
+  // Named agent to run the embedded LLM turn as. Selects which agent's auth
+  // store + identity the model call uses (e.g. "agent-assistant"). When unset,
+  // the embedded runtime falls back to the configured default agent ("main").
+  agent?: string;
   authProfileId?: string;
   timeoutMs?: number;
 };
@@ -108,6 +112,7 @@ export class RuntimeBrain implements IntakeBrain {
       sessionId: `order-intake-${Math.abs(hash(prompt))}`,
       workspaceDir: api.config?.agents?.defaults?.workspace ?? process.cwd(),
       config: api.config,
+      agentId: this.opts.agent,
       prompt: `You are a JSON-only function. Return ONLY valid JSON matching this schema: ${JSON.stringify(TURN_SCHEMA)}\n\n${prompt}`,
       provider,
       model,

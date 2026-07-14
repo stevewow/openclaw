@@ -15,6 +15,8 @@ type PluginCfg = {
   slack?: SlackCfg;
   provider?: string;
   model?: string;
+  // Named agent the LLM brain runs as (selects auth store + identity).
+  agent?: string;
 };
 
 // Choose the handoff sender from config. Slack is used when selected AND a
@@ -61,7 +63,13 @@ export default definePluginEntry({
       // Lazy import keeps the SDK-heavy runtime brain out of the load path unless used.
       void import("./src/runtime-brain.js")
         .then(({ RuntimeBrain }) => {
-          brain = new RuntimeBrain({ api, sender, provider: cfg.provider, model: cfg.model });
+          brain = new RuntimeBrain({
+            api,
+            sender,
+            provider: cfg.provider,
+            model: cfg.model,
+            agent: cfg.agent,
+          });
           api.logger.info?.("[order-intake] using LLM RuntimeBrain");
         })
         .catch((err) => {

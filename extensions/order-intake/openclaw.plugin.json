@@ -37,6 +37,10 @@
         "type": "string",
         "description": "Model id for the LLM brain (defaults to the agent default model)."
       },
+      "agent": {
+        "type": "string",
+        "description": "Named agent the LLM brain runs as; selects which agent's auth store and identity the model call uses (e.g. \"agent-assistant\"). Defaults to the configured default agent."
+      },
       "handoffChannel": {
         "type": "string",
         "enum": ["stub", "slack", "email"],
