@@ -158,7 +158,46 @@ type ClevelandRefreshLogTable = {
   manual: number;
 };
 
-type AdminDb = {
+type TicketsTable = {
+  id: string;
+  number: string;
+  reply_token: string;
+  category: string;
+  status: string;
+  priority: string;
+  source: string;
+  subject: string;
+  description: string | null;
+  department: string;
+  requester_name: string | null;
+  requester_email: string | null;
+  requester_phone: string | null;
+  order_id: string | null;
+  order_address: string | null;
+  assigned_to: string | null;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+  resolved_at: number | null;
+};
+
+type TicketEventsTable = {
+  id: string;
+  ticket_id: string;
+  kind: string;
+  author_type: string;
+  author_name: string | null;
+  body: string | null;
+  meta: string | null;
+  created_at: number;
+};
+
+type TicketSeqTable = {
+  id: number;
+  next_number: number;
+};
+
+export type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
   admin_user_permissions: PermissionsTable;
@@ -174,6 +213,9 @@ type AdminDb = {
   admin_financial_notes: FinancialNotesTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
+  admin_tickets: TicketsTable;
+  admin_ticket_events: TicketEventsTable;
+  admin_ticket_seq: TicketSeqTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -380,6 +422,47 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       id TEXT PRIMARY KEY,
       refreshed_at INTEGER NOT NULL,
       manual INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS admin_tickets (
+      id TEXT PRIMARY KEY,
+      number TEXT UNIQUE NOT NULL,
+      reply_token TEXT UNIQUE NOT NULL,
+      category TEXT NOT NULL CHECK(category IN ('edit_request','additional_service','missing_media','other')),
+      status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','in_progress','needs_review','resolved','closed')),
+      priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
+      source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('widget','email','manual')),
+      subject TEXT NOT NULL,
+      description TEXT,
+      department TEXT NOT NULL DEFAULT 'general',
+      requester_name TEXT,
+      requester_email TEXT,
+      requester_phone TEXT,
+      order_id TEXT,
+      order_address TEXT,
+      assigned_to TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS admin_tickets_status ON admin_tickets(status);
+    CREATE INDEX IF NOT EXISTS admin_tickets_department ON admin_tickets(department);
+    CREATE INDEX IF NOT EXISTS admin_tickets_created_at ON admin_tickets(created_at);
+    CREATE INDEX IF NOT EXISTS admin_tickets_order ON admin_tickets(order_id);
+    CREATE TABLE IF NOT EXISTS admin_ticket_events (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL REFERENCES admin_tickets(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('created','comment','status_change','assignment','email_out','email_in')),
+      author_type TEXT NOT NULL CHECK(author_type IN ('client','staff','system')),
+      author_name TEXT,
+      body TEXT,
+      meta TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_ticket_events_ticket ON admin_ticket_events(ticket_id);
+    CREATE TABLE IF NOT EXISTS admin_ticket_seq (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      next_number INTEGER NOT NULL
     );
   `);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;

@@ -396,6 +396,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
       <a href="#reports" class="nav-link admin-only" data-page="reports"><span class="icon">📊</span> Reports</a>
       <a href="#rankings" class="nav-link admin-only" data-page="rankings"><span class="icon">🏆</span> Rankings</a>
+      <div class="nav-section">Support</div>
+      <a href="#tickets" class="nav-link admin-only" data-page="tickets"><span class="icon">🎫</span> Tickets</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
       <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
@@ -689,6 +691,57 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
                 <tbody id="rank-companies-body"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Support: Tickets page -->
+      <div id="page-tickets" class="page hidden">
+        <div class="stats-grid" id="ticket-stats-grid" style="margin-bottom:1rem"></div>
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label>Status</label>
+              <select id="ticket-status-filter">
+                <option value="">All statuses</option>
+                <option value="new">New</option>
+                <option value="in_progress">In Progress</option>
+                <option value="needs_review">Needs Review</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Category</label>
+              <select id="ticket-category-filter">
+                <option value="">All categories</option>
+                <option value="edit_request">Edit request</option>
+                <option value="additional_service">Additional service</option>
+                <option value="missing_media">Missing media</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Department</label>
+              <select id="ticket-department-filter"><option value="">All departments</option></select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:180px">
+              <label>Search</label>
+              <input type="text" id="ticket-search" placeholder="Ticket #, subject, requester, address…" autocomplete="off" />
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:flex-end;gap:0.5rem">
+              <button class="btn btn-primary btn-sm" id="ticket-new-btn">＋ New Ticket</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Ticket</th><th>Subject</th><th>Category</th><th>Requester</th><th>Order</th><th>Dept</th><th>Status</th><th>Updated</th></tr>
+              </thead>
+              <tbody id="ticket-body"><tr><td colspan="8" class="empty-state">Loading…</td></tr></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1099,6 +1152,100 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   </div>
 </div>
 
+<div id="ticket-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:720px;overflow-y:auto;max-height:calc(100dvh - 48px)">
+    <div class="flex items-center" style="justify-content:space-between;gap:1rem">
+      <div class="modal-title" id="ticket-modal-title" style="margin:0">Ticket</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="ticket-modal-close">✕</button>
+    </div>
+    <div id="ticket-modal-meta" style="font-size:0.85rem;margin:0.4rem 0 1rem"></div>
+    <div class="flex items-center gap-2" style="flex-wrap:wrap;margin-bottom:1rem">
+      <div class="form-group" style="margin:0">
+        <label>Status</label>
+        <select id="ticket-modal-status">
+          <option value="new">New</option>
+          <option value="in_progress">In Progress</option>
+          <option value="needs_review">Needs Review</option>
+          <option value="resolved">Resolved</option>
+          <option value="closed">Closed</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Priority</label>
+        <select id="ticket-modal-priority">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Department</label>
+        <select id="ticket-modal-department"></select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Assignee</label>
+        <select id="ticket-modal-assignee"><option value="">Unassigned</option></select>
+      </div>
+      <div style="margin-left:auto;align-self:flex-end">
+        <button class="btn btn-primary btn-sm" id="ticket-modal-save">Save changes</button>
+      </div>
+    </div>
+    <div id="ticket-modal-desc" style="font-size:0.9rem;white-space:pre-wrap;background:var(--surface-2,rgba(0,0,0,0.03));padding:0.75rem;border-radius:8px;margin-bottom:1.25rem"></div>
+    <div style="font-weight:700;margin-bottom:0.5rem">Activity</div>
+    <div id="ticket-modal-thread" style="margin-bottom:0.75rem"></div>
+    <form id="ticket-comment-form" style="display:flex;gap:0.5rem">
+      <input type="text" id="ticket-comment-input" placeholder="Add an internal comment…" autocomplete="off" style="flex:1" />
+      <button type="submit" class="btn btn-primary btn-sm">Comment</button>
+    </form>
+  </div>
+</div>
+
+<div id="ticket-create-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:560px;overflow-y:auto;max-height:calc(100dvh - 48px)">
+    <div class="flex items-center" style="justify-content:space-between;gap:1rem">
+      <div class="modal-title" style="margin:0">New Ticket</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="ticket-create-close">✕</button>
+    </div>
+    <form id="ticket-create-form" style="margin-top:1rem">
+      <div class="form-group">
+        <label>Category</label>
+        <select id="tc-category">
+          <option value="edit_request">Edit request</option>
+          <option value="additional_service">Additional service</option>
+          <option value="missing_media">Missing media</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Subject</label>
+        <input type="text" id="tc-subject" autocomplete="off" required />
+      </div>
+      <div class="form-group">
+        <label>Details</label>
+        <textarea id="tc-description" rows="3"></textarea>
+      </div>
+      <div class="flex gap-2" style="flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:160px"><label>Requester name</label><input type="text" id="tc-requester-name" autocomplete="off" /></div>
+        <div class="form-group" style="flex:1;min-width:160px"><label>Priority</label><select id="tc-priority"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
+      </div>
+      <div class="flex gap-2" style="flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:160px"><label>Requester email</label><input type="email" id="tc-requester-email" autocomplete="off" /></div>
+        <div class="form-group" style="flex:1;min-width:160px"><label>Requester phone</label><input type="text" id="tc-requester-phone" autocomplete="off" /></div>
+      </div>
+      <div class="flex gap-2" style="flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:160px"><label>Order ID</label><input type="text" id="tc-order-id" autocomplete="off" /></div>
+        <div class="form-group" style="flex:1;min-width:160px"><label>Property address</label><input type="text" id="tc-order-address" autocomplete="off" /></div>
+      </div>
+      <div id="ticket-create-error" class="hidden" style="color:var(--danger,#c0000a);font-size:0.85rem;margin-bottom:0.5rem"></div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button type="button" class="btn btn-ghost btn-sm" id="ticket-create-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Create ticket</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 (function() {
   'use strict';
@@ -1171,6 +1318,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
     reports: { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: true, superAdminOnly: false },
+    tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: true, superAdminOnly: false },
     financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
     cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
   };
@@ -1213,6 +1361,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'projects') loadProjects();
     if (page === 'reports') loadReports();
     if (page === 'rankings') loadRankings();
+    if (page === 'tickets') loadTickets();
     if (page === 'financials') loadFinancials();
     if (page === 'cleveland') loadCleveland();
     location.hash = '#' + page;
@@ -3199,6 +3348,208 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     const da = new Date(a), db = new Date(b);
     return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
   }
+
+  // ── Support Tickets ─────────────────────────────────────────────────────────
+  var ticketDeptOptions = ['editing','operations','billing','general'];
+  var ticketUserDirectory = [];
+  var currentTicketId = null;
+  var ticketSearchTimer = null;
+
+  function ticketStatusLabel(s){ return ({'new':'New','in_progress':'In Progress','needs_review':'Needs Review','resolved':'Resolved','closed':'Closed'})[s] || s; }
+  function ticketCategoryLabel(c){ return ({'edit_request':'Edit request','additional_service':'Additional service','missing_media':'Missing media','other':'Other'})[c] || c; }
+  function ticketStatusBadge(s){
+    var colors={'new':'#2563eb','in_progress':'#0E6E63','needs_review':'#d97706','resolved':'#16a34a','closed':'#6b7280'};
+    var c=colors[s]||'#6b7280';
+    return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;color:#fff;background:'+c+'">'+ticketStatusLabel(s)+'</span>';
+  }
+  function tdate(ms){ return ms ? new Date(ms).toLocaleString() : '—'; }
+  function ticketUserName(id){
+    if(!id) return 'Unassigned';
+    var u = ticketUserDirectory.find(function(x){ return x.id===id; });
+    return u ? (u.username || id) : id;
+  }
+
+  async function loadTicketDirectory(){
+    if (ticketUserDirectory.length) return;
+    var r = await api('GET','/users/directory');
+    if (r.ok && r.data && Array.isArray(r.data.users)) ticketUserDirectory = r.data.users;
+  }
+
+  function populateTicketDeptFilter(){
+    var sel = document.getElementById('ticket-department-filter');
+    if (sel.options.length > 1) return;
+    ticketDeptOptions.forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=d; sel.appendChild(o); });
+  }
+  function populateTicketDeptSelect(sel, value){
+    sel.innerHTML='';
+    var opts = ticketDeptOptions.slice();
+    if (value && opts.indexOf(value)===-1) opts.push(value);
+    opts.forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=d; if(d===value) o.selected=true; sel.appendChild(o); });
+  }
+  function populateTicketAssignee(sel, value){
+    sel.innerHTML='<option value="">Unassigned</option>';
+    ticketUserDirectory.forEach(function(u){ var o=document.createElement('option'); o.value=u.id; o.textContent=u.username||u.id; if(u.id===value) o.selected=true; sel.appendChild(o); });
+  }
+
+  async function loadTickets(){
+    await loadTicketDirectory();
+    populateTicketDeptFilter();
+    await Promise.all([loadTicketStats(), loadTicketTable()]);
+  }
+
+  async function loadTicketStats(){
+    var grid = document.getElementById('ticket-stats-grid');
+    var r = await api('GET','/tickets/stats');
+    if(!r.ok){ grid.innerHTML=''; return; }
+    var b = (r.data.stats && r.data.stats.byStatus) || {};
+    var open = (b['new']||0)+(b.in_progress||0)+(b.needs_review||0);
+    var tiles = [['Open',open],['New',b['new']||0],['In Progress',b.in_progress||0],['Needs Review',b.needs_review||0],['Resolved',b.resolved||0]];
+    grid.innerHTML = tiles.map(function(t){ return '<div class="stat-card"><div class="stat-label">'+t[0]+'</div><div class="stat-value">'+t[1]+'</div></div>'; }).join('');
+  }
+
+  function ticketFilterQuery(){
+    var p = new URLSearchParams();
+    var st = document.getElementById('ticket-status-filter').value;
+    var cat = document.getElementById('ticket-category-filter').value;
+    var dep = document.getElementById('ticket-department-filter').value;
+    var q = document.getElementById('ticket-search').value.trim();
+    if(st) p.set('status',st);
+    if(cat) p.set('category',cat);
+    if(dep) p.set('department',dep);
+    if(q) p.set('q',q);
+    var qs = p.toString();
+    return qs ? '?'+qs : '';
+  }
+
+  async function loadTicketTable(){
+    var body = document.getElementById('ticket-body');
+    var r = await api('GET','/tickets'+ticketFilterQuery());
+    if(!r.ok){ body.innerHTML='<tr><td colspan="8" class="empty-state">Failed to load.</td></tr>'; return; }
+    var tickets = r.data.tickets || [];
+    if(!tickets.length){ body.innerHTML='<tr><td colspan="8" class="empty-state">No tickets.</td></tr>'; return; }
+    body.innerHTML = tickets.map(function(t){
+      return '<tr data-id="'+esc(t.id)+'" class="ticket-row" style="cursor:pointer">'+
+        '<td><strong>'+esc(t.number)+'</strong></td>'+
+        '<td>'+esc(t.subject)+'</td>'+
+        '<td>'+ticketCategoryLabel(t.category)+'</td>'+
+        '<td>'+esc(t.requesterName||'—')+'</td>'+
+        '<td>'+esc(t.orderAddress||t.orderId||'—')+'</td>'+
+        '<td>'+esc(t.department)+'</td>'+
+        '<td>'+ticketStatusBadge(t.status)+'</td>'+
+        '<td class="text-muted" style="font-size:0.8rem">'+tdate(t.updatedAt)+'</td>'+
+        '</tr>';
+    }).join('');
+    body.querySelectorAll('.ticket-row').forEach(function(tr){ tr.addEventListener('click', function(){ openTicket(tr.dataset.id); }); });
+  }
+
+  function ticketEventLine(e){
+    var who = e.authorName || (e.authorType==='system'?'system':e.authorType);
+    var text='';
+    if(e.kind==='created') text='opened the ticket';
+    else if(e.kind==='comment') text=esc(e.body||'');
+    else if(e.kind==='status_change') text='changed status '+((e.meta&&e.meta.from)?ticketStatusLabel(e.meta.from)+' → ':'')+ticketStatusLabel(e.meta&&e.meta.to);
+    else if(e.kind==='assignment') text='reassigned to '+ticketUserName(e.meta&&e.meta.to);
+    else if(e.kind==='email_out') text='emailed the department'+(e.body?': '+esc(e.body):'');
+    else if(e.kind==='email_in') text='replied by email'+(e.body?': '+esc(e.body):'');
+    return '<div style="padding:0.5rem 0;border-bottom:1px solid var(--border)"><div style="font-size:0.8rem;color:var(--text-muted)"><strong>'+esc(who)+'</strong> · '+tdate(e.createdAt)+'</div><div style="font-size:0.9rem;white-space:pre-wrap">'+text+'</div></div>';
+  }
+  function renderTicketThread(events){
+    var el=document.getElementById('ticket-modal-thread');
+    el.innerHTML = events.length ? events.map(ticketEventLine).join('') : '<div class="text-muted" style="font-size:0.85rem">No activity yet.</div>';
+  }
+
+  async function openTicket(id){
+    var r = await api('GET','/tickets/'+id);
+    if(!r.ok){ alert((r.data&&r.data.error)||'Failed to open ticket.'); return; }
+    var t = r.data.ticket; var events = r.data.events || [];
+    currentTicketId = t.id;
+    document.getElementById('ticket-modal-title').textContent = t.number + ' · ' + ticketCategoryLabel(t.category);
+    var meta = [];
+    if(t.requesterName) meta.push('<strong>'+esc(t.requesterName)+'</strong>');
+    if(t.requesterEmail) meta.push(esc(t.requesterEmail));
+    if(t.requesterPhone) meta.push(esc(t.requesterPhone));
+    if(t.orderAddress) meta.push('📍 '+esc(t.orderAddress));
+    if(t.orderId) meta.push('Order '+esc(t.orderId));
+    meta.push('via '+esc(t.source));
+    meta.push('opened '+tdate(t.createdAt));
+    document.getElementById('ticket-modal-meta').innerHTML = meta.join(' · ');
+    document.getElementById('ticket-modal-desc').textContent = t.description || '(no details provided)';
+    document.getElementById('ticket-modal-status').value = t.status;
+    document.getElementById('ticket-modal-priority').value = t.priority;
+    populateTicketDeptSelect(document.getElementById('ticket-modal-department'), t.department);
+    populateTicketAssignee(document.getElementById('ticket-modal-assignee'), t.assignedTo);
+    renderTicketThread(events);
+    document.getElementById('ticket-modal').classList.remove('hidden');
+  }
+
+  function closeTicketModal(){ document.getElementById('ticket-modal').classList.add('hidden'); currentTicketId=null; }
+  document.getElementById('ticket-modal-close').addEventListener('click', closeTicketModal);
+  document.getElementById('ticket-modal').addEventListener('click', function(e){ if(e.target.id==='ticket-modal') closeTicketModal(); });
+
+  document.getElementById('ticket-modal-save').addEventListener('click', async function(){
+    if(!currentTicketId) return;
+    var payload = {
+      status: document.getElementById('ticket-modal-status').value,
+      priority: document.getElementById('ticket-modal-priority').value,
+      department: document.getElementById('ticket-modal-department').value,
+      assignedTo: document.getElementById('ticket-modal-assignee').value || null,
+    };
+    var r = await api('PUT','/tickets/'+currentTicketId, payload);
+    if(!r.ok){ alert((r.data&&r.data.error)||'Save failed.'); return; }
+    await openTicket(currentTicketId);
+    loadTicketTable(); loadTicketStats();
+  });
+
+  document.getElementById('ticket-comment-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var input=document.getElementById('ticket-comment-input');
+    var text=input.value.trim();
+    if(!text || !currentTicketId) return;
+    var r = await api('POST','/tickets/'+currentTicketId+'/comment', { body: text });
+    if(!r.ok){ alert((r.data&&r.data.error)||'Comment failed.'); return; }
+    input.value='';
+    await openTicket(currentTicketId);
+    loadTicketTable();
+  });
+
+  ['ticket-status-filter','ticket-category-filter','ticket-department-filter'].forEach(function(id){
+    document.getElementById(id).addEventListener('change', loadTicketTable);
+  });
+  document.getElementById('ticket-search').addEventListener('input', function(){
+    clearTimeout(ticketSearchTimer); ticketSearchTimer=setTimeout(loadTicketTable, 250);
+  });
+
+  function openCreateTicket(){
+    document.getElementById('ticket-create-error').classList.add('hidden');
+    document.getElementById('ticket-create-form').reset();
+    document.getElementById('ticket-create-modal').classList.remove('hidden');
+  }
+  function closeCreateTicket(){ document.getElementById('ticket-create-modal').classList.add('hidden'); }
+  document.getElementById('ticket-new-btn').addEventListener('click', openCreateTicket);
+  document.getElementById('ticket-create-close').addEventListener('click', closeCreateTicket);
+  document.getElementById('ticket-create-cancel').addEventListener('click', closeCreateTicket);
+  document.getElementById('ticket-create-modal').addEventListener('click', function(e){ if(e.target.id==='ticket-create-modal') closeCreateTicket(); });
+  document.getElementById('ticket-create-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var payload = {
+      category: document.getElementById('tc-category').value,
+      subject: document.getElementById('tc-subject').value.trim(),
+      description: document.getElementById('tc-description').value.trim() || null,
+      priority: document.getElementById('tc-priority').value,
+      requesterName: document.getElementById('tc-requester-name').value.trim() || null,
+      requesterEmail: document.getElementById('tc-requester-email').value.trim() || null,
+      requesterPhone: document.getElementById('tc-requester-phone').value.trim() || null,
+      orderId: document.getElementById('tc-order-id').value.trim() || null,
+      orderAddress: document.getElementById('tc-order-address').value.trim() || null,
+    };
+    var er = document.getElementById('ticket-create-error');
+    if(!payload.subject){ er.textContent='Subject is required.'; er.classList.remove('hidden'); return; }
+    var r = await api('POST','/tickets', payload);
+    if(!r.ok){ er.textContent=(r.data&&r.data.error)||'Create failed.'; er.classList.remove('hidden'); return; }
+    closeCreateTicket();
+    await Promise.all([loadTicketTable(), loadTicketStats()]);
+    openTicket(r.data.ticket.id);
+  });
 
   // ── Nav ───────────────────────────────────────────────────────────────────
   document.querySelectorAll('.nav-link').forEach(a => {

@@ -69,6 +69,24 @@ import {
   listAvailableMarkets,
   refreshMonth,
 } from "./spiro-report-store.js";
+import {
+  TICKET_CATEGORIES,
+  TICKET_PRIORITIES,
+  TICKET_STATUSES,
+  addTicketEvent,
+  createTicket,
+  deleteTicket,
+  getTicket,
+  getTicketStats,
+  listTicketEvents,
+  listTickets,
+  updateTicket,
+  type ListTicketFilters,
+  type TicketCategory,
+  type TicketPriority,
+  type TicketStatus,
+  type UpdateTicketParams,
+} from "./ticket-store.js";
 import type { AdminUserRole } from "./types.js";
 import {
   createSession,
@@ -1139,6 +1157,186 @@ export async function handleAdminHttpRequest(
       return true;
     }
     await deleteTask(id);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // ── Support tickets (management review; admin only) ────────────────────────
+  // GET /api/admin/tickets — queue, with optional status/category/department/q filters
+  if (subPath === "/tickets" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const filters: ListTicketFilters = {};
+    const status = url.searchParams.get("status");
+    if (status && TICKET_STATUSES.includes(status as TicketStatus))
+      filters.status = status as TicketStatus;
+    const category = url.searchParams.get("category");
+    if (category && TICKET_CATEGORIES.includes(category as TicketCategory))
+      filters.category = category as TicketCategory;
+    const department = normalizeString(url.searchParams.get("department"));
+    if (department) filters.department = department;
+    const assignedTo = normalizeString(url.searchParams.get("assignedTo"));
+    if (assignedTo) filters.assignedTo = assignedTo;
+    const q = normalizeString(url.searchParams.get("q"));
+    if (q) filters.q = q;
+    const tickets = await listTickets(filters);
+    sendJson(res, 200, { tickets });
+    return true;
+  }
+
+  // GET /api/admin/tickets/stats — counts by status for the dashboard tiles
+  if (subPath === "/tickets/stats" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    sendJson(res, 200, { stats: await getTicketStats() });
+    return true;
+  }
+
+  // POST /api/admin/tickets — manual create (the intake form uses the same store)
+  if (subPath === "/tickets" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const subject = normalizeString(data.subject);
+    if (!subject) {
+      sendBadRequest(res, "subject required");
+      return true;
+    }
+    if (!TICKET_CATEGORIES.includes(data.category as TicketCategory)) {
+      sendBadRequest(res, "valid category required");
+      return true;
+    }
+    const priority = TICKET_PRIORITIES.includes(data.priority as TicketPriority)
+      ? (data.priority as TicketPriority)
+      : "medium";
+    const ticket = await createTicket({
+      category: data.category as TicketCategory,
+      subject,
+      description: normalizeString(data.description),
+      priority,
+      source: "manual",
+      department: normalizeString(data.department),
+      requesterName: normalizeString(data.requesterName),
+      requesterEmail: normalizeString(data.requesterEmail),
+      requesterPhone: normalizeString(data.requesterPhone),
+      orderId: normalizeString(data.orderId),
+      orderAddress: normalizeString(data.orderAddress),
+      assignedTo: normalizeString(data.assignedTo),
+      createdBy: sessionUser.id,
+    });
+    sendJson(res, 201, { ticket });
+    return true;
+  }
+
+  // POST /api/admin/tickets/:id/comment — append a staff note to the thread
+  const ticketCommentMatch = subPath.match(/^\/tickets\/([^/]+)\/comment$/);
+  if (ticketCommentMatch && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const id = ticketCommentMatch[1]!;
+    if (!(await getTicket(id))) {
+      sendNotFound(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const text = normalizeString(data.body);
+    if (!text) {
+      sendBadRequest(res, "body required");
+      return true;
+    }
+    const event = await addTicketEvent(id, {
+      kind: "comment",
+      authorType: "staff",
+      authorName: sessionUser.username,
+      body: text,
+    });
+    sendJson(res, 201, { event });
+    return true;
+  }
+
+  // GET / PUT / DELETE /api/admin/tickets/:id
+  const ticketIdMatch = subPath.match(/^\/tickets\/([^/]+)$/);
+  if (ticketIdMatch && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const ticket = await getTicket(ticketIdMatch[1]!);
+    if (!ticket) {
+      sendNotFound(res);
+      return true;
+    }
+    const events = await listTicketEvents(ticket.id);
+    sendJson(res, 200, { ticket, events });
+    return true;
+  }
+  if (ticketIdMatch && req.method === "PUT") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const id = ticketIdMatch[1]!;
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const params: UpdateTicketParams = {};
+    if (typeof data.status === "string" && TICKET_STATUSES.includes(data.status as TicketStatus)) {
+      params.status = data.status as TicketStatus;
+    }
+    if (
+      typeof data.priority === "string" &&
+      TICKET_PRIORITIES.includes(data.priority as TicketPriority)
+    ) {
+      params.priority = data.priority as TicketPriority;
+    }
+    const department = normalizeString(data.department);
+    if (department) params.department = department;
+    const subject = normalizeString(data.subject);
+    if (subject) params.subject = subject;
+    if (data.description !== undefined) params.description = normalizeString(data.description);
+    if (data.assignedTo !== undefined) params.assignedTo = normalizeString(data.assignedTo);
+    const updated = await updateTicket(id, params, {
+      name: sessionUser.username,
+      authorType: "staff",
+    });
+    if (!updated) {
+      sendNotFound(res);
+      return true;
+    }
+    sendJson(res, 200, { ticket: updated });
+    return true;
+  }
+  if (ticketIdMatch && req.method === "DELETE") {
+    if (!isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    if (!(await getTicket(ticketIdMatch[1]!))) {
+      sendNotFound(res);
+      return true;
+    }
+    await deleteTicket(ticketIdMatch[1]!);
     sendJson(res, 200, { ok: true });
     return true;
   }
