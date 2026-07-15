@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { resolveDepartmentForCategory } from "./ticket-department-store.js";
 import { getAdminDb } from "./user-store.js";
 
 // ── Domain vocabulary ─────────────────────────────────────────────────────
@@ -279,7 +280,7 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
   const now = Date.now();
   const department =
     (params.department && params.department.trim()) ||
-    defaultDepartmentForCategory(params.category);
+    (await resolveDepartmentForCategory(params.category));
 
   await db.transaction().execute(async (trx) => {
     const { number, replyToken } = await nextTicketNumber(trx);

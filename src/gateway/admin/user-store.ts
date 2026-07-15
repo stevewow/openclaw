@@ -197,6 +197,20 @@ type TicketSeqTable = {
   next_number: number;
 };
 
+type TicketDepartmentsTable = {
+  key: string;
+  label: string;
+  email: string | null;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+};
+
+type TicketCategoryRoutesTable = {
+  category: string;
+  department_key: string;
+};
+
 export type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -216,6 +230,8 @@ export type AdminDb = {
   admin_tickets: TicketsTable;
   admin_ticket_events: TicketEventsTable;
   admin_ticket_seq: TicketSeqTable;
+  admin_ticket_departments: TicketDepartmentsTable;
+  admin_ticket_category_routes: TicketCategoryRoutesTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -463,6 +479,18 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS admin_ticket_seq (
       id INTEGER PRIMARY KEY CHECK(id = 1),
       next_number INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_ticket_departments (
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      email TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_ticket_category_routes (
+      category TEXT PRIMARY KEY,
+      department_key TEXT NOT NULL
     );
   `);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;

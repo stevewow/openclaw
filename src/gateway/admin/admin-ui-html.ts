@@ -398,6 +398,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <a href="#rankings" class="nav-link admin-only" data-page="rankings"><span class="icon">🏆</span> Rankings</a>
       <div class="nav-section">Support</div>
       <a href="#tickets" class="nav-link admin-only" data-page="tickets"><span class="icon">🎫</span> Tickets</a>
+      <a href="#departments" class="nav-link admin-only" data-page="departments"><span class="icon">🏷️</span> Departments</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
       <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
@@ -743,6 +744,31 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               <tbody id="ticket-body"><tr><td colspan="8" class="empty-state">Loading…</td></tr></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- Support: Departments management page -->
+      <div id="page-departments" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div style="font-weight:700;margin-bottom:0.35rem">Departments</div>
+          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">Tickets are assigned to a department and (once email is configured) emailed to its address. Edit names and addresses here — no redeploy needed.</p>
+          <div class="table-wrap" style="margin-bottom:1rem">
+            <table>
+              <thead><tr><th>Department</th><th>Key</th><th>Email address</th><th style="width:1%"></th></tr></thead>
+              <tbody id="dept-body"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <form id="dept-add-form" class="flex gap-2" style="flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0;flex:1;min-width:160px"><label>New department name</label><input type="text" id="dept-new-label" placeholder="e.g. Aerial team" autocomplete="off" /></div>
+            <div class="form-group" style="margin:0;flex:1;min-width:180px"><label>Email address (optional)</label><input type="email" id="dept-new-email" placeholder="team@wowvideotours.com" autocomplete="off" /></div>
+            <button type="submit" class="btn btn-primary btn-sm">＋ Add department</button>
+          </form>
+        </div>
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:0.35rem">Default routing</div>
+          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">Which department a new request lands in, by request type.</p>
+          <div id="route-rows" style="display:grid;gap:0.75rem;max-width:520px"></div>
+          <div style="margin-top:1rem"><button class="btn btn-primary btn-sm" id="route-save-btn">Save routing</button> <span id="route-saved" class="text-muted" style="font-size:0.8rem;margin-left:0.5rem"></span></div>
         </div>
       </div>
 
@@ -1319,6 +1345,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     reports: { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: true, superAdminOnly: false },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: true, superAdminOnly: false },
+    departments: { el: 'page-departments', title: 'Departments', adminOnly: true, superAdminOnly: false },
     financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
     cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
   };
@@ -1362,6 +1389,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'reports') loadReports();
     if (page === 'rankings') loadRankings();
     if (page === 'tickets') loadTickets();
+    if (page === 'departments') loadDepartments();
     if (page === 'financials') loadFinancials();
     if (page === 'cleveland') loadCleveland();
     location.hash = '#' + page;
@@ -3350,10 +3378,20 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   // ── Support Tickets ─────────────────────────────────────────────────────────
-  var ticketDeptOptions = ['editing','operations','billing','general'];
+  var ticketDepartments = [];      // [{key,label,email}] from the managed table
+  var ticketCategoryRoutes = {};   // category -> department key
   var ticketUserDirectory = [];
   var currentTicketId = null;
   var ticketSearchTimer = null;
+
+  async function loadDepartmentList(){
+    var r = await api('GET','/tickets/departments');
+    if (r.ok && r.data) { ticketDepartments = r.data.departments || []; ticketCategoryRoutes = r.data.routes || {}; }
+  }
+  function deptLabel(key){
+    var d = ticketDepartments.find(function(x){ return x.key===key; });
+    return d ? d.label : key;
+  }
 
   function ticketStatusLabel(s){ return ({'new':'New','in_progress':'In Progress','needs_review':'Needs Review','resolved':'Resolved','closed':'Closed'})[s] || s; }
   function ticketCategoryLabel(c){ return ({'edit_request':'Edit request','additional_service':'Additional service','missing_media':'Missing media','other':'Other'})[c] || c; }
@@ -3377,14 +3415,16 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
   function populateTicketDeptFilter(){
     var sel = document.getElementById('ticket-department-filter');
-    if (sel.options.length > 1) return;
-    ticketDeptOptions.forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=d; sel.appendChild(o); });
+    var current = sel.value;
+    sel.innerHTML = '<option value="">All departments</option>';
+    ticketDepartments.forEach(function(d){ var o=document.createElement('option'); o.value=d.key; o.textContent=d.label; sel.appendChild(o); });
+    sel.value = current;
   }
   function populateTicketDeptSelect(sel, value){
     sel.innerHTML='';
-    var opts = ticketDeptOptions.slice();
-    if (value && opts.indexOf(value)===-1) opts.push(value);
-    opts.forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=d; if(d===value) o.selected=true; sel.appendChild(o); });
+    var opts = ticketDepartments.slice();
+    if (value && !opts.some(function(d){ return d.key===value; })) opts.push({ key:value, label:value });
+    opts.forEach(function(d){ var o=document.createElement('option'); o.value=d.key; o.textContent=d.label; if(d.key===value) o.selected=true; sel.appendChild(o); });
   }
   function populateTicketAssignee(sel, value){
     sel.innerHTML='<option value="">Unassigned</option>';
@@ -3392,7 +3432,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   async function loadTickets(){
-    await loadTicketDirectory();
+    await Promise.all([loadTicketDirectory(), loadDepartmentList()]);
     populateTicketDeptFilter();
     await Promise.all([loadTicketStats(), loadTicketTable()]);
   }
@@ -3434,7 +3474,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         '<td>'+ticketCategoryLabel(t.category)+'</td>'+
         '<td>'+esc(t.requesterName||'—')+'</td>'+
         '<td>'+esc(t.orderAddress||t.orderId||'—')+'</td>'+
-        '<td>'+esc(t.department)+'</td>'+
+        '<td>'+esc(deptLabel(t.department))+'</td>'+
         '<td>'+ticketStatusBadge(t.status)+'</td>'+
         '<td class="text-muted" style="font-size:0.8rem">'+tdate(t.updatedAt)+'</td>'+
         '</tr>';
@@ -3549,6 +3589,69 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     closeCreateTicket();
     await Promise.all([loadTicketTable(), loadTicketStats()]);
     openTicket(r.data.ticket.id);
+  });
+
+  // ── Departments management ──────────────────────────────────────────────────
+  async function loadDepartments(){
+    await loadDepartmentList();
+    renderDeptTable();
+    renderRoutes();
+  }
+  function renderDeptTable(){
+    var body = document.getElementById('dept-body');
+    if(!ticketDepartments.length){ body.innerHTML='<tr><td colspan="4" class="empty-state">No departments yet.</td></tr>'; return; }
+    body.innerHTML = ticketDepartments.map(function(d){
+      return '<tr data-key="'+esc(d.key)+'">'+
+        '<td><input type="text" class="dept-label" value="'+esc(d.label)+'" style="width:100%" /></td>'+
+        '<td class="text-muted" style="font-size:0.8rem">'+esc(d.key)+'</td>'+
+        '<td><input type="email" class="dept-email" value="'+esc(d.email||'')+'" placeholder="not set" style="width:100%" /></td>'+
+        '<td style="white-space:nowrap"><button class="btn btn-primary btn-sm dept-save">Save</button> <button class="btn btn-ghost btn-sm dept-del" title="Delete department">✕</button></td>'+
+        '</tr>';
+    }).join('');
+    body.querySelectorAll('.dept-save').forEach(function(btn){ btn.addEventListener('click', function(){ saveDept(btn.closest('tr')); }); });
+    body.querySelectorAll('.dept-del').forEach(function(btn){ btn.addEventListener('click', function(){ delDept(btn.closest('tr').getAttribute('data-key')); }); });
+  }
+  async function saveDept(tr){
+    var key = tr.getAttribute('data-key');
+    var label = tr.querySelector('.dept-label').value.trim();
+    var email = tr.querySelector('.dept-email').value.trim();
+    if(!label){ alert('Department name is required.'); return; }
+    var r = await api('PUT','/tickets/departments/'+encodeURIComponent(key), { label: label, email: email || null });
+    if(!r.ok){ alert((r.data&&r.data.error)||'Save failed.'); return; }
+    await loadDepartments();
+  }
+  async function delDept(key){
+    if(!confirm('Delete this department? Existing tickets keep their history; any routing pointed here falls back to General.')) return;
+    var r = await api('DELETE','/tickets/departments/'+encodeURIComponent(key));
+    if(!r.ok){ alert((r.data&&r.data.error)||'Delete failed.'); return; }
+    await loadDepartments();
+  }
+  document.getElementById('dept-add-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var label = document.getElementById('dept-new-label').value.trim();
+    var email = document.getElementById('dept-new-email').value.trim();
+    if(!label) return;
+    var r = await api('POST','/tickets/departments', { label: label, email: email || null });
+    if(!r.ok){ alert((r.data&&r.data.error)||'Add failed.'); return; }
+    document.getElementById('dept-new-label').value=''; document.getElementById('dept-new-email').value='';
+    await loadDepartments();
+  });
+  function renderRoutes(){
+    var cats = ['edit_request','additional_service','missing_media','other'];
+    var wrap = document.getElementById('route-rows');
+    wrap.innerHTML = cats.map(function(c){
+      var opts = ticketDepartments.map(function(d){ return '<option value="'+esc(d.key)+'"'+(ticketCategoryRoutes[c]===d.key?' selected':'')+'>'+esc(d.label)+'</option>'; }).join('');
+      return '<div class="flex items-center gap-2" style="justify-content:space-between"><label style="margin:0">'+ticketCategoryLabel(c)+'</label><select data-cat="'+c+'" style="min-width:220px">'+opts+'</select></div>';
+    }).join('');
+  }
+  document.getElementById('route-save-btn').addEventListener('click', async function(){
+    var payload = {};
+    document.querySelectorAll('#route-rows select').forEach(function(sel){ payload[sel.getAttribute('data-cat')] = sel.value; });
+    var r = await api('PUT','/tickets/category-routes', payload);
+    var note = document.getElementById('route-saved');
+    if(!r.ok){ note.textContent = 'Save failed'; return; }
+    ticketCategoryRoutes = r.data.routes || ticketCategoryRoutes;
+    note.textContent = 'Saved ✓'; setTimeout(function(){ note.textContent=''; }, 2000);
   });
 
   // ── Nav ───────────────────────────────────────────────────────────────────

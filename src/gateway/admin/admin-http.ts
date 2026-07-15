@@ -105,6 +105,15 @@ import {
 } from "./user-store.js";
 
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
+import {
+  createDepartment,
+  deleteDepartment,
+  ensureDepartmentSeed,
+  getCategoryRoutes,
+  listDepartments,
+  setCategoryRoute,
+  updateDepartment,
+} from "./ticket-department-store.js";
 import { notifyDepartment } from "./ticket-mailer.js";
 
 const MAX_BODY_BYTES_RESOURCE = 20 * 1024 * 1024; // 20 MB for file uploads (base64)
@@ -295,6 +304,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   if (initialized) return;
   initialized = true;
   await ensureSuperadminExists();
+  await ensureDepartmentSeed();
   ensureSpiroReportScheduler();
   ensureFinancialsScheduler();
   ensureClevelandScheduler();
@@ -1196,6 +1206,97 @@ export async function handleAdminHttpRequest(
       return true;
     }
     sendJson(res, 200, { stats: await getTicketStats() });
+    return true;
+  }
+
+  // GET /api/admin/tickets/departments — managed departments + category routing
+  if (subPath === "/tickets/departments" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    sendJson(res, 200, { departments: await listDepartments(), routes: await getCategoryRoutes() });
+    return true;
+  }
+
+  // POST /api/admin/tickets/departments — add a department
+  if (subPath === "/tickets/departments" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const label = normalizeString(data.label);
+    if (!label) {
+      sendBadRequest(res, "label required");
+      return true;
+    }
+    const department = await createDepartment({
+      label,
+      key: normalizeString(data.key) ?? undefined,
+      email: normalizeString(data.email),
+    });
+    sendJson(res, 201, { department });
+    return true;
+  }
+
+  // PUT /api/admin/tickets/departments/:key — edit label/email
+  const deptEditMatch = subPath.match(/^\/tickets\/departments\/([^/]+)$/);
+  if (deptEditMatch && req.method === "PUT") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const params: { label?: string; email?: string | null; sortOrder?: number } = {};
+    const label = normalizeString(data.label);
+    if (label) params.label = label;
+    if (data.email !== undefined) params.email = normalizeString(data.email);
+    if (typeof data.sortOrder === "number") params.sortOrder = data.sortOrder;
+    const updated = await updateDepartment(deptEditMatch[1]!, params);
+    if (!updated) {
+      sendNotFound(res);
+      return true;
+    }
+    sendJson(res, 200, { department: updated });
+    return true;
+  }
+  if (deptEditMatch && req.method === "DELETE") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    await deleteDepartment(deptEditMatch[1]!);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // PUT /api/admin/tickets/category-routes — set which department each category routes to
+  if (subPath === "/tickets/category-routes" && req.method === "PUT") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    for (const [category, key] of Object.entries(data)) {
+      if (typeof key === "string" && key) await setCategoryRoute(category, key);
+    }
+    sendJson(res, 200, { routes: await getCategoryRoutes() });
     return true;
   }
 

@@ -1,3 +1,4 @@
+import { getDepartmentEmail } from "./ticket-department-store.js";
 import { addTicketEvent, type Ticket, type TicketCategory } from "./ticket-store.js";
 
 // Outbound department notification for a ticket. Sent via Postmark's HTTP API
@@ -51,7 +52,8 @@ export function readEmailConfig(env: NodeJS.ProcessEnv = process.env): EmailConf
     }
   }
   const fallbackTo = env.TICKET_EMAIL_FALLBACK_TO?.trim() || null;
-  if (Object.keys(departmentEmails).length === 0 && !fallbackTo) return null;
+  // Department addresses now live in the managed departments table; the env map
+  // and fallback are optional back-compat, so token + from is enough here.
 
   return {
     provider: "postmark",
@@ -194,7 +196,10 @@ export async function notifyDepartment(ticket: Ticket, deps: NotifyDeps = {}): P
     log.info(`email not configured — ${ticket.number} (${ticket.department}) logged only`);
     return { ok: false, detail: "email not configured" };
   }
-  const to = resolveDepartmentEmail(ticket.department, config);
+  // Prefer the managed departments table; fall back to the optional env map.
+  const to =
+    (await getDepartmentEmail(ticket.department)) ??
+    resolveDepartmentEmail(ticket.department, config);
   if (!to) {
     log.error(`no email mapped for department "${ticket.department}" — ${ticket.number}`);
     return { ok: false, detail: "no department address" };
