@@ -198,7 +198,7 @@ export function runningEstimate(d: OrderDraft): string {
     const name = d.service.bundleId
       ? bundleById(d.service.bundleId)?.name
       : (d.service.singleServiceIds ?? []).map((id) => serviceById(id)?.name).join(" + ");
-    return `\n\nEstimated total for ${name} at ${d.property.squareFeet.toLocaleString("en-US")} sq ft: $${est.subtotal.toLocaleString("en-US")} (standard catalog estimate, subject to verification).`;
+    return `\n\nEstimated total for ${name} at ${d.property.squareFeet.toLocaleString("en-US")} sq ft: $${est.subtotal.toLocaleString("en-US")} — standard catalog estimate, subject to verification. If your brokerage or team is eligible for partnership pricing, our team will confirm it before final submission.`;
   }
   return "";
 }

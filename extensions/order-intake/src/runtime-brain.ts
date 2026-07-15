@@ -14,6 +14,7 @@ import path from "node:path";
 import { resolvePreferredOpenClawTmpDir, withTempWorkspace } from "openclaw/plugin-sdk/temp-path";
 import type { OpenClawPluginApi } from "../api.js";
 import { runningEstimate, type BrainTurn, type IntakeBrain } from "./brain.js";
+import { catalogReference, priceSnapshot } from "./catalog-prompt.js";
 import { formatHandoff, type HandoffSender } from "./handoff.js";
 import { checkCompleteness, coerceDraft, type OrderDraft } from "./order-draft.js";
 import { GREETING, INTAKE_SYSTEM_PROMPT } from "./prompt.js";
@@ -72,11 +73,21 @@ export class RuntimeBrain implements IntakeBrain {
       .map((m) => `${m.role === "visitor" ? "VISITOR" : "ASSISTANT"}: ${m.text}`)
       .join("\n");
 
+    const sqft = session.draft.property.squareFeet;
     const prompt = [
       INTAKE_SYSTEM_PROMPT,
       "",
+      catalogReference(),
+      "",
+      sqft != null
+        ? priceSnapshot(sqft)
+        : "# PRICE SNAPSHOT: not available yet — you don't know the square footage. Ask for it before quoting any price; nearly every price is square-footage-tiered.",
+      "",
       "You are mid-conversation. Maintain the structured OrderDraft below and return JSON matching the schema.",
-      "Do NOT put any dollar amounts in `reply` — the system appends the authoritative catalog estimate for you.",
+      "Pricing rules:",
+      "- Fill draft.service.bundleId / draft.service.singleServiceIds / draft.addOns using ONLY the catalog ids above, so the system can price the order.",
+      "- You MAY quote exact figures from the LIVE PRICE SNAPSHOT above; NEVER state a dollar amount that is not in it. If there is no snapshot yet, do not quote — ask for square footage first.",
+      "- After your message the system automatically appends the authoritative estimate line for the current selection, so don't restate the final total — just help them choose.",
       "",
       `CURRENT_DRAFT_JSON:\n${JSON.stringify(session.draft, null, 2)}`,
       "",
