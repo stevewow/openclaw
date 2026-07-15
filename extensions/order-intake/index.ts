@@ -17,6 +17,11 @@ type PluginCfg = {
   model?: string;
   // Named agent the LLM brain runs as (selects auth store + identity).
   agent?: string;
+  // Explicit auth profile id (e.g. "anthropic:default") so the LLM brain uses a
+  // specific credential rather than auto-resolving — important when the agent
+  // holds more than one profile for the same provider (e.g. an expired OAuth
+  // login alongside a stable API key).
+  authProfileId?: string;
 };
 
 // Choose the handoff sender from config. Slack is used when selected AND a
@@ -69,6 +74,7 @@ export default definePluginEntry({
             provider: cfg.provider,
             model: cfg.model,
             agent: cfg.agent,
+            authProfileId: cfg.authProfileId,
           });
           api.logger.info?.("[order-intake] using LLM RuntimeBrain");
         })
@@ -91,6 +97,7 @@ export default definePluginEntry({
       },
       basePath,
       now: () => Date.now(),
+      onError: (err) => api.logger.error?.(`[order-intake] brain turn failed: ${String(err)}`),
     });
 
     api.registerHttpRoute({

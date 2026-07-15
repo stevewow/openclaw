@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ScriptedBrain } from "./brain.js";
+import { ScriptedBrain, type IntakeBrain } from "./brain.js";
 import { createChatService } from "./chat-service.js";
 import { StubHandoffSender } from "./handoff.js";
 import { InMemorySessionStore } from "./session-store.js";
@@ -102,6 +102,53 @@ describe("web-chat service (M0)", () => {
     const s = (await resume.json()) as { history: unknown[]; done: boolean };
     expect(s.done).toBe(true);
     expect(s.history.length).toBeGreaterThan(20);
+  });
+
+  it("degrades gracefully when the brain throws (no hard error, session preserved)", async () => {
+    // A brain that always fails stands in for a model/auth outage. The widget
+    // must stay usable: a friendly 200 reply, and the failed turn must not
+    // pollute the transcript (so a resend starts clean).
+    const errors: unknown[] = [];
+    const throwingBrain: IntakeBrain = {
+      kind: "test-throwing",
+      greeting: () => "hi",
+      respond: async () => {
+        throw new Error("simulated model outage");
+      },
+    };
+    const server = createServer((req, res) => {
+      void createChatService({
+        store: new InMemorySessionStore(),
+        brain: throwingBrain,
+        basePath: BASE,
+        now: () => 1,
+        onError: (e) => errors.push(e),
+      }).handle(req, res);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      const url = `http://127.0.0.1:${port}`;
+      const res = await fetch(`${url}${BASE}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId: "v-err", message: "hello" }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { reply: string; done: boolean };
+      expect(body.reply).toMatch(/again/i);
+      expect(body.done).toBe(false);
+      expect(errors).toHaveLength(1);
+
+      // The unprocessed visitor message was dropped, so the transcript is clean.
+      const s = (await (await fetch(`${url}${BASE}/session?visitorId=v-err`)).json()) as {
+        history: unknown[];
+      };
+      expect(s.history).toHaveLength(0);
+    } finally {
+      server.close();
+    }
   });
 
   it("rejects a chat with no message", async () => {

@@ -13,6 +13,9 @@ export type ChatServiceOptions = {
   brain: IntakeBrain;
   basePath: string; // e.g. "/wow-intake" (no trailing slash)
   now?: () => number; // injectable clock (Date.now unavailable in some sandboxes)
+  // Called when a brain turn throws, so the plugin can log the real cause. The
+  // service itself stays SDK-free; the entry point injects api.logger here.
+  onError?: (err: unknown) => void;
 };
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -135,8 +138,16 @@ export function createChatService(opts: ChatServiceOptions) {
         session.updatedAt = now;
         opts.store.save(session);
         sendJson(res, 200, { reply: turn.reply, done: session.handedOff });
-      } catch {
-        sendJson(res, 500, { error: "intake error" });
+      } catch (err) {
+        // A brain/model failure must not blank the widget. Drop the unprocessed
+        // visitor message so a resend doesn't duplicate it, keep the session and
+        // draft intact, and ask the visitor to try again. Log the real cause.
+        session.history.pop();
+        opts.onError?.(err);
+        sendJson(res, 200, {
+          reply: "Sorry — I had a brief hiccup on my end. Could you send that again?",
+          done: false,
+        });
       }
       return true;
     }

@@ -10,6 +10,8 @@
 // covered by the local test harness (which uses ScriptedBrain). Verify on the
 // deployed gateway before relying on it.
 
+import path from "node:path";
+import { resolvePreferredOpenClawTmpDir, withTempWorkspace } from "openclaw/plugin-sdk/temp-path";
 import type { OpenClawPluginApi } from "../api.js";
 import { runningEstimate, type BrainTurn, type IntakeBrain } from "./brain.js";
 import { formatHandoff, type HandoffSender } from "./handoff.js";
@@ -108,33 +110,44 @@ export class RuntimeBrain implements IntakeBrain {
     if (!provider || !model)
       throw new Error("order-intake RuntimeBrain: provider/model not resolved");
 
-    const runResult = await api.runtime.agent.runEmbeddedPiAgent({
-      sessionId: `order-intake-${Math.abs(hash(prompt))}`,
-      workspaceDir: api.config?.agents?.defaults?.workspace ?? process.cwd(),
-      config: api.config,
-      agentId: this.opts.agent,
-      prompt: `You are a JSON-only function. Return ONLY valid JSON matching this schema: ${JSON.stringify(TURN_SCHEMA)}\n\n${prompt}`,
-      provider,
-      model,
-      authProfileId: this.opts.authProfileId,
-      authProfileIdSource: this.opts.authProfileId ? "user" : "auto",
-      timeoutMs: this.opts.timeoutMs ?? 45_000,
-      disableTools: true,
-    });
-    const payloads =
-      typeof runResult === "object" && runResult !== null && "payloads" in runResult
-        ? (runResult as { payloads?: Array<{ text?: string; isError?: boolean }> }).payloads
-        : undefined;
-    const text = (payloads ?? [])
-      .filter((p) => !p.isError && typeof p.text === "string")
-      .map((p) => p.text ?? "")
-      .join("\n")
-      .trim();
-    const stripped = text
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim();
-    return JSON.parse(stripped);
+    const runId = `order-intake-${Math.abs(hash(prompt))}`;
+    // The embedded runner derives a directory from `sessionFile`, so it must be a
+    // real path — omitting it throws `paths[0] ... undefined`. Mirror the llm-task
+    // plugin: give the run an isolated temp workspace + session file.
+    return await withTempWorkspace(
+      { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "openclaw-order-intake-" },
+      async ({ dir: tmpDir }) => {
+        const runResult = await api.runtime.agent.runEmbeddedPiAgent({
+          sessionId: runId,
+          sessionFile: path.join(tmpDir, "session.json"),
+          runId,
+          workspaceDir: api.config?.agents?.defaults?.workspace ?? tmpDir,
+          config: api.config,
+          agentId: this.opts.agent,
+          prompt: `You are a JSON-only function. Return ONLY valid JSON matching this schema: ${JSON.stringify(TURN_SCHEMA)}\n\n${prompt}`,
+          provider,
+          model,
+          authProfileId: this.opts.authProfileId,
+          authProfileIdSource: this.opts.authProfileId ? "user" : "auto",
+          timeoutMs: this.opts.timeoutMs ?? 45_000,
+          disableTools: true,
+        });
+        const payloads =
+          typeof runResult === "object" && runResult !== null && "payloads" in runResult
+            ? (runResult as { payloads?: Array<{ text?: string; isError?: boolean }> }).payloads
+            : undefined;
+        const text = (payloads ?? [])
+          .filter((p) => !p.isError && typeof p.text === "string")
+          .map((p) => p.text ?? "")
+          .join("\n")
+          .trim();
+        const stripped = text
+          .replace(/^```(?:json)?\s*/i, "")
+          .replace(/\s*```$/i, "")
+          .trim();
+        return JSON.parse(stripped);
+      },
+    );
   }
 
   private coerce(value: unknown, prev: OrderDraft): LlmTurnResult {

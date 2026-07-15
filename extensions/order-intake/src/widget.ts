@@ -62,9 +62,12 @@ export function chatPageHtml(base: string): string {
 
   var qs = new URLSearchParams(location.search);
   var listingId = qs.get("listing") || undefined;
-  var vk = "wow_intake_visitor";
-  var visitorId = localStorage.getItem(vk);
-  if (!visitorId) { visitorId = "v_" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(vk, visitorId); }
+  // Start a fresh session every time the widget is opened. We deliberately do
+  // NOT persist the visitor id, so a reopen or a hard refresh never resumes a
+  // prior (even day-old) conversation. Clear the legacy persisted id too, so
+  // returning visitors don't keep replaying their old transcript.
+  try { localStorage.removeItem("wow_intake_visitor"); } catch (e) {}
+  var visitorId = "v_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
   function bubble(role, text) {
     var d = document.createElement("div");

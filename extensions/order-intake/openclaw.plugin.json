@@ -41,6 +41,10 @@
         "type": "string",
         "description": "Named agent the LLM brain runs as; selects which agent's auth store and identity the model call uses (e.g. \"agent-assistant\"). Defaults to the configured default agent."
       },
+      "authProfileId": {
+        "type": "string",
+        "description": "Explicit auth profile id for the LLM brain (e.g. \"anthropic:default\"). Pins a specific credential instead of auto-resolving — use when the agent holds more than one profile for the same provider (e.g. a stable API key alongside an expiring OAuth login)."
+      },
       "handoffChannel": {
         "type": "string",
         "enum": ["stub", "slack", "email"],
