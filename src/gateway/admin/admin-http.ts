@@ -105,6 +105,7 @@ import {
 } from "./user-store.js";
 
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
+import { notifyDepartment } from "./ticket-mailer.js";
 
 const MAX_BODY_BYTES_RESOURCE = 20 * 1024 * 1024; // 20 MB for file uploads (base64)
 
@@ -1237,6 +1238,7 @@ export async function handleAdminHttpRequest(
       assignedTo: normalizeString(data.assignedTo),
       createdBy: sessionUser.id,
     });
+    void notifyDepartment(ticket).catch(() => {});
     sendJson(res, 201, { ticket });
     return true;
   }

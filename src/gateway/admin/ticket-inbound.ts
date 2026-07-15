@@ -1,0 +1,121 @@
+import {
+  addTicketEvent,
+  getTicketByReplyToken,
+  parseReplyCommand,
+  statusForReplyCommand,
+  updateTicket,
+} from "./ticket-store.js";
+
+// Inbound department replies. A department works a ticket from their inbox; we
+// match the reply back to the ticket by its reply token (the +hash on the To
+// address — Postmark surfaces it as MailboxHash), read the first-line command
+// (UPDATE / RESOLVED), and move the ticket. A sender allowlist gates command
+// application so a client CC'd on the thread can't drive state; unverified
+// replies are still logged and parked in needs_review.
+
+export type PostmarkInboundPayload = {
+  From?: string;
+  FromFull?: { Email?: string };
+  MailboxHash?: string;
+  OriginalRecipient?: string;
+  ToFull?: Array<{ Email?: string; MailboxHash?: string }>;
+  Subject?: string;
+  TextBody?: string;
+  StrippedTextReply?: string;
+};
+
+export type NormalizedInbound = {
+  replyToken: string | null;
+  fromEmail: string | null;
+  text: string;
+};
+
+const TOKEN_RE = /wvt-\d+/i;
+
+/** Pull the ticket reply token from a Postmark inbound payload, best-effort. */
+export function extractReplyToken(payload: PostmarkInboundPayload): string | null {
+  const hash = payload.MailboxHash?.trim();
+  if (hash && TOKEN_RE.test(hash)) return hash.toLowerCase();
+
+  const recipients: string[] = [];
+  if (payload.OriginalRecipient) recipients.push(payload.OriginalRecipient);
+  for (const t of payload.ToFull ?? []) {
+    if (t.MailboxHash && TOKEN_RE.test(t.MailboxHash)) return t.MailboxHash.toLowerCase();
+    if (t.Email) recipients.push(t.Email);
+  }
+  for (const addr of recipients) {
+    // ticket+wvt-1042@domain → wvt-1042
+    const plus = addr.match(/\+(\w+-\d+)@/i);
+    if (plus && TOKEN_RE.test(plus[1]!)) return plus[1]!.toLowerCase();
+  }
+
+  const subj = payload.Subject?.match(/\[(wvt-\d+)\]/i);
+  if (subj) return subj[1]!.toLowerCase();
+  return null;
+}
+
+export function normalizeInbound(payload: PostmarkInboundPayload): NormalizedInbound {
+  const fromEmail = (payload.FromFull?.Email ?? payload.From ?? "").trim().toLowerCase() || null;
+  const text = (payload.StrippedTextReply ?? payload.TextBody ?? "").trim();
+  return { replyToken: extractReplyToken(payload), fromEmail, text };
+}
+
+export type InboundOutcome =
+  | { status: "no_token" }
+  | { status: "no_match"; replyToken: string }
+  | { status: "unverified"; ticketNumber: string; fromEmail: string | null }
+  | {
+      status: "applied";
+      ticketNumber: string;
+      command: "update" | "resolved" | "none";
+      newStatus: string;
+    };
+
+export type ApplyInboundOptions = {
+  /** Lowercased department/staff addresses allowed to drive ticket state. Empty/undefined = allow all. */
+  allowlist?: string[];
+};
+
+/**
+ * Match an inbound reply to its ticket and apply the command. Never throws for
+ * business outcomes; returns a discriminated result the webhook logs.
+ */
+export async function applyInboundReply(
+  payload: PostmarkInboundPayload,
+  options: ApplyInboundOptions = {},
+): Promise<InboundOutcome> {
+  const { replyToken, fromEmail, text } = normalizeInbound(payload);
+  if (!replyToken) return { status: "no_token" };
+
+  const ticket = await getTicketByReplyToken(replyToken);
+  if (!ticket) return { status: "no_match", replyToken };
+
+  const allowlist = options.allowlist ?? [];
+  const senderAllowed =
+    allowlist.length === 0 || (fromEmail !== null && allowlist.includes(fromEmail));
+
+  if (!senderAllowed) {
+    // Log the reply but don't let an unverified sender move state.
+    await addTicketEvent(ticket.id, {
+      kind: "email_in",
+      authorType: "client",
+      authorName: fromEmail,
+      body: text || "(no text)",
+      meta: { from: fromEmail, verified: false },
+    });
+    await updateTicket(ticket.id, { status: "needs_review" }, { authorType: "system", name: null });
+    return { status: "unverified", ticketNumber: ticket.number, fromEmail };
+  }
+
+  const parsed = parseReplyCommand(text);
+  const newStatus = statusForReplyCommand(parsed.command);
+  await addTicketEvent(ticket.id, {
+    kind: "email_in",
+    authorType: "staff",
+    authorName: fromEmail,
+    body: parsed.body || "(no text)",
+    meta: { from: fromEmail, command: parsed.command, verified: true },
+  });
+  await updateTicket(ticket.id, { status: newStatus }, { authorType: "staff", name: fromEmail });
+  return { status: "applied", ticketNumber: ticket.number, command: parsed.command, newStatus };
+}
