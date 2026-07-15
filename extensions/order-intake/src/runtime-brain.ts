@@ -22,6 +22,104 @@ import type { IntakeSession } from "./session-store.js";
 
 type LlmTurnResult = { reply: string; draft: OrderDraft; readyToSubmit: boolean };
 
+// A structured draft schema (not a bare object) so the model reliably writes
+// the extracted facts into the fields the estimator and completeness check read
+// — especially service ids and squareFeet, which gate all pricing. A bare
+// `{type:"object"}` leaves the model free to narrate a selection in `reply`
+// without ever committing it to the draft, so no price is computed. Unions are
+// flattened to enums (some providers reject `anyOf`).
+const CONTACT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    firstName: { type: "string" },
+    lastName: { type: "string" },
+    phone: { type: "string" },
+    email: { type: "string" },
+    companyName: { type: "string" },
+  },
+} as const;
+
+const DRAFT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  description:
+    "The full updated OrderDraft. Echo every fact already captured and add the new ones from this turn.",
+  properties: {
+    service: {
+      type: "object",
+      additionalProperties: false,
+      description: "The visitor's selection, as catalog ids. Set as soon as they choose.",
+      properties: {
+        bundleId: {
+          type: "string",
+          description: "One bundle id from the catalog, if they chose a bundle.",
+        },
+        singleServiceIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Individual service ids, if they chose services instead of a bundle.",
+        },
+      },
+    },
+    property: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        address: { type: "string" },
+        unitNumber: { type: "string" },
+        listingPrice: { type: "number" },
+        squareFeet: {
+          type: "number",
+          description: "Gates all pricing — record it the moment they say it.",
+        },
+        vacancy: { type: "string", enum: ["vacant", "occupied"] },
+        basement: { type: "string", enum: ["shoot", "skip", "none"] },
+        garageInterior: { type: "string", enum: ["shoot", "skip", "none"] },
+      },
+    },
+    addOns: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          quantity: {
+            type: "number",
+            description: "For per-image add-ons (Twilight, Virtual Staging, Green Grass).",
+          },
+        },
+        required: ["id"],
+      },
+    },
+    agent: CONTACT_SCHEMA,
+    homeowner: CONTACT_SCHEMA,
+    coAgent: CONTACT_SCHEMA,
+    customAnswers: {
+      type: "object",
+      additionalProperties: { type: "string" },
+      properties: { appointmentInfoAndFilmingInstructions: { type: "string" } },
+    },
+    entry: {
+      type: "object",
+      additionalProperties: false,
+      properties: { method: { type: "string" }, notes: { type: "string" } },
+    },
+    scheduling: {
+      type: "object",
+      additionalProperties: false,
+      description: "Preference only — never a committed time.",
+      properties: {
+        kind: { type: "string", enum: ["asap", "datetime", "window"] },
+        when: { type: "string" },
+        window: { type: "string" },
+      },
+    },
+    termsAgreed: { type: "boolean" },
+  },
+} as const;
+
 const TURN_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -30,9 +128,9 @@ const TURN_SCHEMA = {
     reply: {
       type: "string",
       description:
-        "Message to show the visitor. Do NOT include any dollar amounts — pricing is appended separately.",
+        "Message to show the visitor. You MAY state exact figures that appear in the LIVE PRICE SNAPSHOT in the prompt, always as estimates; never invent a number that is not there. Do not restate the final total for the current selection — the system appends the authoritative estimate line for you.",
     },
-    draft: { type: "object", description: "The full updated OrderDraft object." },
+    draft: DRAFT_SCHEMA,
     readyToSubmit: {
       type: "boolean",
       description:
@@ -84,6 +182,7 @@ export class RuntimeBrain implements IntakeBrain {
         : "# PRICE SNAPSHOT: not available yet — you don't know the square footage. Ask for it before quoting any price; nearly every price is square-footage-tiered.",
       "",
       "You are mid-conversation. Maintain the structured OrderDraft below and return JSON matching the schema.",
+      "- Write EVERY fact the visitor gives into the draft the moment they say it — do not wait until you have everything. If they name a bundle/service, set draft.service THIS turn; if they state square footage, set draft.property.squareFeet THIS turn. Narrating a selection in `reply` without putting it in the draft means no price gets computed.",
       "Pricing rules:",
       "- Fill draft.service.bundleId / draft.service.singleServiceIds / draft.addOns using ONLY the catalog ids above, so the system can price the order.",
       "- You MAY quote exact figures from the LIVE PRICE SNAPSHOT above; NEVER state a dollar amount that is not in it. If there is no snapshot yet, do not quote — ask for square footage first.",
