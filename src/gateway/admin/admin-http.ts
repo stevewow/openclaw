@@ -104,6 +104,8 @@ import {
   verifyPassword,
 } from "./user-store.js";
 
+export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
+
 const MAX_BODY_BYTES_RESOURCE = 20 * 1024 * 1024; // 20 MB for file uploads (base64)
 
 const ADMIN_PATH_PREFIX = "/api/admin";
