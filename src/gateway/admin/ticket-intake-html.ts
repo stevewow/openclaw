@@ -1,10 +1,37 @@
 // White-label public intake form served at /support. The Spiro media-delivery
 // page's "Submit Ticket or Request" button links here with ?orderId= (and an
-// optional ?address=). No platform references — this is a customer surface. The
-// form branches by request type, then POSTs to /api/support/intake, which opens
-// a ticket in the dashboard. Inline JS uses string concatenation only (no
-// template literals) so the outer TS template string stays intact.
-export const TICKET_INTAKE_HTML = `<!doctype html>
+// optional ?address=). No platform references — this is a customer surface.
+//
+// Request types, their follow-up question, and their details copy are all
+// admin-managed (admin_ticket_categories) and injected as JSON, so adding a
+// category in the dashboard changes this form with no redeploy. Inline JS uses
+// string concatenation only (no template literals) so the outer TS template
+// string stays intact.
+
+/** The per-category form config handed to the page. */
+export type IntakeCategoryView = {
+  key: string;
+  label: string;
+  extraField: "none" | "select" | "text";
+  extraLabel: string | null;
+  extraOptions: string[];
+  extraPlaceholder: string | null;
+  detailsLabel: string;
+  detailsHint: string | null;
+};
+
+/**
+ * Embed data in a <script type="application/json"> block. Escaping `<` is what
+ * stops a category label containing `</script>` from breaking out of the block
+ * (labels are admin-authored, but this is a public page — no injection either
+ * way).
+ */
+function embedJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string {
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -54,31 +81,13 @@ export const TICKET_INTAKE_HTML = `<!doctype html>
         <form id="intake-form" autocomplete="on">
           <div class="field">
             <label for="f-category">What can we help with?</label>
-            <select id="f-category">
-              <option value="edit_request">Request an edit to my media</option>
-              <option value="additional_service">Order an additional service</option>
-              <option value="missing_media">Report missing or incorrect media</option>
-              <option value="other">Something else</option>
-            </select>
+            <select id="f-category"></select>
           </div>
 
-          <div class="field branch" data-for="edit_request missing_media">
-            <label for="f-media">Which media?</label>
-            <select id="f-media">
-              <option value="">Select…</option>
-              <option>Photos</option>
-              <option>Video / Walkthrough</option>
-              <option>Aerial / Drone</option>
-              <option>Floor plan</option>
-              <option>Virtual tour / Matterport</option>
-              <option>Twilight</option>
-              <option>Other</option>
-            </select>
-          </div>
-
-          <div class="field branch" data-for="additional_service">
-            <label for="f-service">Which service would you like to add?</label>
-            <input type="text" id="f-service" placeholder="e.g. Virtual staging, extra aerials, twilight edit…" />
+          <div class="field hidden" id="extra-field">
+            <label id="extra-label" for="f-extra-select"></label>
+            <select id="f-extra-select" class="hidden"></select>
+            <input type="text" id="f-extra-text" class="hidden" />
           </div>
 
           <div class="field">
@@ -97,6 +106,10 @@ export const TICKET_INTAKE_HTML = `<!doctype html>
         </form>
       </div>
 
+      <div id="intake-empty-view" class="hidden" style="text-align:center;padding:1rem 0;color:var(--muted)">
+        <p style="margin:0">This form is being updated. Please email us and we'll take care of it.</p>
+      </div>
+
       <div id="intake-success-view" class="success hidden">
         <div class="check">✓</div>
         <p style="margin:0;color:var(--muted)">Your request has been received.</p>
@@ -108,9 +121,14 @@ export const TICKET_INTAKE_HTML = `<!doctype html>
     <div class="foot">WOW Video Tours · This form is for existing orders and media deliveries.</div>
   </div>
 
+<script id="intake-config" type="application/json">${embedJson({ categories })}</script>
 <script>
 (function(){
   'use strict';
+  var config = {};
+  try { config = JSON.parse(document.getElementById('intake-config').textContent || '{}'); } catch (e) { config = {}; }
+  var cats = Array.isArray(config.categories) ? config.categories : [];
+
   var params = new URLSearchParams(location.search);
   var orderId = (params.get('orderId') || params.get('order') || '').trim();
   var address = (params.get('address') || params.get('listing') || '').trim();
@@ -125,19 +143,67 @@ export const TICKET_INTAKE_HTML = `<!doctype html>
   }
 
   var catEl = document.getElementById('f-category');
-  var branches = Array.prototype.slice.call(document.querySelectorAll('.branch'));
+  var extraWrap = document.getElementById('extra-field');
+  var extraLabel = document.getElementById('extra-label');
+  var extraSelect = document.getElementById('f-extra-select');
+  var extraText = document.getElementById('f-extra-text');
+
+  // No active categories: nothing sensible to ask, so don't show a broken form.
+  if (!cats.length) {
+    document.getElementById('intake-form-view').classList.add('hidden');
+    document.getElementById('intake-empty-view').classList.remove('hidden');
+    return;
+  }
+
+  cats.forEach(function(c){
+    var o = document.createElement('option');
+    o.value = c.key;
+    o.textContent = c.label;
+    catEl.appendChild(o);
+  });
+
+  function currentCat() {
+    var key = catEl.value;
+    for (var i = 0; i < cats.length; i++) { if (cats[i].key === key) return cats[i]; }
+    return null;
+  }
+
   function syncBranches() {
-    var cat = catEl.value;
-    branches.forEach(function(b){
-      var applies = b.getAttribute('data-for').split(' ').indexOf(cat) !== -1;
-      b.classList.toggle('hidden', !applies);
-    });
-    var label = document.getElementById('details-label');
-    var hint = document.getElementById('details-hint');
-    if (cat === 'edit_request') { label.textContent = 'What change would you like?'; hint.textContent = 'Describe the edit — which photo/clip, and what to change.'; }
-    else if (cat === 'missing_media') { label.textContent = "What's missing or wrong?"; hint.textContent = 'Tell us which shots or rooms are missing or incorrect.'; }
-    else if (cat === 'additional_service') { label.textContent = 'Details'; hint.textContent = 'Any timing needs or specifics for the team.'; }
-    else { label.textContent = 'How can we help?'; hint.textContent = 'Describe your request.'; }
+    var c = currentCat();
+    if (!c) return;
+    var kind = c.extraField || 'none';
+    if (kind === 'none') {
+      extraWrap.classList.add('hidden');
+      extraSelect.classList.add('hidden');
+      extraText.classList.add('hidden');
+    } else {
+      extraWrap.classList.remove('hidden');
+      extraLabel.textContent = c.extraLabel || '';
+      if (kind === 'select') {
+        extraText.classList.add('hidden');
+        extraSelect.classList.remove('hidden');
+        extraLabel.setAttribute('for', 'f-extra-select');
+        while (extraSelect.firstChild) extraSelect.removeChild(extraSelect.firstChild);
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = 'Select…';
+        extraSelect.appendChild(blank);
+        (c.extraOptions || []).forEach(function(opt){
+          var o = document.createElement('option');
+          o.value = opt;
+          o.textContent = opt;
+          extraSelect.appendChild(o);
+        });
+      } else {
+        extraSelect.classList.add('hidden');
+        extraText.classList.remove('hidden');
+        extraLabel.setAttribute('for', 'f-extra-text');
+        extraText.placeholder = c.extraPlaceholder || '';
+        extraText.value = '';
+      }
+    }
+    document.getElementById('details-label').textContent = c.detailsLabel || 'Details';
+    document.getElementById('details-hint').textContent = c.detailsHint || '';
   }
   catEl.addEventListener('change', syncBranches);
   syncBranches();
@@ -149,11 +215,14 @@ export const TICKET_INTAKE_HTML = `<!doctype html>
   document.getElementById('intake-form').addEventListener('submit', async function(e){
     e.preventDefault();
     clearErr();
-    var cat = catEl.value;
+    var c = currentCat();
+    var extraValue = null;
+    if (c && c.extraField === 'select') extraValue = extraSelect.value || null;
+    else if (c && c.extraField === 'text') extraValue = extraText.value.trim() || null;
+
     var payload = {
-      category: cat,
-      mediaType: document.getElementById('f-media').value || null,
-      serviceType: document.getElementById('f-service').value.trim() || null,
+      category: catEl.value,
+      extraValue: extraValue,
       details: document.getElementById('f-details').value.trim(),
       requesterName: document.getElementById('f-name').value.trim(),
       requesterEmail: document.getElementById('f-email').value.trim(),
@@ -195,3 +264,4 @@ export const TICKET_INTAKE_HTML = `<!doctype html>
 </script>
 </body>
 </html>`;
+}

@@ -1,5 +1,6 @@
+import { getCategoryShortLabel } from "./ticket-category-store.js";
 import { getDepartmentEmail } from "./ticket-department-store.js";
-import { addTicketEvent, type Ticket, type TicketCategory } from "./ticket-store.js";
+import { addTicketEvent, type Ticket } from "./ticket-store.js";
 
 // Outbound department notification for a ticket. Sent via Postmark's HTTP API
 // (no SMTP dependency), mirroring the fetch-based Slack-handoff pattern:
@@ -10,12 +11,8 @@ import { addTicketEvent, type Ticket, type TicketCategory } from "./ticket-store
 const POSTMARK_ENDPOINT = "https://api.postmarkapp.com/email";
 const SEND_TIMEOUT_MS = 10_000;
 
-const CATEGORY_LABEL: Record<TicketCategory, string> = {
-  edit_request: "Edit request",
-  additional_service: "Additional service",
-  missing_media: "Missing media",
-  other: "Support request",
-};
+/** Last-resort label when a ticket's category has since been deleted. */
+const FALLBACK_CATEGORY_LABEL = "Support request";
 
 export type EmailConfig = {
   provider: "postmark";
@@ -85,14 +82,19 @@ export type OutboundEmail = {
   textBody: string;
 };
 
-/** Pure: render the department notification for a ticket. */
+/**
+ * Pure: render the department notification for a ticket. The category label is
+ * passed in (rather than looked up) because categories are admin-managed data —
+ * resolving them is the caller's async job, and this stays testable.
+ */
 export function formatDepartmentEmail(
   ticket: Ticket,
   config: EmailConfig,
   to: string,
+  categoryLabel: string = FALLBACK_CATEGORY_LABEL,
 ): OutboundEmail {
   const lines: string[] = [];
-  lines.push(`New support ticket ${ticket.number} — ${CATEGORY_LABEL[ticket.category]}`);
+  lines.push(`New support ticket ${ticket.number} — ${categoryLabel}`);
   lines.push("");
   const who = ticket.requesterName ?? "A client";
   const contact = ticket.requesterEmail ? ` <${ticket.requesterEmail}>` : "";
@@ -204,7 +206,8 @@ export async function notifyDepartment(ticket: Ticket, deps: NotifyDeps = {}): P
     log.error(`no email mapped for department "${ticket.department}" — ${ticket.number}`);
     return { ok: false, detail: "no department address" };
   }
-  const msg = formatDepartmentEmail(ticket, config, to);
+  const categoryLabel = (await getCategoryShortLabel(ticket.category)) || FALLBACK_CATEGORY_LABEL;
+  const msg = formatDepartmentEmail(ticket, config, to, categoryLabel);
   const result = await mailer.send(msg);
   await addTicketEvent(ticket.id, {
     kind: "email_out",

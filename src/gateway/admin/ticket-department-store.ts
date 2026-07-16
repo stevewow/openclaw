@@ -185,10 +185,13 @@ export async function getCategoryRoutes(): Promise<Record<string, string>> {
   return out;
 }
 
+/**
+ * Point a category at a department. Categories are admin-managed, so any key is
+ * accepted — validating against a fixed list here silently dropped routes for
+ * admin-added categories.
+ */
 export async function setCategoryRoute(category: string, departmentKey: string): Promise<void> {
-  if (!TICKET_CATEGORIES.includes(category as TicketCategory)) return;
   const db = getAdminDb();
-  const now = Date.now();
   const existing = await db
     .selectFrom("admin_ticket_category_routes")
     .select("category")
@@ -206,7 +209,6 @@ export async function setCategoryRoute(category: string, departmentKey: string):
       .values({ category, department_key: departmentKey })
       .execute();
   }
-  void now;
 }
 
 /** The department a new ticket in this category should land in. */

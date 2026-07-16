@@ -106,6 +106,18 @@ import {
 
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
 import {
+  CATEGORY_EXTRA_FIELDS,
+  type CategoryExtraField,
+  categoryKeyFromLabel,
+  createCategory,
+  ensureCategorySeed,
+  getCategory,
+  listCategories,
+  removeCategory,
+  type UpdateCategoryParams,
+  updateCategory,
+} from "./ticket-category-store.js";
+import {
   createDepartment,
   deleteDepartment,
   ensureDepartmentSeed,
@@ -156,6 +168,50 @@ function sendMethodNotAllowed(res: ServerResponse) {
 
 function normalizeString(v: unknown): string | null {
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+/** Read the editable fields of a ticket category off a JSON body. */
+function readCategoryParams(data: Record<string, unknown>): UpdateCategoryParams {
+  const params: UpdateCategoryParams = {};
+  const label = normalizeString(data.label);
+  if (label) {
+    params.label = label;
+  }
+  const shortLabel = normalizeString(data.shortLabel);
+  if (shortLabel) {
+    params.shortLabel = shortLabel;
+  }
+  if (
+    typeof data.extraField === "string" &&
+    CATEGORY_EXTRA_FIELDS.includes(data.extraField as CategoryExtraField)
+  ) {
+    params.extraField = data.extraField as CategoryExtraField;
+  }
+  if (data.extraLabel !== undefined) {
+    params.extraLabel = normalizeString(data.extraLabel);
+  }
+  if (Array.isArray(data.extraOptions)) {
+    params.extraOptions = data.extraOptions
+      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      .map((v) => v.trim());
+  }
+  if (data.extraPlaceholder !== undefined) {
+    params.extraPlaceholder = normalizeString(data.extraPlaceholder);
+  }
+  const detailsLabel = normalizeString(data.detailsLabel);
+  if (detailsLabel) {
+    params.detailsLabel = detailsLabel;
+  }
+  if (data.detailsHint !== undefined) {
+    params.detailsHint = normalizeString(data.detailsHint);
+  }
+  if (typeof data.sortOrder === "number") {
+    params.sortOrder = data.sortOrder;
+  }
+  if (typeof data.active === "boolean") {
+    params.active = data.active;
+  }
+  return params;
 }
 
 function normalizeRole(v: unknown): AdminUserRole | null {
@@ -305,6 +361,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   initialized = true;
   await ensureSuperadminExists();
   await ensureDepartmentSeed();
+  await ensureCategorySeed();
   ensureSpiroReportScheduler();
   ensureFinancialsScheduler();
   ensureClevelandScheduler();
@@ -1297,6 +1354,91 @@ export async function handleAdminHttpRequest(
       if (typeof key === "string" && key) await setCategoryRoute(category, key);
     }
     sendJson(res, 200, { routes: await getCategoryRoutes() });
+    return true;
+  }
+
+  // GET /api/admin/tickets/categories — managed request types for the form
+  if (subPath === "/tickets/categories" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    await ensureCategorySeed();
+    sendJson(res, 200, {
+      categories: await listCategories(),
+      routes: await getCategoryRoutes(),
+    });
+    return true;
+  }
+
+  // POST /api/admin/tickets/categories — add a request type
+  if (subPath === "/tickets/categories" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const label = normalizeString(data.label);
+    if (!label) {
+      sendBadRequest(res, "label required");
+      return true;
+    }
+    const key = (normalizeString(data.key) ?? categoryKeyFromLabel(label)).toLowerCase();
+    if (await getCategory(key)) {
+      sendBadRequest(res, `category "${key}" already exists`);
+      return true;
+    }
+    const category = await createCategory({ ...readCategoryParams(data), key, label });
+    const department = normalizeString(data.department);
+    if (department) {
+      await setCategoryRoute(category.key, department);
+    }
+    sendJson(res, 201, { category, routes: await getCategoryRoutes() });
+    return true;
+  }
+
+  // PUT/DELETE /api/admin/tickets/categories/:key — edit or remove a request type
+  const categoryEditMatch = subPath.match(/^\/tickets\/categories\/([^/]+)$/);
+  if (categoryEditMatch && req.method === "PUT") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const updated = await updateCategory(categoryEditMatch[1], readCategoryParams(data));
+    if (!updated) {
+      sendNotFound(res);
+      return true;
+    }
+    const department = normalizeString(data.department);
+    if (department) {
+      await setCategoryRoute(updated.key, department);
+    }
+    sendJson(res, 200, { category: updated, routes: await getCategoryRoutes() });
+    return true;
+  }
+  if (categoryEditMatch && req.method === "DELETE") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    // Deletes only when unused; otherwise deactivates so history keeps its label.
+    const result = await removeCategory(categoryEditMatch[1]);
+    if (result.outcome === "not_found") {
+      sendNotFound(res);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, ...result });
     return true;
   }
 

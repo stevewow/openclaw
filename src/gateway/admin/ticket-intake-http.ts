@@ -1,10 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
+import {
+  ensureCategorySeed,
+  listCategories,
+  type TicketCategoryDef,
+} from "./ticket-category-store.js";
 import { applyInboundReply, type PostmarkInboundPayload } from "./ticket-inbound.js";
-import { TICKET_INTAKE_HTML } from "./ticket-intake-html.js";
+import { renderTicketIntakeHtml } from "./ticket-intake-html.js";
 import { notifyDepartment } from "./ticket-mailer.js";
-import { TICKET_CATEGORIES, createTicket, type TicketCategory } from "./ticket-store.js";
+import { createTicket } from "./ticket-store.js";
 
 const INTAKE_PAGE_PATH = "/support";
 const INTAKE_SUBMIT_PATH = "/api/support/intake";
@@ -69,32 +74,27 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
 }
 
-const CATEGORY_LABEL: Record<TicketCategory, string> = {
-  edit_request: "Edit request",
-  additional_service: "Additional service",
-  missing_media: "Missing media",
-  other: "Support request",
-};
-
-function composeSubject(
-  category: TicketCategory,
-  mediaType: string | null,
-  serviceType: string | null,
-): string {
-  const detail = category === "additional_service" ? serviceType : mediaType;
-  const subject = detail ? `${CATEGORY_LABEL[category]} — ${detail}` : CATEGORY_LABEL[category];
+/** "Edit request — Photos": the category's short label plus its answer. */
+export function composeSubject(category: TicketCategoryDef, extraValue: string | null): string {
+  const subject = extraValue ? `${category.shortLabel} — ${extraValue}` : category.shortLabel;
   return subject.slice(0, 160);
 }
 
-function composeDescription(
-  mediaType: string | null,
-  serviceType: string | null,
+/**
+ * Lead with the follow-up question and its answer so the department reads the
+ * specifics before the free text. The question doubles as the label, which keeps
+ * custom categories self-describing without a second field to configure.
+ */
+export function composeDescription(
+  category: TicketCategoryDef,
+  extraValue: string | null,
   details: string,
 ): string {
-  const prefix: string[] = [];
-  if (mediaType) prefix.push(`Media: ${mediaType}`);
-  if (serviceType) prefix.push(`Requested service: ${serviceType}`);
-  return prefix.length ? `${prefix.join("\n")}\n\n${details}` : details;
+  if (!extraValue) {
+    return details;
+  }
+  const label = category.extraLabel?.trim() || "Details";
+  return `${label} ${extraValue}\n\n${details}`;
 }
 
 /**
@@ -108,14 +108,34 @@ export async function handleTicketIntakeRequest(
 ): Promise<boolean> {
   const url = new URL(req.url ?? "/", "http://localhost");
 
-  // Serve the form page.
+  // Serve the form page, built from the admin-managed categories so dashboard
+  // edits show up immediately (no-cache already prevents a stale form).
   if (url.pathname === INTAKE_PAGE_PATH || url.pathname === `${INTAKE_PAGE_PATH}/`) {
     if (req.method !== "GET" && req.method !== "HEAD") return false;
     setDefaultSecurityHeaders(res);
     res.statusCode = 200;
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");
-    res.end(req.method === "HEAD" ? undefined : TICKET_INTAKE_HTML);
+    if (req.method === "HEAD") {
+      res.end();
+      return true;
+    }
+    await ensureCategorySeed();
+    const categories = await listCategories({ activeOnly: true });
+    res.end(
+      renderTicketIntakeHtml(
+        categories.map((c) => ({
+          key: c.key,
+          label: c.label,
+          extraField: c.extraField,
+          extraLabel: c.extraLabel,
+          extraOptions: c.extraOptions,
+          extraPlaceholder: c.extraPlaceholder,
+          detailsLabel: c.detailsLabel,
+          detailsHint: c.detailsHint,
+        })),
+      ),
+    );
     return true;
   }
 
@@ -136,8 +156,13 @@ export async function handleTicketIntakeRequest(
     }
     const data = body.value as Record<string, unknown>;
 
-    const category = data.category;
-    if (!TICKET_CATEGORIES.includes(category as TicketCategory)) {
+    // Validate against the managed table: only an active category is
+    // submittable, so a deactivated one can't be posted by a stale page.
+    await ensureCategorySeed();
+    const categoryKey = str(data.category);
+    const active = await listCategories({ activeOnly: true });
+    const category = active.find((c) => c.key === categoryKey);
+    if (!category) {
       sendJson(res, 400, { error: "Please choose a request type." });
       return true;
     }
@@ -157,12 +182,13 @@ export async function handleTicketIntakeRequest(
       return true;
     }
 
-    const mediaType = str(data.mediaType);
-    const serviceType = str(data.serviceType);
+    // `mediaType`/`serviceType` are the pre-managed field names, still accepted
+    // so an already-open form page keeps working across a deploy.
+    const extraValue = str(data.extraValue) ?? str(data.mediaType) ?? str(data.serviceType);
     const ticket = await createTicket({
-      category: category as TicketCategory,
-      subject: composeSubject(category as TicketCategory, mediaType, serviceType),
-      description: composeDescription(mediaType, serviceType, details),
+      category: category.key,
+      subject: composeSubject(category, extraValue),
+      description: composeDescription(category, extraValue, details),
       source: "widget",
       requesterName,
       requesterEmail,

@@ -9,7 +9,13 @@ import { getAdminDb } from "./user-store.js";
 // later track — this store owns the model, numbers, and activity thread.
 
 export type TicketStatus = "new" | "in_progress" | "needs_review" | "resolved" | "closed";
-export type TicketCategory = "edit_request" | "additional_service" | "missing_media" | "other";
+/**
+ * A category key from the admin-managed `admin_ticket_categories` table — data,
+ * not a closed union, since admins add their own from the dashboard (the same
+ * shape `department` has always had). Validated at the intake boundary against
+ * the category store, not by the type system or a DB CHECK.
+ */
+export type TicketCategory = string;
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
 export type TicketSource = "widget" | "email" | "manual";
 
@@ -20,6 +26,7 @@ export const TICKET_STATUSES: TicketStatus[] = [
   "resolved",
   "closed",
 ];
+/** The seeded category keys. Only a fallback for callers with no DB access. */
 export const TICKET_CATEGORIES: TicketCategory[] = [
   "edit_request",
   "additional_service",
@@ -36,7 +43,7 @@ export const DEFAULT_DEPARTMENTS = ["editing", "operations", "billing", "general
 
 // Which desk a category routes to by default. The email track uses this to pick
 // the outbound address; the dashboard uses it to pre-fill the department field.
-const CATEGORY_DEPARTMENT: Record<TicketCategory, string> = {
+const CATEGORY_DEPARTMENT: Record<string, string> = {
   edit_request: "editing",
   additional_service: "operations",
   missing_media: "operations",

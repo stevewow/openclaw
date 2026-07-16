@@ -211,6 +211,22 @@ type TicketCategoryRoutesTable = {
   department_key: string;
 };
 
+type TicketCategoriesTable = {
+  key: string;
+  label: string;
+  short_label: string;
+  extra_field: string;
+  extra_label: string | null;
+  extra_options: string | null;
+  extra_placeholder: string | null;
+  details_label: string;
+  details_hint: string | null;
+  sort_order: number;
+  active: number;
+  created_at: number;
+  updated_at: number;
+};
+
 export type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -232,6 +248,7 @@ export type AdminDb = {
   admin_ticket_seq: TicketSeqTable;
   admin_ticket_departments: TicketDepartmentsTable;
   admin_ticket_category_routes: TicketCategoryRoutesTable;
+  admin_ticket_categories: TicketCategoriesTable;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -443,7 +460,10 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       id TEXT PRIMARY KEY,
       number TEXT UNIQUE NOT NULL,
       reply_token TEXT UNIQUE NOT NULL,
-      category TEXT NOT NULL CHECK(category IN ('edit_request','additional_service','missing_media','other')),
+      -- Category keys are managed data (admin_ticket_categories), not a closed
+      -- set: admins add their own from the dashboard. Validated at the intake
+      -- boundary instead of by a CHECK that would need a table rebuild to edit.
+      category TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','in_progress','needs_review','resolved','closed')),
       priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
       source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('widget','email','manual')),
@@ -492,7 +512,23 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       category TEXT PRIMARY KEY,
       department_key TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS admin_ticket_categories (
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      short_label TEXT NOT NULL,
+      extra_field TEXT NOT NULL DEFAULT 'none' CHECK(extra_field IN ('none','select','text')),
+      extra_label TEXT,
+      extra_options TEXT,
+      extra_placeholder TEXT,
+      details_label TEXT NOT NULL,
+      details_hint TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
+  migrateTicketCategoryCheck(db);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {
     db.exec(
@@ -528,6 +564,72 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (!spiroOrderColumns.some((c) => c.name === "company")) {
     db.exec("ALTER TABLE admin_spiro_orders ADD COLUMN company TEXT");
+  }
+}
+
+/**
+ * Databases created before categories were admin-managed pinned them with
+ * `CHECK(category IN ('edit_request',...))`, which rejects any category an admin
+ * adds from the dashboard. SQLite cannot drop a CHECK in place, so rebuild the
+ * table once, following SQLite's documented table-rebuild procedure
+ * (https://sqlite.org/lang_altertable.html#otheralter).
+ *
+ * Foreign keys MUST be off for the swap: admin_ticket_events references
+ * admin_tickets ON DELETE CASCADE, so dropping the old table with them enabled
+ * would silently delete every ticket's activity thread.
+ */
+function migrateTicketCategoryCheck(db: import("node:sqlite").DatabaseSync): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='admin_tickets'")
+    .get() as { sql?: string } | undefined;
+  if (!row?.sql?.includes("CHECK(category IN")) {
+    return;
+  }
+
+  db.exec("PRAGMA foreign_keys=OFF");
+  try {
+    db.exec("BEGIN");
+    db.exec(`
+      CREATE TABLE admin_tickets_rebuild (
+        id TEXT PRIMARY KEY,
+        number TEXT UNIQUE NOT NULL,
+        reply_token TEXT UNIQUE NOT NULL,
+        category TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','in_progress','needs_review','resolved','closed')),
+        priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
+        source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('widget','email','manual')),
+        subject TEXT NOT NULL,
+        description TEXT,
+        department TEXT NOT NULL DEFAULT 'general',
+        requester_name TEXT,
+        requester_email TEXT,
+        requester_phone TEXT,
+        order_id TEXT,
+        order_address TEXT,
+        assigned_to TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+        created_by TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        resolved_at INTEGER
+      );
+      INSERT INTO admin_tickets_rebuild SELECT
+        id, number, reply_token, category, status, priority, source, subject, description,
+        department, requester_name, requester_email, requester_phone, order_id, order_address,
+        assigned_to, created_by, created_at, updated_at, resolved_at
+      FROM admin_tickets;
+      DROP TABLE admin_tickets;
+      ALTER TABLE admin_tickets_rebuild RENAME TO admin_tickets;
+      CREATE INDEX IF NOT EXISTS admin_tickets_status ON admin_tickets(status);
+      CREATE INDEX IF NOT EXISTS admin_tickets_department ON admin_tickets(department);
+      CREATE INDEX IF NOT EXISTS admin_tickets_created_at ON admin_tickets(created_at);
+      CREATE INDEX IF NOT EXISTS admin_tickets_order ON admin_tickets(order_id);
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys=ON");
   }
 }
 

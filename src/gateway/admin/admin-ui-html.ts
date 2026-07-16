@@ -399,6 +399,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="nav-section">Support</div>
       <a href="#tickets" class="nav-link admin-only" data-page="tickets"><span class="icon">🎫</span> Tickets</a>
       <a href="#departments" class="nav-link admin-only" data-page="departments"><span class="icon">🏷️</span> Departments</a>
+      <a href="#categories" class="nav-link admin-only" data-page="categories"><span class="icon">🗂️</span> Request Types</a>
+      <a href="#form-preview" class="nav-link admin-only" data-page="form-preview"><span class="icon">👁️</span> Intake Form</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
       <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
@@ -714,13 +716,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
             </div>
             <div class="form-group" style="margin:0">
               <label>Category</label>
-              <select id="ticket-category-filter">
-                <option value="">All categories</option>
-                <option value="edit_request">Edit request</option>
-                <option value="additional_service">Additional service</option>
-                <option value="missing_media">Missing media</option>
-                <option value="other">Other</option>
-              </select>
+              <select id="ticket-category-filter"><option value="">All categories</option></select>
             </div>
             <div class="form-group" style="margin:0">
               <label>Department</label>
@@ -739,9 +735,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>Ticket</th><th>Subject</th><th>Category</th><th>Requester</th><th>Order</th><th>Dept</th><th>Status</th><th>Updated</th></tr>
+                <tr><th>Ticket</th><th>Subject</th><th>Category</th><th>Requester</th><th>Order</th><th>Dept</th><th>Status</th><th>Created</th><th>Resolved</th><th>Time</th></tr>
               </thead>
-              <tbody id="ticket-body"><tr><td colspan="8" class="empty-state">Loading…</td></tr></tbody>
+              <tbody id="ticket-body"><tr><td colspan="10" class="empty-state">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -769,6 +765,52 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">Which department a new request lands in, by request type.</p>
           <div id="route-rows" style="display:grid;gap:0.75rem;max-width:520px"></div>
           <div style="margin-top:1rem"><button class="btn btn-primary btn-sm" id="route-save-btn">Save routing</button> <span id="route-saved" class="text-muted" style="font-size:0.8rem;margin-left:0.5rem"></span></div>
+        </div>
+      </div>
+
+      <!-- Request Types: the categories offered on the public intake form -->
+      <div id="page-categories" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div style="font-weight:700;margin-bottom:0.35rem">Request Types</div>
+          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">
+            The options a client picks from on the intake form. Add or edit them here and the form updates immediately — no redeploy.
+            Each type can ask its own follow-up question and route to its own department.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Request type</th><th>Follow-up question</th><th>Routes to</th><th>On form</th><th style="width:1%"></th></tr></thead>
+              <tbody id="cat-body"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div style="margin-top:1rem"><button class="btn btn-primary btn-sm" id="cat-add-btn">＋ Add request type</button></div>
+        </div>
+      </div>
+
+      <!-- Intake form preview: the live public form, embedded as clients see it -->
+      <div id="page-form-preview" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div style="font-weight:700;margin-bottom:0.35rem">Intake Form</div>
+          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">
+            Exactly what a client sees — this is the live form, not a mockup. Edits on the Request Types page show up here on refresh.
+          </p>
+          <div class="form-group" style="max-width:640px">
+            <label>Link for the Spiro delivery-page button</label>
+            <div class="flex gap-2" style="align-items:center">
+              <input type="text" id="form-preview-url" readonly style="flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem" />
+              <button class="btn btn-sm" id="form-preview-copy">Copy</button>
+              <button class="btn btn-sm" id="form-preview-open">Open ↗</button>
+            </div>
+            <div class="text-muted" style="font-size:0.78rem;margin-top:0.35rem">
+              Spiro appends the order id; <code>&amp;address=</code> is optional and just shows the property on the form.
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <div class="flex items-center gap-2" style="padding:0.6rem 0.9rem;border-bottom:1px solid var(--border, #e5e7eb)">
+            <span class="text-muted" style="font-size:0.8rem">Live preview</span>
+            <button class="btn btn-sm" id="form-preview-reload" style="margin-left:auto">↻ Reload</button>
+          </div>
+          <iframe id="form-preview-frame" title="Intake form preview" style="width:100%;height:900px;border:0;display:block;background:#f6f7f9"></iframe>
         </div>
       </div>
 
@@ -1184,7 +1226,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="modal-title" id="ticket-modal-title" style="margin:0">Ticket</div>
       <button type="button" class="btn btn-ghost btn-sm" id="ticket-modal-close">✕</button>
     </div>
-    <div id="ticket-modal-meta" style="font-size:0.85rem;margin:0.4rem 0 1rem"></div>
+    <div id="ticket-modal-meta" style="font-size:0.85rem;margin:0.4rem 0 0.25rem"></div>
+    <div id="ticket-modal-timing" class="text-muted" style="font-size:0.8rem;margin:0 0 1rem"></div>
     <div class="flex items-center gap-2" style="flex-wrap:wrap;margin-bottom:1rem">
       <div class="form-group" style="margin:0">
         <label>Status</label>
@@ -1236,12 +1279,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     <form id="ticket-create-form" style="margin-top:1rem">
       <div class="form-group">
         <label>Category</label>
-        <select id="tc-category">
-          <option value="edit_request">Edit request</option>
-          <option value="additional_service">Additional service</option>
-          <option value="missing_media">Missing media</option>
-          <option value="other">Other</option>
-        </select>
+        <select id="tc-category"></select>
       </div>
       <div class="form-group">
         <label>Subject</label>
@@ -1267,6 +1305,71 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
         <button type="button" class="btn btn-ghost btn-sm" id="ticket-create-cancel">Cancel</button>
         <button type="submit" class="btn btn-primary btn-sm">Create ticket</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="category-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:620px;overflow-y:auto;max-height:calc(100dvh - 48px)">
+    <div class="flex items-center" style="justify-content:space-between;gap:1rem">
+      <div class="modal-title" style="margin:0" id="category-modal-title">Request Type</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="category-close">✕</button>
+    </div>
+    <form id="category-form" style="margin-top:1rem">
+      <div class="form-group">
+        <label>Option shown on the form</label>
+        <input type="text" id="cat-label" autocomplete="off" placeholder="e.g. Change the property address" required />
+        <div class="text-muted" style="font-size:0.78rem;margin-top:0.25rem">What the client picks from the dropdown.</div>
+      </div>
+      <div class="flex gap-2" style="flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:200px">
+          <label>Short label</label>
+          <input type="text" id="cat-short-label" autocomplete="off" placeholder="e.g. Address change" />
+          <div class="text-muted" style="font-size:0.78rem;margin-top:0.25rem">Used in email subjects: [WVT-1042] Address change — …</div>
+        </div>
+        <div class="form-group" style="flex:1;min-width:180px">
+          <label>Routes to department</label>
+          <select id="cat-department"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Follow-up question</label>
+        <select id="cat-extra-field">
+          <option value="none">No follow-up question</option>
+          <option value="select">Ask them to pick from a list</option>
+          <option value="text">Ask them to type an answer</option>
+        </select>
+      </div>
+      <div class="form-group hidden" id="cat-extra-label-group">
+        <label>Question text</label>
+        <input type="text" id="cat-extra-label" autocomplete="off" placeholder="e.g. Which media?" />
+      </div>
+      <div class="form-group hidden" id="cat-extra-options-group">
+        <label>Choices (one per line)</label>
+        <textarea id="cat-extra-options" rows="5" placeholder="Photos&#10;Video / Walkthrough&#10;Aerial / Drone"></textarea>
+      </div>
+      <div class="form-group hidden" id="cat-extra-placeholder-group">
+        <label>Placeholder (optional)</label>
+        <input type="text" id="cat-extra-placeholder" autocomplete="off" placeholder="e.g. Virtual staging, extra aerials…" />
+      </div>
+
+      <div class="flex gap-2" style="flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:200px"><label>Details box label</label><input type="text" id="cat-details-label" autocomplete="off" placeholder="e.g. What needs changing?" /></div>
+        <div class="form-group" style="flex:1;min-width:200px"><label>Details hint (optional)</label><input type="text" id="cat-details-hint" autocomplete="off" placeholder="Shown under the box" /></div>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-weight:600">
+          <input type="checkbox" id="cat-active" style="width:auto" checked /> Show on the intake form
+        </label>
+        <div class="text-muted" style="font-size:0.78rem;margin-top:0.25rem">Turn off to retire a type without touching existing tickets.</div>
+      </div>
+
+      <div id="category-error" class="hidden" style="color:var(--danger,#c0000a);font-size:0.85rem;margin-bottom:0.5rem"></div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button type="button" class="btn btn-ghost btn-sm" id="category-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </div>
     </form>
   </div>
@@ -1346,6 +1449,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: true, superAdminOnly: false },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: true, superAdminOnly: false },
     departments: { el: 'page-departments', title: 'Departments', adminOnly: true, superAdminOnly: false },
+    categories: { el: 'page-categories', title: 'Request Types', adminOnly: true, superAdminOnly: false },
+    'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: true, superAdminOnly: false },
     financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
     cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
   };
@@ -1390,6 +1495,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'rankings') loadRankings();
     if (page === 'tickets') loadTickets();
     if (page === 'departments') loadDepartments();
+    if (page === 'categories') loadCategories();
+    if (page === 'form-preview') loadFormPreview();
     if (page === 'financials') loadFinancials();
     if (page === 'cleveland') loadCleveland();
     location.hash = '#' + page;
@@ -3380,6 +3487,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   // ── Support Tickets ─────────────────────────────────────────────────────────
   var ticketDepartments = [];      // [{key,label,email}] from the managed table
   var ticketCategoryRoutes = {};   // category -> department key
+  var ticketCategories = [];       // managed request types from the categories table
   var ticketUserDirectory = [];
   var currentTicketId = null;
   var ticketSearchTimer = null;
@@ -3388,13 +3496,53 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     var r = await api('GET','/tickets/departments');
     if (r.ok && r.data) { ticketDepartments = r.data.departments || []; ticketCategoryRoutes = r.data.routes || {}; }
   }
+  async function loadCategoryList(){
+    var r = await api('GET','/tickets/categories');
+    if (r.ok && r.data) {
+      ticketCategories = r.data.categories || [];
+      if (r.data.routes) ticketCategoryRoutes = r.data.routes;
+    }
+  }
   function deptLabel(key){
     var d = ticketDepartments.find(function(x){ return x.key===key; });
     return d ? d.label : key;
   }
 
   function ticketStatusLabel(s){ return ({'new':'New','in_progress':'In Progress','needs_review':'Needs Review','resolved':'Resolved','closed':'Closed'})[s] || s; }
-  function ticketCategoryLabel(c){ return ({'edit_request':'Edit request','additional_service':'Additional service','missing_media':'Missing media','other':'Other'})[c] || c; }
+  // Categories are managed data now; fall back to the raw key so a ticket whose
+  // category was deleted still renders.
+  function ticketCategoryLabel(c){
+    var m = ticketCategories.find(function(x){ return x.key===c; });
+    return m ? m.shortLabel : c;
+  }
+
+  // ── Ticket timing ───────────────────────────────────────────────────────────
+  function tshortdate(ms){
+    if (!ms) return '—';
+    var d = new Date(ms);
+    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ', ' + d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+  }
+  /** Compact elapsed time, e.g. "3d 4h", "2h 15m", "45m". */
+  function tduration(ms){
+    if (ms === null || ms === undefined || ms < 0) return '—';
+    var mins = Math.floor(ms/60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm';
+    var hours = Math.floor(mins/60);
+    if (hours < 24) { var rm = mins%60; return rm ? hours+'h '+rm+'m' : hours+'h'; }
+    var days = Math.floor(hours/24);
+    var rh = hours%24;
+    return rh ? days+'d '+rh+'h' : days+'d';
+  }
+  /** Resolved tickets show time-to-resolution; open ones show current age. */
+  function ticketAgeCell(t){
+    if (t.resolvedAt) {
+      return '<span style="color:#16a34a;font-weight:600">'+esc(tduration(t.resolvedAt - t.createdAt))+'</span>'
+           + '<div class="text-muted" style="font-size:0.7rem">to resolve</div>';
+    }
+    return '<span>'+esc(tduration(Date.now() - t.createdAt))+'</span>'
+         + '<div class="text-muted" style="font-size:0.7rem">open</div>';
+  }
   function ticketStatusBadge(s){
     var colors={'new':'#2563eb','in_progress':'#0E6E63','needs_review':'#d97706','resolved':'#16a34a','closed':'#6b7280'};
     var c=colors[s]||'#6b7280';
@@ -3420,6 +3568,28 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     ticketDepartments.forEach(function(d){ var o=document.createElement('option'); o.value=d.key; o.textContent=d.label; sel.appendChild(o); });
     sel.value = current;
   }
+  // Filter lists every category (including retired ones) so old tickets stay
+  // findable; the create modal offers only what's still on the form.
+  function populateTicketCategoryFilter(){
+    var sel = document.getElementById('ticket-category-filter');
+    var current = sel.value;
+    sel.innerHTML = '<option value="">All categories</option>';
+    ticketCategories.forEach(function(c){
+      var o=document.createElement('option');
+      o.value=c.key;
+      o.textContent=c.shortLabel + (c.active ? '' : ' (retired)');
+      sel.appendChild(o);
+    });
+    sel.value = current;
+  }
+  function populateTicketCategorySelect(sel, value){
+    sel.innerHTML='';
+    ticketCategories.filter(function(c){ return c.active || c.key===value; }).forEach(function(c){
+      var o=document.createElement('option'); o.value=c.key; o.textContent=c.shortLabel;
+      if(c.key===value) o.selected=true;
+      sel.appendChild(o);
+    });
+  }
   function populateTicketDeptSelect(sel, value){
     sel.innerHTML='';
     var opts = ticketDepartments.slice();
@@ -3432,8 +3602,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   async function loadTickets(){
-    await Promise.all([loadTicketDirectory(), loadDepartmentList()]);
+    await Promise.all([loadTicketDirectory(), loadDepartmentList(), loadCategoryList()]);
     populateTicketDeptFilter();
+    populateTicketCategoryFilter();
     await Promise.all([loadTicketStats(), loadTicketTable()]);
   }
 
@@ -3464,19 +3635,21 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   async function loadTicketTable(){
     var body = document.getElementById('ticket-body');
     var r = await api('GET','/tickets'+ticketFilterQuery());
-    if(!r.ok){ body.innerHTML='<tr><td colspan="8" class="empty-state">Failed to load.</td></tr>'; return; }
+    if(!r.ok){ body.innerHTML='<tr><td colspan="10" class="empty-state">Failed to load.</td></tr>'; return; }
     var tickets = r.data.tickets || [];
-    if(!tickets.length){ body.innerHTML='<tr><td colspan="8" class="empty-state">No tickets.</td></tr>'; return; }
+    if(!tickets.length){ body.innerHTML='<tr><td colspan="10" class="empty-state">No tickets.</td></tr>'; return; }
     body.innerHTML = tickets.map(function(t){
       return '<tr data-id="'+esc(t.id)+'" class="ticket-row" style="cursor:pointer">'+
         '<td><strong>'+esc(t.number)+'</strong></td>'+
         '<td>'+esc(t.subject)+'</td>'+
-        '<td>'+ticketCategoryLabel(t.category)+'</td>'+
+        '<td>'+esc(ticketCategoryLabel(t.category))+'</td>'+
         '<td>'+esc(t.requesterName||'—')+'</td>'+
         '<td>'+esc(t.orderAddress||t.orderId||'—')+'</td>'+
         '<td>'+esc(deptLabel(t.department))+'</td>'+
         '<td>'+ticketStatusBadge(t.status)+'</td>'+
-        '<td class="text-muted" style="font-size:0.8rem">'+tdate(t.updatedAt)+'</td>'+
+        '<td class="text-muted" style="font-size:0.8rem">'+esc(tshortdate(t.createdAt))+'</td>'+
+        '<td class="text-muted" style="font-size:0.8rem">'+esc(tshortdate(t.resolvedAt))+'</td>'+
+        '<td style="font-size:0.8rem">'+ticketAgeCell(t)+'</td>'+
         '</tr>';
     }).join('');
     body.querySelectorAll('.ticket-row').forEach(function(tr){ tr.addEventListener('click', function(){ openTicket(tr.dataset.id); }); });
@@ -3511,8 +3684,16 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if(t.orderAddress) meta.push('📍 '+esc(t.orderAddress));
     if(t.orderId) meta.push('Order '+esc(t.orderId));
     meta.push('via '+esc(t.source));
-    meta.push('opened '+tdate(t.createdAt));
     document.getElementById('ticket-modal-meta').innerHTML = meta.join(' · ');
+    // Timing line: opened, and either how long it took or how long it's been open.
+    var timing = ['Opened '+esc(tdate(t.createdAt))];
+    if (t.resolvedAt) {
+      timing.push('Resolved '+esc(tdate(t.resolvedAt)));
+      timing.push('<strong style="color:#16a34a">Took '+esc(tduration(t.resolvedAt - t.createdAt))+'</strong>');
+    } else {
+      timing.push('<strong>Open '+esc(tduration(Date.now() - t.createdAt))+'</strong>');
+    }
+    document.getElementById('ticket-modal-timing').innerHTML = timing.join(' · ');
     document.getElementById('ticket-modal-desc').textContent = t.description || '(no details provided)';
     document.getElementById('ticket-modal-status').value = t.status;
     document.getElementById('ticket-modal-priority').value = t.priority;
@@ -3559,9 +3740,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     clearTimeout(ticketSearchTimer); ticketSearchTimer=setTimeout(loadTicketTable, 250);
   });
 
-  function openCreateTicket(){
+  async function openCreateTicket(){
     document.getElementById('ticket-create-error').classList.add('hidden');
     document.getElementById('ticket-create-form').reset();
+    if(!ticketCategories.length) await loadCategoryList();
+    populateTicketCategorySelect(document.getElementById('tc-category'), null);
     document.getElementById('ticket-create-modal').classList.remove('hidden');
   }
   function closeCreateTicket(){ document.getElementById('ticket-create-modal').classList.add('hidden'); }
@@ -3593,7 +3776,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
   // ── Departments management ──────────────────────────────────────────────────
   async function loadDepartments(){
-    await loadDepartmentList();
+    await Promise.all([loadDepartmentList(), loadCategoryList()]);
     renderDeptTable();
     renderRoutes();
   }
@@ -3636,12 +3819,15 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('dept-new-label').value=''; document.getElementById('dept-new-email').value='';
     await loadDepartments();
   });
+  // Routing rows follow the managed categories, so a request type added on the
+  // Request Types page shows up here too (both write the same routes table).
   function renderRoutes(){
-    var cats = ['edit_request','additional_service','missing_media','other'];
     var wrap = document.getElementById('route-rows');
+    var cats = ticketCategories.filter(function(c){ return c.active; });
+    if(!cats.length){ wrap.innerHTML='<div class="text-muted" style="font-size:0.85rem">No request types on the form yet.</div>'; return; }
     wrap.innerHTML = cats.map(function(c){
-      var opts = ticketDepartments.map(function(d){ return '<option value="'+esc(d.key)+'"'+(ticketCategoryRoutes[c]===d.key?' selected':'')+'>'+esc(d.label)+'</option>'; }).join('');
-      return '<div class="flex items-center gap-2" style="justify-content:space-between"><label style="margin:0">'+ticketCategoryLabel(c)+'</label><select data-cat="'+c+'" style="min-width:220px">'+opts+'</select></div>';
+      var opts = ticketDepartments.map(function(d){ return '<option value="'+esc(d.key)+'"'+(ticketCategoryRoutes[c.key]===d.key?' selected':'')+'>'+esc(d.label)+'</option>'; }).join('');
+      return '<div class="flex items-center gap-2" style="justify-content:space-between"><label style="margin:0">'+esc(c.shortLabel)+'</label><select data-cat="'+esc(c.key)+'" style="min-width:220px">'+opts+'</select></div>';
     }).join('');
   }
   document.getElementById('route-save-btn').addEventListener('click', async function(){
@@ -3652,6 +3838,143 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if(!r.ok){ note.textContent = 'Save failed'; return; }
     ticketCategoryRoutes = r.data.routes || ticketCategoryRoutes;
     note.textContent = 'Saved ✓'; setTimeout(function(){ note.textContent=''; }, 2000);
+  });
+
+  // ── Request Types (categories) management ───────────────────────────────────
+  var editingCategoryKey = null;   // null = creating a new one
+
+  async function loadCategories(){
+    await Promise.all([loadCategoryList(), loadDepartmentList()]);
+    renderCategoryTable();
+  }
+  function categoryExtraSummary(c){
+    if (c.extraField === 'select') {
+      var n = (c.extraOptions||[]).length;
+      return esc(c.extraLabel||'—') + '<div class="text-muted" style="font-size:0.7rem">list · ' + n + ' choice' + (n===1?'':'s') + '</div>';
+    }
+    if (c.extraField === 'text') {
+      return esc(c.extraLabel||'—') + '<div class="text-muted" style="font-size:0.7rem">free text</div>';
+    }
+    return '<span class="text-muted">None</span>';
+  }
+  function renderCategoryTable(){
+    var body = document.getElementById('cat-body');
+    if(!ticketCategories.length){ body.innerHTML='<tr><td colspan="5" class="empty-state">No request types yet.</td></tr>'; return; }
+    body.innerHTML = ticketCategories.map(function(c){
+      var dept = ticketCategoryRoutes[c.key];
+      return '<tr data-key="'+esc(c.key)+'">'+
+        '<td><strong>'+esc(c.label)+'</strong><div class="text-muted" style="font-size:0.72rem">'+esc(c.shortLabel)+' · '+esc(c.key)+'</div></td>'+
+        '<td style="font-size:0.85rem">'+categoryExtraSummary(c)+'</td>'+
+        '<td style="font-size:0.85rem">'+esc(dept?deptLabel(dept):'General')+'</td>'+
+        '<td>'+(c.active
+          ? '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;color:#fff;background:#16a34a">Live</span>'
+          : '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;color:#fff;background:#6b7280">Retired</span>')+'</td>'+
+        '<td style="white-space:nowrap"><button class="btn btn-sm cat-edit">Edit</button> <button class="btn btn-ghost btn-sm cat-del" title="Remove">✕</button></td>'+
+        '</tr>';
+    }).join('');
+    body.querySelectorAll('.cat-edit').forEach(function(btn){ btn.addEventListener('click', function(){ openCategoryModal(btn.closest('tr').getAttribute('data-key')); }); });
+    body.querySelectorAll('.cat-del').forEach(function(btn){ btn.addEventListener('click', function(){ removeCategoryRow(btn.closest('tr').getAttribute('data-key')); }); });
+  }
+
+  function syncCategoryExtraFields(){
+    var kind = document.getElementById('cat-extra-field').value;
+    document.getElementById('cat-extra-label-group').classList.toggle('hidden', kind==='none');
+    document.getElementById('cat-extra-options-group').classList.toggle('hidden', kind!=='select');
+    document.getElementById('cat-extra-placeholder-group').classList.toggle('hidden', kind!=='text');
+  }
+  document.getElementById('cat-extra-field').addEventListener('change', syncCategoryExtraFields);
+
+  function openCategoryModal(key){
+    editingCategoryKey = key || null;
+    var c = key ? ticketCategories.find(function(x){ return x.key===key; }) : null;
+    document.getElementById('category-modal-title').textContent = c ? 'Edit Request Type' : 'New Request Type';
+    document.getElementById('category-error').classList.add('hidden');
+    document.getElementById('cat-label').value = c ? c.label : '';
+    document.getElementById('cat-short-label').value = c ? c.shortLabel : '';
+    document.getElementById('cat-extra-field').value = c ? c.extraField : 'none';
+    document.getElementById('cat-extra-label').value = (c && c.extraLabel) || '';
+    document.getElementById('cat-extra-options').value = (c && c.extraOptions) ? c.extraOptions.join('\\n') : '';
+    document.getElementById('cat-extra-placeholder').value = (c && c.extraPlaceholder) || '';
+    document.getElementById('cat-details-label').value = c ? c.detailsLabel : 'Details';
+    document.getElementById('cat-details-hint').value = (c && c.detailsHint) || '';
+    document.getElementById('cat-active').checked = c ? !!c.active : true;
+    var deptSel = document.getElementById('cat-department');
+    deptSel.innerHTML='';
+    var routed = c ? ticketCategoryRoutes[c.key] : null;
+    ticketDepartments.forEach(function(d){
+      var o=document.createElement('option'); o.value=d.key; o.textContent=d.label;
+      if(d.key===routed) o.selected=true;
+      deptSel.appendChild(o);
+    });
+    syncCategoryExtraFields();
+    document.getElementById('category-modal').classList.remove('hidden');
+  }
+  function closeCategoryModal(){ document.getElementById('category-modal').classList.add('hidden'); editingCategoryKey=null; }
+  document.getElementById('cat-add-btn').addEventListener('click', function(){ openCategoryModal(null); });
+  document.getElementById('category-close').addEventListener('click', closeCategoryModal);
+  document.getElementById('category-cancel').addEventListener('click', closeCategoryModal);
+  document.getElementById('category-modal').addEventListener('click', function(e){ if(e.target.id==='category-modal') closeCategoryModal(); });
+
+  document.getElementById('category-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var er = document.getElementById('category-error');
+    var label = document.getElementById('cat-label').value.trim();
+    if(!label){ er.textContent='The form option is required.'; er.classList.remove('hidden'); return; }
+    var kind = document.getElementById('cat-extra-field').value;
+    var options = document.getElementById('cat-extra-options').value.split('\\n').map(function(s){ return s.trim(); }).filter(Boolean);
+    if(kind==='select' && !options.length){ er.textContent='Add at least one choice, or switch the follow-up question off.'; er.classList.remove('hidden'); return; }
+    var extraLabel = document.getElementById('cat-extra-label').value.trim();
+    if(kind!=='none' && !extraLabel){ er.textContent='Give the follow-up question some text.'; er.classList.remove('hidden'); return; }
+    var payload = {
+      label: label,
+      shortLabel: document.getElementById('cat-short-label').value.trim() || label,
+      extraField: kind,
+      extraLabel: kind==='none' ? null : extraLabel,
+      extraOptions: kind==='select' ? options : [],
+      extraPlaceholder: kind==='text' ? (document.getElementById('cat-extra-placeholder').value.trim() || null) : null,
+      detailsLabel: document.getElementById('cat-details-label').value.trim() || 'Details',
+      detailsHint: document.getElementById('cat-details-hint').value.trim() || null,
+      active: document.getElementById('cat-active').checked,
+      department: document.getElementById('cat-department').value || null,
+    };
+    var r = editingCategoryKey
+      ? await api('PUT','/tickets/categories/'+encodeURIComponent(editingCategoryKey), payload)
+      : await api('POST','/tickets/categories', payload);
+    if(!r.ok){ er.textContent=(r.data&&r.data.error)||'Save failed.'; er.classList.remove('hidden'); return; }
+    closeCategoryModal();
+    await loadCategories();
+  });
+
+  async function removeCategoryRow(key){
+    if(!confirm('Remove this request type? If tickets already use it, it stays on those tickets and is just retired from the form.')) return;
+    var r = await api('DELETE','/tickets/categories/'+encodeURIComponent(key));
+    if(!r.ok){ alert((r.data&&r.data.error)||'Remove failed.'); return; }
+    if(r.data && r.data.outcome==='deactivated'){
+      alert('Retired from the form. '+r.data.ticketCount+' existing ticket'+(r.data.ticketCount===1?'':'s')+' kept this type, so it was not deleted.');
+    }
+    await loadCategories();
+  }
+
+  // ── Intake form preview ─────────────────────────────────────────────────────
+  function intakeFormUrl(){ return location.origin + '/support'; }
+  function loadFormPreview(){
+    document.getElementById('form-preview-url').value = intakeFormUrl() + '?orderId=<ORDER_ID>';
+    reloadFormPreview();
+  }
+  function reloadFormPreview(){
+    // Cache-bust so an edit on the Request Types page shows immediately.
+    document.getElementById('form-preview-frame').src =
+      intakeFormUrl() + '?orderId=SAMPLE-1234&address=' + encodeURIComponent('123 Example St, Cleveland OH') + '&_=' + Date.now();
+  }
+  document.getElementById('form-preview-reload').addEventListener('click', reloadFormPreview);
+  document.getElementById('form-preview-open').addEventListener('click', function(){
+    window.open(intakeFormUrl() + '?orderId=SAMPLE-1234', '_blank', 'noopener');
+  });
+  document.getElementById('form-preview-copy').addEventListener('click', async function(){
+    var btn = document.getElementById('form-preview-copy');
+    try { await navigator.clipboard.writeText(document.getElementById('form-preview-url').value); btn.textContent='Copied ✓'; }
+    catch (e) { document.getElementById('form-preview-url').select(); btn.textContent='Press ⌘C'; }
+    setTimeout(function(){ btn.textContent='Copy'; }, 1800);
   });
 
   // ── Nav ───────────────────────────────────────────────────────────────────
