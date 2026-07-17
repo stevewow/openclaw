@@ -94,6 +94,11 @@ export function formatDepartmentEmail(
   categoryLabel: string = FALLBACK_CATEGORY_LABEL,
 ): OutboundEmail {
   const lines: string[] = [];
+  if (ticket.isTest) {
+    lines.push("⚠ TEST TICKET — this is a demonstration of the support flow.");
+    lines.push("No client is waiting and no action is required.");
+    lines.push("");
+  }
   lines.push(`New support ticket ${ticket.number} — ${categoryLabel}`);
   lines.push("");
   const who = ticket.requesterName ?? "A client";
@@ -116,7 +121,7 @@ export function formatDepartmentEmail(
     to,
     from: config.from,
     replyTo: replyToAddress(config.inboundAddress, ticket.replyToken),
-    subject: `[${ticket.number}] ${ticket.subject}`,
+    subject: `${ticket.isTest ? "[TEST] " : ""}[${ticket.number}] ${ticket.subject}`,
     textBody: lines.join("\n"),
   };
 }
@@ -180,6 +185,13 @@ export type NotifyDeps = {
   config?: EmailConfig | null;
   mailer?: TicketMailer | null;
   logger?: { info: (m: string) => void; error: (m: string) => void };
+  /**
+   * Divert the notification to this address instead of the mapped department.
+   * Used for admin-authorized test tickets so a demo doesn't email the real
+   * desk. The caller is responsible for authorizing the override (see
+   * `ticket-test-token.ts`); this function trusts what it's handed.
+   */
+  overrideTo?: string | null;
 };
 
 /**
@@ -198,9 +210,11 @@ export async function notifyDepartment(ticket: Ticket, deps: NotifyDeps = {}): P
     log.info(`email not configured — ${ticket.number} (${ticket.department}) logged only`);
     return { ok: false, detail: "email not configured" };
   }
-  // Prefer the managed departments table; fall back to the optional env map.
+  // An admin-authorized override wins (test tickets); otherwise prefer the
+  // managed departments table, then the optional env map.
   const to =
-    (await getDepartmentEmail(ticket.department)) ??
+    deps.overrideTo?.trim() ||
+    (await getDepartmentEmail(ticket.department)) ||
     resolveDepartmentEmail(ticket.department, config);
   if (!to) {
     log.error(`no email mapped for department "${ticket.department}" — ${ticket.number}`);

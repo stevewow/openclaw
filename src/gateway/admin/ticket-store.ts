@@ -57,6 +57,9 @@ export function defaultDepartmentForCategory(category: TicketCategory): string {
 // Ticket numbers are human-facing (subject lines, client references). Prefix +
 // a monotonic counter seeded above 1000 so the very first ticket reads WVT-1001.
 const TICKET_PREFIX = "WVT-";
+// Demo/test tickets get their own prefix + counter so they're unmistakable in
+// the queue and never advance the real WVT sequence.
+const TEST_TICKET_PREFIX = "TEST-";
 const TICKET_SEQ_START = 1000;
 
 // ── Activity thread ───────────────────────────────────────────────────────
@@ -99,6 +102,7 @@ export type Ticket = {
   orderId: string | null;
   orderAddress: string | null;
   assignedTo: string | null;
+  isTest: boolean;
   createdAt: number;
   updatedAt: number;
   resolvedAt: number | null;
@@ -118,6 +122,8 @@ export type CreateTicketParams = {
   orderAddress?: string | null;
   assignedTo?: string | null;
   createdBy?: string | null;
+  /** A demonstration ticket — gets a TEST- number and is kept out of stats. */
+  isTest?: boolean;
 };
 
 export type UpdateTicketParams = {
@@ -155,6 +161,7 @@ type TicketRow = {
   order_address: string | null;
   assigned_to: string | null;
   created_by: string | null;
+  is_test: number;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -189,6 +196,7 @@ function rowToTicket(row: TicketRow): Ticket {
     orderId: row.order_id,
     orderAddress: row.order_address,
     assignedTo: row.assigned_to,
+    isTest: row.is_test === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     resolvedAt: row.resolved_at,
@@ -255,28 +263,33 @@ export function statusForReplyCommand(command: ReplyCommand): TicketStatus {
 // ── Ticket number ─────────────────────────────────────────────────────────
 async function nextTicketNumber(
   trx: import("kysely").Transaction<import("./user-store.js").AdminDb>,
+  isTest: boolean,
 ): Promise<{ number: string; replyToken: string }> {
+  // Real and test tickets draw from separate counters so demos never advance
+  // the client-facing WVT sequence.
+  const seqTable = isTest ? "admin_ticket_test_seq" : "admin_ticket_seq";
+  const prefix = isTest ? TEST_TICKET_PREFIX : TICKET_PREFIX;
   const row = await trx
-    .selectFrom("admin_ticket_seq")
+    .selectFrom(seqTable)
     .select("next_number")
     .where("id", "=", 1)
     .executeTakeFirst();
   const current = row?.next_number ?? TICKET_SEQ_START + 1;
   if (row) {
     await trx
-      .updateTable("admin_ticket_seq")
+      .updateTable(seqTable)
       .set({ next_number: current + 1 })
       .where("id", "=", 1)
       .execute();
   } else {
     await trx
-      .insertInto("admin_ticket_seq")
+      .insertInto(seqTable)
       .values({ id: 1, next_number: current + 1 })
       .execute();
   }
   return {
-    number: `${TICKET_PREFIX}${current}`,
-    replyToken: `${TICKET_PREFIX}${current}`.toLowerCase(),
+    number: `${prefix}${current}`,
+    replyToken: `${prefix}${current}`.toLowerCase(),
   };
 }
 
@@ -289,8 +302,9 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
     (params.department && params.department.trim()) ||
     (await resolveDepartmentForCategory(params.category));
 
+  const isTest = params.isTest === true;
   await db.transaction().execute(async (trx) => {
-    const { number, replyToken } = await nextTicketNumber(trx);
+    const { number, replyToken } = await nextTicketNumber(trx, isTest);
     await trx
       .insertInto("admin_tickets")
       .values({
@@ -311,6 +325,7 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
         order_address: params.orderAddress ?? null,
         assigned_to: params.assignedTo ?? null,
         created_by: params.createdBy ?? null,
+        is_test: isTest ? 1 : 0,
         created_at: now,
         updated_at: now,
         resolved_at: null,
@@ -329,6 +344,7 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
           category: params.category,
           department,
           source: params.source ?? "manual",
+          ...(isTest ? { test: true } : {}),
         }),
         created_at: now,
       })
@@ -509,6 +525,8 @@ export async function getTicketStats(): Promise<TicketStats> {
   const rows = await db
     .selectFrom("admin_tickets")
     .select(["status", (eb) => eb.fn.countAll<number>().as("count")])
+    // Demo tickets must not move the real Open/New/etc. counts.
+    .where("is_test", "=", 0)
     .groupBy("status")
     .execute();
   const byStatus: Record<TicketStatus, number> = {

@@ -10,6 +10,7 @@ import { applyInboundReply, type PostmarkInboundPayload } from "./ticket-inbound
 import { renderTicketIntakeHtml } from "./ticket-intake-html.js";
 import { notifyDepartment } from "./ticket-mailer.js";
 import { createTicket } from "./ticket-store.js";
+import { verifyTestToken } from "./ticket-test-token.js";
 
 const INTAKE_PAGE_PATH = "/support";
 const INTAKE_SUBMIT_PATH = "/api/support/intake";
@@ -182,6 +183,20 @@ export async function handleTicketIntakeRequest(
       return true;
     }
 
+    // Test mode: an admin mints a signed token from the dashboard that carries
+    // the override recipient. We never trust a raw "send it here" address on
+    // this public endpoint — only a token that verifies diverts the email. A
+    // present-but-invalid token is rejected so a stale demo can't silently mail
+    // the real department.
+    const testToken = str(data.testToken);
+    const testGrant = testToken ? verifyTestToken(testToken) : null;
+    if (testToken && !testGrant) {
+      sendJson(res, 400, {
+        error: "Your test session expired. Reload the preview and try again.",
+      });
+      return true;
+    }
+
     // `mediaType`/`serviceType` are the pre-managed field names, still accepted
     // so an already-open form page keeps working across a deploy.
     const extraValue = str(data.extraValue) ?? str(data.mediaType) ?? str(data.serviceType);
@@ -195,13 +210,15 @@ export async function handleTicketIntakeRequest(
       requesterPhone: str(data.requesterPhone),
       orderId: str(data.orderId),
       orderAddress: str(data.orderAddress),
+      isTest: Boolean(testGrant),
     });
 
     // Notify the department out-of-band; a slow/failed email must not delay or
-    // fail the client's submission (the ticket is already saved).
-    void notifyDepartment(ticket).catch(() => {});
+    // fail the client's submission (the ticket is already saved). A test ticket
+    // diverts to the admin-authorized override address.
+    void notifyDepartment(ticket, testGrant ? { overrideTo: testGrant.email } : {}).catch(() => {});
 
-    sendJson(res, 201, { ok: true, number: ticket.number });
+    sendJson(res, 201, { ok: true, number: ticket.number, test: Boolean(testGrant) });
     return true;
   }
 

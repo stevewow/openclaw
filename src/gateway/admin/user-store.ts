@@ -176,6 +176,7 @@ type TicketsTable = {
   order_address: string | null;
   assigned_to: string | null;
   created_by: string | null;
+  is_test: number;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -246,6 +247,7 @@ export type AdminDb = {
   admin_tickets: TicketsTable;
   admin_ticket_events: TicketEventsTable;
   admin_ticket_seq: TicketSeqTable;
+  admin_ticket_test_seq: TicketSeqTable;
   admin_ticket_departments: TicketDepartmentsTable;
   admin_ticket_category_routes: TicketCategoryRoutesTable;
   admin_ticket_categories: TicketCategoriesTable;
@@ -477,6 +479,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       order_address TEXT,
       assigned_to TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
       created_by TEXT,
+      is_test INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       resolved_at INTEGER
@@ -497,6 +500,10 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_ticket_events_ticket ON admin_ticket_events(ticket_id);
     CREATE TABLE IF NOT EXISTS admin_ticket_seq (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      next_number INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_ticket_test_seq (
       id INTEGER PRIMARY KEY CHECK(id = 1),
       next_number INTEGER NOT NULL
     );
@@ -564,6 +571,12 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (!spiroOrderColumns.some((c) => c.name === "company")) {
     db.exec("ALTER TABLE admin_spiro_orders ADD COLUMN company TEXT");
+  }
+  const ticketColumns = db.prepare("PRAGMA table_info(admin_tickets)").all() as Array<{
+    name: string;
+  }>;
+  if (!ticketColumns.some((c) => c.name === "is_test")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0");
   }
 }
 

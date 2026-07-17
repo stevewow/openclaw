@@ -805,6 +805,22 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
             </div>
           </div>
         </div>
+        <div class="card" style="margin-bottom:1rem">
+          <div style="font-weight:700;margin-bottom:0.35rem">🧪 Test mode</div>
+          <p class="text-muted" style="font-size:0.85rem;margin:0 0 0.75rem">
+            Submit the form below as a <strong>test ticket</strong> to show the team the flow. The department email is diverted to the address you choose (no real desk is emailed), the ticket is numbered <code>TEST-####</code>, and it's kept out of the live stats.
+          </p>
+          <div class="flex gap-2" style="align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="flex:1;min-width:220px;margin:0">
+              <label>Send test notifications to</label>
+              <input type="email" id="form-test-email" placeholder="you@wowvideotours.com" />
+            </div>
+            <label class="flex items-center gap-2" style="font-size:0.9rem;white-space:nowrap;padding-bottom:0.5rem">
+              <input type="checkbox" id="form-test-toggle" /> Enable test mode
+            </label>
+          </div>
+          <div class="text-muted" id="form-test-status" style="font-size:0.78rem;margin-top:0.5rem"></div>
+        </div>
         <div class="card" style="padding:0;overflow:hidden">
           <div class="flex items-center gap-2" style="padding:0.6rem 0.9rem;border-bottom:1px solid var(--border, #e5e7eb)">
             <span class="text-muted" style="font-size:0.8rem">Live preview</span>
@@ -3640,7 +3656,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if(!tickets.length){ body.innerHTML='<tr><td colspan="10" class="empty-state">No tickets.</td></tr>'; return; }
     body.innerHTML = tickets.map(function(t){
       return '<tr data-id="'+esc(t.id)+'" class="ticket-row" style="cursor:pointer">'+
-        '<td><strong>'+esc(t.number)+'</strong></td>'+
+        '<td><strong>'+esc(t.number)+'</strong>'+(t.isTest?' <span style="font-size:0.65rem;font-weight:700;color:#7a5b00;background:#fff8e1;border:1px solid #f4d675;border-radius:5px;padding:1px 5px;vertical-align:middle">TEST</span>':'')+'</td>'+
         '<td>'+esc(t.subject)+'</td>'+
         '<td>'+esc(ticketCategoryLabel(t.category))+'</td>'+
         '<td>'+esc(t.requesterName||'—')+'</td>'+
@@ -3956,16 +3972,50 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   // ── Intake form preview ─────────────────────────────────────────────────────
+  var testPreview = { token: '', email: '' };
   function intakeFormUrl(){ return location.origin + '/support'; }
   function loadFormPreview(){
     document.getElementById('form-preview-url').value = intakeFormUrl() + '?orderId=<ORDER_ID>';
+    var emailEl = document.getElementById('form-test-email');
+    if (!emailEl.value && currentUser && currentUser.email) emailEl.value = currentUser.email;
     reloadFormPreview();
   }
   function reloadFormPreview(){
     // Cache-bust so an edit on the Request Types page shows immediately.
-    document.getElementById('form-preview-frame').src =
-      intakeFormUrl() + '?orderId=SAMPLE-1234&address=' + encodeURIComponent('123 Example St, Cleveland OH') + '&_=' + Date.now();
+    var src = intakeFormUrl() + '?orderId=SAMPLE-1234&address=' + encodeURIComponent('123 Example St, Cleveland OH');
+    if (testPreview.token) src += '&test=' + encodeURIComponent(testPreview.token) + '&testEmail=' + encodeURIComponent(testPreview.email);
+    document.getElementById('form-preview-frame').src = src + '&_=' + Date.now();
   }
+  async function enableTestMode(){
+    var email = (document.getElementById('form-test-email').value || '').trim();
+    var status = document.getElementById('form-test-status');
+    if (email.indexOf('@') === -1) {
+      status.textContent = 'Enter a valid email to receive the test notifications.';
+      document.getElementById('form-test-toggle').checked = false;
+      return;
+    }
+    status.textContent = 'Enabling…';
+    var r = await api('GET', '/tickets/test-token?email=' + encodeURIComponent(email));
+    if (!r.ok) {
+      status.textContent = (r.data && r.data.error) || 'Could not enable test mode.';
+      document.getElementById('form-test-toggle').checked = false;
+      return;
+    }
+    testPreview = { token: r.data.token, email: r.data.email };
+    status.textContent = '✓ Test mode on — submissions below email ' + r.data.email + ' and are tagged TEST. Expires in ~1 hour.';
+    reloadFormPreview();
+  }
+  function disableTestMode(){
+    testPreview = { token: '', email: '' };
+    document.getElementById('form-test-status').textContent = '';
+    reloadFormPreview();
+  }
+  document.getElementById('form-test-toggle').addEventListener('change', function(){
+    if (this.checked) enableTestMode(); else disableTestMode();
+  });
+  document.getElementById('form-test-email').addEventListener('change', function(){
+    if (document.getElementById('form-test-toggle').checked) enableTestMode();
+  });
   document.getElementById('form-preview-reload').addEventListener('click', reloadFormPreview);
   document.getElementById('form-preview-open').addEventListener('click', function(){
     window.open(intakeFormUrl() + '?orderId=SAMPLE-1234', '_blank', 'noopener');

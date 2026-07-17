@@ -127,6 +127,7 @@ import {
   updateDepartment,
 } from "./ticket-department-store.js";
 import { notifyDepartment } from "./ticket-mailer.js";
+import { mintTestToken } from "./ticket-test-token.js";
 
 const MAX_BODY_BYTES_RESOURCE = 20 * 1024 * 1024; // 20 MB for file uploads (base64)
 
@@ -455,6 +456,7 @@ export async function handleAdminHttpRequest(
       id: sessionUser.id,
       username: sessionUser.username,
       role: sessionUser.role,
+      email: sessionUser.email,
       permissions: perms,
       impersonatedBy,
     });
@@ -1263,6 +1265,23 @@ export async function handleAdminHttpRequest(
       return true;
     }
     sendJson(res, 200, { stats: await getTicketStats() });
+    return true;
+  }
+
+  // GET /api/admin/tickets/test-token?email= — mint a short-lived signed grant
+  // that lets the (public) intake preview submit a TEST ticket whose department
+  // email is diverted to `email`. Admin-gated: only staff can authorize a divert.
+  if (subPath === "/tickets/test-token" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const email = normalizeString(url.searchParams.get("email"));
+    if (!email || !email.includes("@")) {
+      sendBadRequest(res, "a valid override email is required");
+      return true;
+    }
+    sendJson(res, 200, { token: mintTestToken(email), email });
     return true;
   }
 

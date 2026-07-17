@@ -10,6 +10,7 @@ process.env.OPENCLAW_STATE_DIR = TMP_DIR;
 const { handleTicketIntakeRequest } = await import("./ticket-intake-http.js");
 const store = await import("./ticket-store.js");
 const cats = await import("./ticket-category-store.js");
+const { mintTestToken } = await import("./ticket-test-token.js");
 
 let server: Server;
 let base: string;
@@ -156,6 +157,39 @@ describe("ticket intake form", () => {
     const t = await store.getTicketByNumber(data.number as string);
     expect(t!.subject).toBe("Additional service — Virtual staging");
     expect(t!.department).toBe("operations");
+  });
+
+  it("opens a TEST ticket (own number space, tagged) when given a valid test token", async () => {
+    const { status, data } = await submit(
+      {
+        ...validBodyFor("other"),
+        testToken: mintTestToken("boss@wow.co"),
+      },
+      "203.0.113.20",
+    );
+    expect(status).toBe(201);
+    expect(data.test).toBe(true);
+    const t = await store.getTicketByNumber(data.number as string);
+    expect(t!.isTest).toBe(true);
+    expect((data.number as string).startsWith("TEST-")).toBe(true);
+  });
+
+  it("rejects a submission carrying an invalid/expired test token", async () => {
+    const { status } = await submit(
+      { ...validBodyFor("other"), testToken: "not-a-real-token" },
+      "203.0.113.21",
+    );
+    expect(status).toBe(400);
+  });
+
+  it("keeps test tickets out of the stats", async () => {
+    const before = await store.getTicketStats();
+    await submit(
+      { ...validBodyFor("other"), testToken: mintTestToken("boss@wow.co") },
+      "203.0.113.22",
+    );
+    const after = await store.getTicketStats();
+    expect(after.total).toBe(before.total);
   });
 
   it("rejects submissions missing required fields", async () => {

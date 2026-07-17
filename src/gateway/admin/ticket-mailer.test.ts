@@ -137,4 +137,33 @@ describe("notifyDepartment", () => {
     const e2 = await store.listTicketEvents(t2.id);
     expect(e2.some((e) => e.kind === "email_out")).toBe(false);
   });
+
+  it("diverts a test ticket to the override recipient and tags the email", async () => {
+    const cfg = mailer.readEmailConfig(ENV)!;
+    const ticket = await store.createTicket({
+      category: "edit_request",
+      subject: "Brighten kitchen",
+      isTest: true,
+    });
+    // Real routing would send to edits@wow.co; the override wins.
+    expect(ticket.number.startsWith("TEST-")).toBe(true);
+    const email = mailer.formatDepartmentEmail(ticket, cfg, "boss@wow.co");
+    expect(email.subject).toBe(`[TEST] [${ticket.number}] Brighten kitchen`);
+    expect(email.textBody).toContain("TEST TICKET");
+
+    let sentTo: string | null = null;
+    const ok = await mailer.notifyDepartment(ticket, {
+      config: cfg,
+      overrideTo: "boss@wow.co",
+      mailer: {
+        send: async (msg) => {
+          sentTo = msg.to;
+          return { ok: true };
+        },
+      },
+      logger: { info: () => {}, error: () => {} },
+    });
+    expect(ok.ok).toBe(true);
+    expect(sentTo).toBe("boss@wow.co");
+  });
 });

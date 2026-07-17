@@ -68,11 +68,13 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   .success .check { width:56px; height:56px; border-radius:50%; background:#e8f7ee; color:#16a34a; font-size:1.8rem; display:flex; align-items:center; justify-content:center; margin:0 auto 1rem; }
   .success .num { font-size:1.4rem; font-weight:800; letter-spacing:-0.01em; margin:0.25rem 0; }
   .foot { text-align:center; color:var(--muted); font-size:0.75rem; margin-top:1.25rem; }
+  .testbar { background:#fff8e1; border:1px solid #f4d675; color:#7a5b00; border-radius:10px; padding:0.7rem 0.9rem; font-size:0.85rem; margin-bottom:1rem; }
 </style>
 </head>
 <body>
   <div class="wrap">
     <div class="brand"><span class="dot"></span><h1>WOW Video Tours — Support</h1></div>
+    <div id="test-banner" class="testbar hidden">🧪 <strong>Test mode</strong> — this is a demonstration. The notification goes to <span id="test-dest">the test recipient</span> instead of the real department, and the ticket is tagged as a test.</div>
     <div class="card">
       <div id="intake-form-view">
         <p class="lead">Need an edit, an extra service, or something looks off with your media? Tell us below and we'll open a ticket for the right team.</p>
@@ -132,6 +134,16 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   var params = new URLSearchParams(location.search);
   var orderId = (params.get('orderId') || params.get('order') || '').trim();
   var address = (params.get('address') || params.get('listing') || '').trim();
+
+  // Test mode is driven entirely by a signed token an admin adds to the URL
+  // (?test=<token>). testEmail is display-only; the authoritative recipient is
+  // baked into the token and checked server-side.
+  var testToken = (params.get('test') || '').trim();
+  var testEmail = (params.get('testEmail') || '').trim();
+  if (testToken) {
+    if (testEmail) document.getElementById('test-dest').textContent = testEmail;
+    document.getElementById('test-banner').classList.remove('hidden');
+  }
 
   var ctx = document.getElementById('ctx');
   if (orderId || address) {
@@ -228,7 +240,8 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
       requesterEmail: document.getElementById('f-email').value.trim(),
       requesterPhone: document.getElementById('f-phone').value.trim() || null,
       orderId: orderId || null,
-      orderAddress: address || null
+      orderAddress: address || null,
+      testToken: testToken || null
     };
     if (!payload.requesterName) { showErr('Please enter your name.'); return; }
     if (!payload.requesterEmail || payload.requesterEmail.indexOf('@') === -1) { showErr('Please enter a valid email so the team can reach you.'); return; }
