@@ -1,3 +1,5 @@
+import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
+
 export const ADMIN_UI_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1185,11 +1187,19 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   <div class="modal" style="max-width:500px">
     <div class="modal-title">Manage Permissions: <span id="perms-modal-username"></span></div>
     <div class="tabs">
-      <div class="tab active" data-tab="agents-tab">Agents</div>
+      <div class="tab active" data-tab="access-tab">Access</div>
+      <div class="tab" data-tab="agents-tab">Agents</div>
       <div class="tab" data-tab="skills-tab">Skills</div>
       <div class="tab" data-tab="channels-tab">Channels</div>
     </div>
-    <div id="agents-tab" class="tab-content">
+    <div id="access-tab" class="tab-content">
+      <p class="text-muted" style="font-size:0.82rem;margin:0 0 0.75rem">Switch on exactly what this person can see in their portal. Everything is off until you grant it.</p>
+      <div style="font-weight:700;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin:0.5rem 0 0.25rem">Sections</div>
+      <div id="perms-features-list"></div>
+      <div style="font-weight:700;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin:1rem 0 0.25rem">Reports</div>
+      <div id="perms-reports-list"></div>
+    </div>
+    <div id="agents-tab" class="tab-content hidden">
       <div id="perms-agents-list"></div>
     </div>
     <div id="skills-tab" class="tab-content hidden">
@@ -1804,15 +1814,28 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   };
 
   // ── Permissions Modal ─────────────────────────────────────────────────────
+  // Sections a portal user can be granted. Reports are sourced from the REPORTS
+  // catalog so a new report is toggleable the moment it's added.
+  var FEATURES = [
+    { value: 'chat', label: 'Chat' },
+    { value: 'projects', label: 'Projects & Tasks' },
+    { value: 'resources', label: 'Resources' }
+  ];
+  function renderPermCheckbox(kind, value, label, checked) {
+    return '<div class="flex items-center gap-2 mb-4" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">'+
+      '<input type="checkbox" id="'+kind+'-perm-'+esc(value)+'" data-perm-kind="'+kind+'" value="'+esc(value)+'"'+(checked?' checked':'')+'>'+
+      '<label for="'+kind+'-perm-'+esc(value)+'" style="margin:0;font-weight:normal">'+esc(label)+'</label>'+
+      '</div>';
+  }
   window.openPermsModal = async function(userId, username) {
     permsModalUserId = userId;
     document.getElementById('perms-modal-username').textContent = username;
     document.getElementById('perms-modal').classList.remove('hidden');
-    // Reset to Agents tab
+    // Reset to Access tab
     document.querySelectorAll('#perms-modal .tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('#perms-modal .tab-content').forEach(c => c.classList.add('hidden'));
-    document.querySelector('#perms-modal .tab[data-tab="agents-tab"]').classList.add('active');
-    document.getElementById('agents-tab').classList.remove('hidden');
+    document.querySelector('#perms-modal .tab[data-tab="access-tab"]').classList.add('active');
+    document.getElementById('access-tab').classList.remove('hidden');
     // Load agents, skills, channels, and current permissions in parallel
     const [agentsR, skillsR, channelsR, permsR] = await Promise.all([
       api('GET', '/agents'),
@@ -1825,6 +1848,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     const grantedAgents = new Set(perms.filter(p => p.permissionType === 'agent').map(p => p.value));
     const grantedSkills = new Set(perms.filter(p => p.permissionType === 'skill').map(p => p.value));
     const grantedChannels = new Set(perms.filter(p => p.permissionType === 'channel').map(p => p.value));
+    const grantedFeatures = new Set(perms.filter(p => p.permissionType === 'feature').map(p => p.value));
+    const grantedReports = new Set(perms.filter(p => p.permissionType === 'report').map(p => p.value));
+
+    document.getElementById('perms-features-list').innerHTML =
+      FEATURES.map(f => renderPermCheckbox('feature', f.value, f.label, grantedFeatures.has(f.value))).join('');
+    document.getElementById('perms-reports-list').innerHTML =
+      REPORTS.map(r => renderPermCheckbox('report', r.key, r.title, grantedReports.has(r.key))).join('');
 
     // Agents list
     const agentsList = document.getElementById('perms-agents-list');
@@ -1873,6 +1903,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     });
     document.querySelectorAll('#perms-channels-list input[type=checkbox]:checked').forEach(cb => {
       permissions.push({ permissionType: 'channel', value: cb.value });
+    });
+    document.querySelectorAll('#perms-features-list input[type=checkbox]:checked').forEach(cb => {
+      permissions.push({ permissionType: 'feature', value: cb.value });
+    });
+    document.querySelectorAll('#perms-reports-list input[type=checkbox]:checked').forEach(cb => {
+      permissions.push({ permissionType: 'report', value: cb.value });
     });
     await api('PUT', '/users/' + permsModalUserId + '/permissions', { permissions });
     document.getElementById('perms-modal').classList.add('hidden');
@@ -2369,195 +2405,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     el.textContent = 'Last refreshed: ' + new Date(latest.refreshedAt).toLocaleString();
   }
 
-  // ── Reusable report table ────────────────────────────────────────────────
-  // A data table with sortable + drag-reorderable + hideable columns, an
-  // optional frozen first column, and CSV (Excel) export. The column layout
-  // (order, hidden, sort) is saved per user in localStorage so each person's
-  // arrangement is private to them. Column config: { key, label, value(row),
-  // render(row)?, type:'num'|'text' }. value() feeds sort + CSV; render()
-  // returns display HTML (defaults to the escaped value).
-  function reportTableStorageKey(reportKey){
-    return 'oc_rtbl_' + (currentUser && currentUser.id ? currentUser.id : 'anon') + '_' + reportKey;
-  }
-  function createReportTable(cfg){
-    var reportKey = cfg.reportKey;
-    var cols = cfg.columns;
-    var frozenFirst = cfg.frozenFirst === true;
-    var emptyMsg = cfg.emptyMsg || 'No data.';
-    var byKey = {};
-    cols.forEach(function(c){ byKey[c.key] = c; });
-
-    var state = { order: cols.map(function(c){ return c.key; }), hidden: {}, sort: null };
-    try {
-      var saved = JSON.parse(localStorage.getItem(reportTableStorageKey(reportKey)) || 'null');
-      if (saved && Array.isArray(saved.order)) {
-        // Keep only keys that still exist, then append any new columns.
-        var kept = saved.order.filter(function(k){ return byKey[k]; });
-        cols.forEach(function(c){ if (kept.indexOf(c.key) === -1) kept.push(c.key); });
-        state.order = kept;
-        state.hidden = saved.hidden && typeof saved.hidden === 'object' ? saved.hidden : {};
-        state.sort = saved.sort && byKey[saved.sort.key] ? saved.sort : null;
-      }
-    } catch (e) { /* ignore corrupt layout */ }
-
-    var rows = [];
-    var errored = false;
-    var el = document.getElementById(cfg.containerId);
-
-    function persist(){
-      try { localStorage.setItem(reportTableStorageKey(reportKey), JSON.stringify(state)); } catch (e) { /* quota */ }
-    }
-    function visibleCols(){
-      return state.order.map(function(k){ return byKey[k]; }).filter(function(c){ return c && !state.hidden[c.key]; });
-    }
-    function rawValue(c, row){
-      try { return c.value ? c.value(row) : null; } catch (e) { return null; }
-    }
-    function cellHtml(c, row){
-      if (c.render) return c.render(row);
-      var v = rawValue(c, row);
-      return esc(v === null || v === undefined ? '' : String(v));
-    }
-    function sortedRows(){
-      if (!state.sort) return rows.slice();
-      var c = byKey[state.sort.key];
-      if (!c) return rows.slice();
-      var dir = state.sort.dir === 'desc' ? -1 : 1;
-      return rows.slice().sort(function(a, b){
-        var av = rawValue(c, a), bv = rawValue(c, b);
-        if (av === null || av === undefined) av = '';
-        if (bv === null || bv === undefined) bv = '';
-        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-        return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir;
-      });
-    }
-
-    function csvCell(v){
-      if (v === null || v === undefined) v = '';
-      v = String(v);
-      if (/[",\\n\\r]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
-      return v;
-    }
-    function exportCsv(){
-      var vc = visibleCols();
-      var lines = [vc.map(function(c){ return csvCell(c.label); }).join(',')];
-      sortedRows().forEach(function(row){
-        lines.push(vc.map(function(c){ return csvCell(rawValue(c, row)); }).join(','));
-      });
-      var blob = new Blob(['\\ufeff' + lines.join('\\r\\n')], { type: 'text/csv;charset=utf-8;' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = reportKey + '-' + new Date().toISOString().slice(0, 10) + '.csv';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
-    }
-
-    function render(){
-      var vc = visibleCols();
-      var html = '';
-      html += '<div class="rt-toolbar">';
-      html += '<div class="rt-cols-wrap"><button type="button" class="btn btn-sm rt-cols-btn">Columns \\u25be</button><div class="rt-cols-menu hidden"></div></div>';
-      html += '<button type="button" class="btn btn-sm rt-csv-btn">\\u21e9 Export CSV</button>';
-      html += '</div>';
-      html += '<div class="table-wrap"><table class="rt-table"><thead><tr>';
-      vc.forEach(function(c, i){
-        var frozen = frozenFirst && i === 0 ? ' rt-frozen' : '';
-        var arrow = state.sort && state.sort.key === c.key ? (state.sort.dir === 'desc' ? ' \\u25be' : ' \\u25b4') : '';
-        html += '<th class="rt-th' + frozen + '" draggable="true" data-key="' + esc(c.key) + '"><span class="rt-grip">\\u2237</span><span class="rt-th-label">' + esc(c.label) + arrow + '</span></th>';
-      });
-      html += '</tr></thead><tbody></tbody></table></div>';
-      el.innerHTML = html;
-      renderBody();
-      bind();
-    }
-    function renderBody(){
-      var vc = visibleCols();
-      var tbody = el.querySelector('tbody');
-      if (errored) { tbody.innerHTML = '<tr><td colspan="' + vc.length + '" class="empty-state">Failed to load.</td></tr>'; return; }
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="' + vc.length + '" class="empty-state">' + esc(emptyMsg) + '</td></tr>'; return; }
-      tbody.innerHTML = sortedRows().map(function(row){
-        return '<tr>' + vc.map(function(c, i){
-          var frozen = frozenFirst && i === 0 ? ' class="rt-frozen"' : '';
-          return '<td' + frozen + '>' + cellHtml(c, row) + '</td>';
-        }).join('') + '</tr>';
-      }).join('');
-    }
-
-    var justDragged = false;
-    function bind(){
-      var csvBtn = el.querySelector('.rt-csv-btn');
-      if (csvBtn) csvBtn.addEventListener('click', exportCsv);
-      var colsBtn = el.querySelector('.rt-cols-btn');
-      var menu = el.querySelector('.rt-cols-menu');
-      if (colsBtn && menu) {
-        colsBtn.addEventListener('click', function(e){
-          e.stopPropagation();
-          if (menu.classList.contains('hidden')) { buildColsMenu(menu); menu.classList.remove('hidden'); }
-          else menu.classList.add('hidden');
-        });
-      }
-      el.querySelectorAll('.rt-th').forEach(function(th){
-        var key = th.dataset.key;
-        th.addEventListener('click', function(){
-          if (justDragged) return;
-          toggleSort(key);
-        });
-        th.addEventListener('dragstart', function(e){ dragKey = key; if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'; });
-        th.addEventListener('dragend', function(){ justDragged = true; setTimeout(function(){ justDragged = false; }, 0); });
-        th.addEventListener('dragover', function(e){ e.preventDefault(); });
-        th.addEventListener('drop', function(e){ e.preventDefault(); reorder(dragKey, key); });
-      });
-    }
-    var dragKey = null;
-    function buildColsMenu(menu){
-      menu.innerHTML = state.order.map(function(k){
-        var c = byKey[k];
-        var checked = state.hidden[k] ? '' : ' checked';
-        return '<label class="rt-cols-item"><input type="checkbox" data-key="' + esc(k) + '"' + checked + ' /> ' + esc(c.label) + '</label>';
-      }).join('');
-      menu.querySelectorAll('input[type=checkbox]').forEach(function(cb){
-        cb.addEventListener('change', function(){
-          var k = cb.dataset.key;
-          // Never let them hide the last remaining column.
-          if (!cb.checked && visibleCols().length <= 1) { cb.checked = true; return; }
-          if (cb.checked) delete state.hidden[k]; else state.hidden[k] = true;
-          persist(); render();
-        });
-      });
-    }
-    function toggleSort(key){
-      if (state.sort && state.sort.key === key) {
-        state.sort = state.sort.dir === 'asc' ? { key: key, dir: 'desc' } : null;
-      } else {
-        state.sort = { key: key, dir: 'asc' };
-      }
-      persist(); render();
-    }
-    function reorder(src, dst){
-      if (!src || src === dst) return;
-      var order = state.order.slice();
-      var from = order.indexOf(src), to = order.indexOf(dst);
-      if (from === -1 || to === -1) return;
-      order.splice(from, 1);
-      order.splice(order.indexOf(dst) + (from < to ? 1 : 0), 0, src);
-      state.order = order;
-      persist(); render();
-    }
-
-    // Close any open column menu when clicking elsewhere.
-    document.addEventListener('click', function(){
-      var menu = el.querySelector('.rt-cols-menu');
-      if (menu) menu.classList.add('hidden');
-    });
-
-    render();
-    return {
-      setData: function(data){ rows = Array.isArray(data) ? data : []; errored = false; renderBody(); },
-      setError: function(){ errored = true; renderBody(); },
-    };
-  }
-
+${REPORT_TABLE_COMPONENT_JS}
   var cancelCols = [
     { key: 'client', label: 'Client', value: function(r){ return r.client; } },
     { key: 'totalOrders', label: 'Total Orders', type: 'num', value: function(r){ return r.totalOrders; } },

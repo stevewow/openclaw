@@ -196,6 +196,17 @@ function resolvePortalUserAgentAllow(
   return agentPerms.length > 0 ? agentPerms : undefined;
 }
 
+// Chat is deny-by-default for portal `user`-role accounts: they must hold the
+// `feature:chat` grant. Admins/superadmins (and internal, non-portal callers)
+// are never gated here.
+function portalUserChatDenied(client: GatewayRequestHandlerOptions["client"]): boolean {
+  const portalUser = client?.portalUser;
+  if (!portalUser || portalUser.role === "admin" || portalUser.role === "superadmin") {
+    return false;
+  }
+  return !portalUser.permissions.some((p) => p.permissionType === "feature" && p.value === "chat");
+}
+
 function resolveAllowModelOverrideFromClient(
   client: GatewayRequestHandlerOptions["client"],
 ): boolean {
@@ -782,6 +793,14 @@ export const agentHandlers: GatewayRequestHandlers = {
           ErrorCodes.INVALID_REQUEST,
           `invalid agent params: unknown agent id "${request.agentId}"`,
         ),
+      );
+      return;
+    }
+    if (portalUserChatDenied(client)) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "chat is not enabled for this user"),
       );
       return;
     }

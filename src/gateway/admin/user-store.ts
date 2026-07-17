@@ -338,6 +338,10 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       value TEXT NOT NULL,
       PRIMARY KEY (user_id, permission_type, value)
     );
+    CREATE TABLE IF NOT EXISTS admin_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS admin_resources (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -578,6 +582,43 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   if (!ticketColumns.some((c) => c.name === "is_test")) {
     db.exec("ALTER TABLE admin_tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0");
   }
+  backfillPortalFeaturePermissions(db);
+}
+
+/**
+ * Portal access became deny-by-default: a non-admin user sees a section only
+ * when granted `feature:<section>`. To preserve behavior for people who
+ * predate the toggles, grant existing `user`-role accounts the base sections
+ * (chat, projects, resources) exactly once. Guarded by a migration marker so an
+ * admin who later revokes a section doesn't have it silently restored.
+ */
+function backfillPortalFeaturePermissions(db: import("node:sqlite").DatabaseSync): void {
+  const MARKER = "feature_perms_backfill_v1";
+  const done = db.prepare("SELECT id FROM admin_migrations WHERE id = ?").get(MARKER);
+  if (done) {
+    return;
+  }
+  // Defensive: skip (without marking done, so it retries) if the users table
+  // hasn't been shaped yet — some partial-schema test fixtures reach here first.
+  const cols = db.prepare("PRAGMA table_info(admin_users)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "role")) {
+    return;
+  }
+  const users = db.prepare("SELECT id FROM admin_users WHERE role = 'user'").all() as Array<{
+    id: string;
+  }>;
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO admin_user_permissions (user_id, permission_type, value) VALUES (?, 'feature', ?)",
+  );
+  for (const u of users) {
+    for (const section of ["chat", "projects", "resources"]) {
+      insert.run(u.id, section);
+    }
+  }
+  db.prepare("INSERT OR IGNORE INTO admin_migrations (id, applied_at) VALUES (?, ?)").run(
+    MARKER,
+    Date.now(),
+  );
 }
 
 /**

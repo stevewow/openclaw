@@ -1,3 +1,5 @@
+import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
+
 export const USER_PORTAL_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -110,6 +112,31 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .empty-state { text-align: center; padding: 3rem 1rem; color: var(--text-muted); font-size: 0.875rem; }
   .empty-state p { margin-bottom: 0.5rem; }
 
+  /* Reports + shared report table */
+  .table-wrap { overflow-x: auto; }
+  table.rt-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  table.rt-table th, table.rt-table td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.rt-table thead th { background: var(--surface2); }
+  .rt-toolbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); }
+  .rt-cols-wrap { position: relative; }
+  .rt-cols-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.35rem; min-width: 200px; max-height: 320px; overflow-y: auto; }
+  .rt-cols-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.5rem; font-size: 0.85rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .rt-cols-item:hover { background: var(--surface2); }
+  .rt-csv-btn { margin-left: auto; }
+  table.rt-table th.rt-th { cursor: pointer; user-select: none; }
+  table.rt-table th.rt-th[draggable=true] { cursor: grab; }
+  .rt-grip { color: var(--text-muted); opacity: 0.5; margin-right: 0.35rem; cursor: grab; font-size: 0.8rem; }
+  .rt-th-label { font-weight: 700; }
+  table.rt-table td.rt-frozen, table.rt-table th.rt-frozen { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+  table.rt-table th.rt-frozen { background: var(--surface2); z-index: 3; }
+  .report-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .report-tab { padding: 0.5rem 0.9rem; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; cursor: pointer; font: inherit; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
+  .report-tab.active { border-color: var(--accent); color: var(--accent); }
+  .report-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1rem; }
+  .report-controls label { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 0.8rem; color: var(--text); }
+  .report-controls select { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 7px; font: inherit; background: var(--surface); margin-left: 0.4rem; }
+  .report-subhead { padding: 0.75rem 1rem; font-weight: 700; border-bottom: 1px solid var(--border); }
+
   /* Resources */
   .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
   .resource-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
@@ -210,9 +237,10 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
       <div class="role" id="sidebar-role"></div>
     </div>
     <nav>
-      <a class="nav-link active" data-page="chat"><span class="icon">💬</span> Chat</a>
-      <a class="nav-link" data-page="tasks"><span class="icon">📋</span> Projects &amp; Tasks</a>
-      <a class="nav-link" data-page="resources"><span class="icon">📚</span> Resources</a>
+      <a class="nav-link active" data-page="chat" data-feature="chat"><span class="icon">💬</span> Chat</a>
+      <a class="nav-link" data-page="tasks" data-feature="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
+      <a class="nav-link" data-page="reports" data-feature="reports"><span class="icon">📊</span> Reports</a>
+      <a class="nav-link" data-page="resources" data-feature="resources"><span class="icon">📚</span> Resources</a>
       <a class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
     </nav>
     <div class="sidebar-footer">
@@ -250,6 +278,20 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
       <div class="topbar"><h2>Resources</h2></div>
       <div class="page-scroll">
         <div id="resources-container"></div>
+      </div>
+    </div>
+
+    <!-- Reports -->
+    <div id="page-reports" class="page">
+      <div class="topbar"><h2>Reports</h2></div>
+      <div class="page-scroll">
+        <div id="report-picker" class="report-picker"></div>
+        <div id="report-controls" class="report-controls hidden">
+          <label>From <select id="prep-from"></select></label>
+          <label>To <select id="prep-to"></select></label>
+          <label>Market <select id="prep-market"><option value="">All markets</option></select></label>
+        </div>
+        <div id="report-area"></div>
       </div>
     </div>
 
@@ -433,6 +475,116 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     const data = await r.json().catch(() => ({}));
     return { ok: r.ok, status: r.status, data };
   }
+${REPORT_TABLE_COMPONENT_JS}
+  // ── Access helpers ──────────────────────────────────────────────────────────
+  function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
+  function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
+  function hasReport(k){ return userPermissions().some(function(p){ return p.permissionType === 'report' && p.value === k; }); }
+
+  var PORTAL_REPORTS = [
+    { key: 'report-cancellations', title: 'Agent Cancellation Report' },
+    { key: 'rankings', title: 'Agent & Company Rankings' }
+  ];
+  function anyReportGranted(){ return PORTAL_REPORTS.some(function(r){ return hasReport(r.key); }); }
+
+  // Deny-by-default: show a nav item only when the section is granted.
+  function applyAccess(){
+    document.querySelectorAll('.nav-link[data-feature]').forEach(function(a){
+      var feat = a.dataset.feature;
+      var ok = feat === 'reports' ? anyReportGranted() : hasFeature(feat);
+      a.style.display = ok ? '' : 'none';
+    });
+  }
+  function firstAllowedPage(){
+    if (hasFeature('chat')) return 'chat';
+    if (hasFeature('projects')) return 'tasks';
+    if (anyReportGranted()) return 'reports';
+    if (hasFeature('resources')) return 'resources';
+    return 'account';
+  }
+
+  // ── Reports (read-only view of cached report data) ──────────────────────────
+  var portalReportMonths = [];
+  var portalReportTables = {};
+  var portalActiveReport = null;
+  var portalReportsBuilt = false;
+  function monthLabelP(m){ var d = new Date(m + '-01T00:00:00Z'); return d.toLocaleString('en-US', { month:'short', year:'numeric', timeZone:'UTC' }); }
+  function portalCancelCols(){ return [
+    { key:'client', label:'Client', value:function(r){ return r.client; } },
+    { key:'totalOrders', label:'Total Orders', type:'num', value:function(r){ return r.totalOrders; } },
+    { key:'cancellations', label:'Cancellations', type:'num', value:function(r){ return r.cancellations; } },
+    { key:'reschedules', label:'Reschedules', type:'num', value:function(r){ return r.reschedules; } },
+    { key:'pct', label:'% Cancelled/Rescheduled', type:'num', value:function(r){ return Number(r.cancelledOrRescheduledPct.toFixed(1)); }, render:function(r){ return r.cancelledOrRescheduledPct.toFixed(1) + '%'; } }
+  ]; }
+  function portalRankCols(nameLabel){ return [
+    { key:'rank', label:'#', type:'num', value:function(r){ return r.rank; } },
+    { key:'name', label:nameLabel, value:function(r){ return r.name; } },
+    { key:'totalOrders', label:'Orders', type:'num', value:function(r){ return r.totalOrders; } },
+    { key:'cancellations', label:'Cancellations', type:'num', value:function(r){ return r.cancellations; } },
+    { key:'reschedules', label:'Reschedules', type:'num', value:function(r){ return r.reschedules; } },
+    { key:'pct', label:'% Canc./Resch.', type:'num', value:function(r){ return Number(r.cancelledOrRescheduledPct.toFixed(1)); }, render:function(r){ return r.cancelledOrRescheduledPct.toFixed(1) + '%'; } }
+  ]; }
+  function loadReportsPage(){
+    var granted = PORTAL_REPORTS.filter(function(r){ return hasReport(r.key); });
+    var picker = document.getElementById('report-picker');
+    var area = document.getElementById('report-area');
+    if (!granted.length){
+      picker.innerHTML = '';
+      document.getElementById('report-controls').classList.add('hidden');
+      area.innerHTML = '<div class="empty-state"><p>No reports are available to you.</p></div>';
+      return;
+    }
+    picker.innerHTML = granted.map(function(r){ return '<button class="report-tab" data-key="' + esc(r.key) + '">' + esc(r.title) + '</button>'; }).join('');
+    picker.querySelectorAll('.report-tab').forEach(function(b){ b.addEventListener('click', function(){ selectPortalReport(b.dataset.key); }); });
+    if (!portalReportsBuilt){
+      for (var i = 0; i < 12; i++){ var d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - (11 - i)); portalReportMonths.push(d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')); }
+      var opts = portalReportMonths.map(function(m){ return '<option value="' + m + '">' + monthLabelP(m) + '</option>'; }).join('');
+      var fromSel = document.getElementById('prep-from'), toSel = document.getElementById('prep-to');
+      fromSel.innerHTML = opts; toSel.innerHTML = opts;
+      fromSel.value = portalReportMonths[0]; toSel.value = portalReportMonths[portalReportMonths.length - 1];
+      var onChange = function(){ if (portalActiveReport) renderPortalReport(portalActiveReport); };
+      fromSel.onchange = toSel.onchange = document.getElementById('prep-market').onchange = onChange;
+      // Persistent containers so the shared table instances keep a live element.
+      area.innerHTML =
+        '<div class="report-view" data-view="report-cancellations" style="display:none"><div class="card" style="padding:0" id="prt-cancel"></div></div>' +
+        '<div class="report-view" data-view="rankings" style="display:none"><div class="card" style="padding:0;margin-bottom:1rem"><div class="report-subhead">🧑‍💼 Agent Ranking</div><div id="prt-rank-agents"></div></div><div class="card" style="padding:0"><div class="report-subhead">🏢 Company Ranking</div><div id="prt-rank-companies"></div></div></div>';
+      portalReportTables['report-cancellations'] = createReportTable({ containerId:'prt-cancel', reportKey:'p-cancellations', frozenFirst:true, emptyMsg:'No data cached for this range yet.', columns: portalCancelCols() });
+      portalReportTables['rankings-agents'] = createReportTable({ containerId:'prt-rank-agents', reportKey:'p-rankings-agents', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Agent') });
+      portalReportTables['rankings-companies'] = createReportTable({ containerId:'prt-rank-companies', reportKey:'p-rankings-companies', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Company') });
+      portalReportsBuilt = true;
+      loadPortalMarkets();
+    }
+    document.getElementById('report-controls').classList.remove('hidden');
+    var stillActive = portalActiveReport && granted.some(function(r){ return r.key === portalActiveReport; });
+    selectPortalReport(stillActive ? portalActiveReport : granted[0].key);
+  }
+  async function loadPortalMarkets(){
+    var from = document.getElementById('prep-from').value, to = document.getElementById('prep-to').value;
+    var r = await api('GET', '/reports/agent-cancellations/markets?from=' + from + '&to=' + to);
+    var sel = document.getElementById('prep-market');
+    var markets = r.ok ? (r.data.markets || []) : [];
+    sel.innerHTML = '<option value="">All markets</option>' + markets.map(function(m){ return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
+  }
+  function selectPortalReport(key){
+    portalActiveReport = key;
+    document.querySelectorAll('#report-picker .report-tab').forEach(function(b){ b.classList.toggle('active', b.dataset.key === key); });
+    document.querySelectorAll('#report-area .report-view').forEach(function(v){ v.style.display = v.dataset.view === key ? '' : 'none'; });
+    renderPortalReport(key);
+  }
+  async function renderPortalReport(key){
+    var from = document.getElementById('prep-from').value, to = document.getElementById('prep-to').value, market = document.getElementById('prep-market').value;
+    var qs = 'from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + (market ? '&market=' + encodeURIComponent(market) : '');
+    if (key === 'report-cancellations'){
+      var r = await api('GET', '/reports/agent-cancellations?' + qs);
+      if (!r.ok){ portalReportTables['report-cancellations'].setError(); return; }
+      portalReportTables['report-cancellations'].setData(r.data.report.rows);
+    } else if (key === 'rankings'){
+      var r2 = await api('GET', '/reports/rankings?' + qs);
+      if (!r2.ok){ portalReportTables['rankings-agents'].setError(); portalReportTables['rankings-companies'].setError(); return; }
+      portalReportTables['rankings-agents'].setData(r2.data.report.agents);
+      portalReportTables['rankings-companies'].setData(r2.data.report.companies);
+    }
+  }
 
   // ── Navigation ────────────────────────────────────────────────────────────
   function navigate(page) {
@@ -444,6 +596,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     if (navEl) navEl.classList.add('active');
     if (page === 'resources') loadResources();
     if (page === 'tasks') loadTasksPage();
+    if (page === 'reports') loadReportsPage();
   }
 
   document.querySelectorAll('.nav-link').forEach(a => {
@@ -769,22 +922,31 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
 
   // ── Show app after auth ────────────────────────────────────────────────────
   async function showApp() {
+    // The login response may not carry permissions; /auth/me always does, and
+    // they drive which sections are visible.
+    if (!currentUser || !currentUser.permissions) {
+      const me = await api('GET', '/auth/me');
+      if (me.ok) currentUser = me.data;
+    }
     document.getElementById('sidebar-username').textContent = currentUser.username;
     document.getElementById('sidebar-role').textContent = currentUser.role;
     document.getElementById('account-info').innerHTML =
       'Signed in as <strong>' + esc(currentUser.username) + '</strong> (' + esc(currentUser.role) + ')';
     updateImpersonationBanner();
+    applyAccess();
 
-    // Fetch gateway config then mount the chat iframe
-    const cfgRes = await api('GET', '/portal/config');
-    if (cfgRes.ok) {
-      gatewayConfig = cfgRes.data;
-      mountChatFrame(gatewayConfig);
+    // Mount the chat iframe only when the user has chat access.
+    if (hasFeature('chat')) {
+      const cfgRes = await api('GET', '/portal/config');
+      if (cfgRes.ok) {
+        gatewayConfig = cfgRes.data;
+        mountChatFrame(gatewayConfig);
+      }
     }
 
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
-    navigate('chat');
+    navigate(firstAllowedPage());
   }
 
   // ── Logout ─────────────────────────────────────────────────────────────────

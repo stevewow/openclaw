@@ -435,6 +435,33 @@ export async function handleAdminHttpRequest(
   const isAdmin = sessionUser.role === "superadmin" || sessionUser.role === "admin";
   const isSuperAdmin = sessionUser.role === "superadmin";
 
+  // Portal access is deny-by-default for non-admins: a section or report is
+  // reachable only when explicitly granted. Admins always pass. Permissions are
+  // loaded lazily (only non-admins hitting a gated route pay for it) and cached
+  // for the life of this request.
+  const viewerId = sessionUser.id;
+  let cachedViewerPerms: Array<{ permissionType: string; value: string }> | null = null;
+  async function viewerPerms(): Promise<Array<{ permissionType: string; value: string }>> {
+    if (!cachedViewerPerms) {
+      cachedViewerPerms = await getUserPermissions(viewerId);
+    }
+    return cachedViewerPerms;
+  }
+  async function hasFeatureAccess(feature: string): Promise<boolean> {
+    if (isAdmin) {
+      return true;
+    }
+    return (await viewerPerms()).some((p) => p.permissionType === "feature" && p.value === feature);
+  }
+  async function hasReportAccess(reportKey: string): Promise<boolean> {
+    if (isAdmin) {
+      return true;
+    }
+    return (await viewerPerms()).some(
+      (p) => p.permissionType === "report" && p.value === reportKey,
+    );
+  }
+
   // POST /api/admin/auth/logout
   if (subPath === "/auth/logout" && req.method === "POST") {
     if (token) await deleteSession(token);
@@ -812,6 +839,25 @@ export async function handleAdminHttpRequest(
     await updateUser(sessionUser.id, { password: newPassword });
     sendJson(res, 200, { ok: true });
     return true;
+  }
+
+  // Feature gate: a non-admin reaches the Resources / Projects & Tasks sections
+  // only when granted. Placed ahead of those route groups so one check covers
+  // every verb on them. Admins always pass.
+  if (!isAdmin) {
+    const gatedFeature =
+      subPath === "/resources" || subPath.startsWith("/resources/")
+        ? "resources"
+        : subPath === "/projects" ||
+            subPath.startsWith("/projects/") ||
+            subPath === "/tasks" ||
+            subPath.startsWith("/tasks/")
+          ? "projects"
+          : null;
+    if (gatedFeature && !(await hasFeatureAccess(gatedFeature))) {
+      sendForbidden(res);
+      return true;
+    }
   }
 
   // GET /api/admin/resources — list resources
@@ -1607,9 +1653,9 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/reports/agent-cancellations — 12-month order/cancellation report (admin only)
+  // GET /api/admin/reports/agent-cancellations — 12-month order/cancellation report
   if (subPath === "/reports/agent-cancellations" && req.method === "GET") {
-    if (!isAdmin) {
+    if (!(await hasReportAccess("report-cancellations"))) {
       sendForbidden(res);
       return true;
     }
@@ -1625,7 +1671,7 @@ export async function handleAdminHttpRequest(
   // GET /api/admin/reports/rankings — agent + company order-volume rankings (admin only).
   // Shares the same cached orders, date range, and market filter as the cancellation report.
   if (subPath === "/reports/rankings" && req.method === "GET") {
-    if (!isAdmin) {
+    if (!(await hasReportAccess("rankings"))) {
       sendForbidden(res);
       return true;
     }
@@ -1638,9 +1684,10 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/reports/agent-cancellations/markets — distinct markets in range (admin only)
+  // GET /api/admin/reports/agent-cancellations/markets — distinct markets in range.
+  // Shared by the cancellation + rankings views, so either report grants it.
   if (subPath === "/reports/agent-cancellations/markets" && req.method === "GET") {
-    if (!isAdmin) {
+    if (!(await hasReportAccess("report-cancellations")) && !(await hasReportAccess("rankings"))) {
       sendForbidden(res);
       return true;
     }
@@ -1652,9 +1699,9 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/reports/agent-cancellations/status — last-refreshed timestamp per month (admin only)
+  // GET /api/admin/reports/agent-cancellations/status — last-refreshed per month.
   if (subPath === "/reports/agent-cancellations/status" && req.method === "GET") {
-    if (!isAdmin) {
+    if (!(await hasReportAccess("report-cancellations")) && !(await hasReportAccess("rankings"))) {
       sendForbidden(res);
       return true;
     }

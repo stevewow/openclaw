@@ -24,7 +24,9 @@ export type SessionUser = AdminUser & { impersonatorId: string | null };
 
 export type UserPermission = {
   userId: string;
-  permissionType: "agent" | "skill" | "channel";
+  // agent/skill/channel gate runtime capabilities; feature/report gate which
+  // portal sections and reports a user can see (deny-by-default for those two).
+  permissionType: "agent" | "skill" | "channel" | "feature" | "report";
   value: string;
 };
 
