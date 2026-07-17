@@ -95,6 +95,14 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
   .card-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 0.75rem; letter-spacing: -0.01em; }
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .reports-home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+  .report-card { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); cursor: pointer; font: inherit; color: inherit; transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s; }
+  .report-card:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(0,0,0,0.08); transform: translateY(-1px); }
+  .report-card-icon { font-size: 1.6rem; line-height: 1; }
+  .report-card-title { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+  .report-card-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
+  .report-back { font-size: 0.82rem; color: var(--text-muted); text-decoration: none; font-weight: 600; }
+  .report-back:hover { color: var(--accent); }
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); border-top: 3px solid var(--accent); }
   .stat-label { color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
   .stat-value { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em; color: var(--text); }
@@ -395,7 +403,6 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="nav-section">Workspace</div>
       <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
       <a href="#reports" class="nav-link admin-only" data-page="reports"><span class="icon">📊</span> Reports</a>
-      <a href="#rankings" class="nav-link admin-only" data-page="rankings"><span class="icon">🏆</span> Rankings</a>
       <div class="nav-section">Support</div>
       <a href="#tickets" class="nav-link admin-only" data-page="tickets"><span class="icon">🎫</span> Tickets</a>
       <a href="#departments" class="nav-link admin-only" data-page="departments"><span class="icon">🏷️</span> Departments</a>
@@ -608,7 +615,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       </div>
 
       <!-- Reports page -->
+      <!-- Reports landing: choose a report -->
+      <div id="page-reports-home" class="page hidden">
+        <div id="reports-home-grid" class="reports-home-grid"></div>
+      </div>
+
       <div id="page-reports" class="page hidden">
+        <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
         <div class="card" style="margin-bottom:1rem">
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div class="form-group" style="margin:0">
@@ -652,6 +665,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 
       <!-- Rankings page -->
       <div id="page-rankings" class="page hidden">
+        <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
         <div class="card" style="margin-bottom:1rem">
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div class="form-group" style="margin:0">
@@ -1461,7 +1475,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     system: { el: 'page-system', title: 'System', adminOnly: true, superAdminOnly: true },
     account: { el: 'page-account', title: 'My Account', adminOnly: false, superAdminOnly: false },
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
-    reports: { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
+    reports: { el: 'page-reports-home', title: 'Reports', adminOnly: true, superAdminOnly: false },
+    'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: true, superAdminOnly: false },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: true, superAdminOnly: false },
     departments: { el: 'page-departments', title: 'Departments', adminOnly: true, superAdminOnly: false },
@@ -1497,8 +1512,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.querySelectorAll('.page').forEach(el => el.classList.add('hidden'));
     document.getElementById(def.el).classList.remove('hidden');
     document.getElementById('page-title').textContent = def.title;
+    // Report sub-pages are reached from the Reports landing, not their own nav
+    // item, so keep the Reports nav entry highlighted while viewing one.
+    const navKey = (page === 'report-cancellations' || page === 'rankings' || page === 'photographers') ? 'reports' : page;
     document.querySelectorAll('.nav-link').forEach(a => {
-      a.classList.toggle('active', a.dataset.page === page);
+      a.classList.toggle('active', a.dataset.page === navKey);
     });
     if (page === 'users') loadUsers();
     if (page === 'agents') loadAgents();
@@ -1507,7 +1525,8 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'dashboard') loadDashboard();
     if (page === 'chat') mountAdminChatFrame();
     if (page === 'projects') loadProjects();
-    if (page === 'reports') loadReports();
+    if (page === 'reports') loadReportsHome();
+    if (page === 'report-cancellations') loadReports();
     if (page === 'rankings') loadRankings();
     if (page === 'tickets') loadTickets();
     if (page === 'departments') loadDepartments();
@@ -2401,6 +2420,28 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <td>\${row.reschedules}</td>
         <td>\${row.cancelledOrRescheduledPct.toFixed(1)}%</td>
       </tr>\`).join('');
+  }
+
+  // The report catalog powers the landing page. One entry per report; adding a
+  // report here (with its page key) surfaces it on the landing with no other
+  // wiring. Later this list is filtered by the viewer's report permissions.
+  var REPORTS = [
+    { key: 'report-cancellations', icon: '📉', title: 'Agent Cancellation Report', desc: 'Cancellations and reschedules per client over a chosen date range and market.' },
+    { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' }
+  ];
+  function loadReportsHome() {
+    var grid = document.getElementById('reports-home-grid');
+    grid.innerHTML = REPORTS.map(function(r){
+      return '<button class="report-card" data-report="'+esc(r.key)+'">'+
+        '<span class="report-card-icon">'+r.icon+'</span>'+
+        '<span class="report-card-title">'+esc(r.title)+'</span>'+
+        '<span class="report-card-desc">'+esc(r.desc)+'</span>'+
+        '</button>';
+    }).join('');
+    grid.querySelectorAll('.report-card').forEach(function(btn){
+      btn.addEventListener('click', function(){ navigate(btn.dataset.report); });
+    });
+    if (!REPORTS.length) grid.innerHTML = '<div class="empty-state">No reports are available to you.</div>';
   }
 
   async function loadReports() {
