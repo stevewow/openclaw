@@ -483,7 +483,8 @@ ${REPORT_TABLE_COMPONENT_JS}
 
   var PORTAL_REPORTS = [
     { key: 'report-cancellations', title: 'Agent Cancellation Report' },
-    { key: 'rankings', title: 'Agent & Company Rankings' }
+    { key: 'rankings', title: 'Agent & Company Rankings' },
+    { key: 'photographers', title: 'Photographers' }
   ];
   function anyReportGranted(){ return PORTAL_REPORTS.some(function(r){ return hasReport(r.key); }); }
 
@@ -524,6 +525,12 @@ ${REPORT_TABLE_COMPONENT_JS}
     { key:'reschedules', label:'Reschedules', type:'num', value:function(r){ return r.reschedules; } },
     { key:'pct', label:'% Canc./Resch.', type:'num', value:function(r){ return Number(r.cancelledOrRescheduledPct.toFixed(1)); }, render:function(r){ return r.cancelledOrRescheduledPct.toFixed(1) + '%'; } }
   ]; }
+  function portalPhotographerCols(){ return [
+    { key:'name', label:'Photographer', value:function(r){ return r.name; } },
+    { key:'markets', label:'Markets', value:function(r){ return (r.markets || []).join(', '); } },
+    { key:'shoots', label:'# Shoots', type:'num', value:function(r){ return r.shoots; } },
+    { key:'status', label:'Status', value:function(r){ return r.active ? 'Active' : 'Inactive'; } }
+  ]; }
   function loadReportsPage(){
     var granted = PORTAL_REPORTS.filter(function(r){ return hasReport(r.key); });
     var picker = document.getElementById('report-picker');
@@ -547,10 +554,12 @@ ${REPORT_TABLE_COMPONENT_JS}
       // Persistent containers so the shared table instances keep a live element.
       area.innerHTML =
         '<div class="report-view" data-view="report-cancellations" style="display:none"><div class="card" style="padding:0" id="prt-cancel"></div></div>' +
-        '<div class="report-view" data-view="rankings" style="display:none"><div class="card" style="padding:0;margin-bottom:1rem"><div class="report-subhead">🧑‍💼 Agent Ranking</div><div id="prt-rank-agents"></div></div><div class="card" style="padding:0"><div class="report-subhead">🏢 Company Ranking</div><div id="prt-rank-companies"></div></div></div>';
+        '<div class="report-view" data-view="rankings" style="display:none"><div class="card" style="padding:0;margin-bottom:1rem"><div class="report-subhead">🧑‍💼 Agent Ranking</div><div id="prt-rank-agents"></div></div><div class="card" style="padding:0"><div class="report-subhead">🏢 Company Ranking</div><div id="prt-rank-companies"></div></div></div>' +
+        '<div class="report-view" data-view="photographers" style="display:none"><div class="card" style="padding:0" id="prt-photographers"></div></div>';
       portalReportTables['report-cancellations'] = createReportTable({ containerId:'prt-cancel', reportKey:'p-cancellations', frozenFirst:true, emptyMsg:'No data cached for this range yet.', columns: portalCancelCols() });
       portalReportTables['rankings-agents'] = createReportTable({ containerId:'prt-rank-agents', reportKey:'p-rankings-agents', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Agent') });
       portalReportTables['rankings-companies'] = createReportTable({ containerId:'prt-rank-companies', reportKey:'p-rankings-companies', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Company') });
+      portalReportTables['photographers'] = createReportTable({ containerId:'prt-photographers', reportKey:'p-photographers', frozenFirst:true, emptyMsg:'No photographers cached yet.', columns: portalPhotographerCols() });
       portalReportsBuilt = true;
       loadPortalMarkets();
     }
@@ -583,6 +592,10 @@ ${REPORT_TABLE_COMPONENT_JS}
       if (!r2.ok){ portalReportTables['rankings-agents'].setError(); portalReportTables['rankings-companies'].setError(); return; }
       portalReportTables['rankings-agents'].setData(r2.data.report.agents);
       portalReportTables['rankings-companies'].setData(r2.data.report.companies);
+    } else if (key === 'photographers'){
+      var r3 = await api('GET', '/reports/photographers?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+      if (!r3.ok){ portalReportTables['photographers'].setError(); return; }
+      portalReportTables['photographers'].setData(r3.data.report.rows);
     }
   }
 

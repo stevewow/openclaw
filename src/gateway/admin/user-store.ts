@@ -136,6 +136,26 @@ type SpiroInvoiceRefreshLogTable = {
   manual: number;
 };
 
+type SpiroPhotographersTable = {
+  photographer_id: string;
+  name: string;
+  markets: string; // JSON array of service-area names
+  active: number;
+  cached_at: number;
+};
+
+type SpiroPhotographerShootsTable = {
+  photographer_id: string;
+  month: string; // YYYY-MM
+  shoots: number;
+};
+
+type SpiroPhotographerRefreshLogTable = {
+  id: string;
+  refreshed_at: number;
+  manual: number;
+};
+
 type FinancialNotesTable = {
   id: string;
   account_key: string;
@@ -241,6 +261,9 @@ export type AdminDb = {
   admin_spiro_refresh_log: SpiroRefreshLogTable;
   admin_spiro_invoices: SpiroInvoicesTable;
   admin_spiro_invoice_refresh_log: SpiroInvoiceRefreshLogTable;
+  admin_spiro_photographers: SpiroPhotographersTable;
+  admin_spiro_photographer_shoots: SpiroPhotographerShootsTable;
+  admin_spiro_photographer_refresh_log: SpiroPhotographerRefreshLogTable;
   admin_financial_notes: FinancialNotesTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
@@ -437,6 +460,24 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS admin_spiro_invoices_account ON admin_spiro_invoices(account_key);
     CREATE INDEX IF NOT EXISTS admin_spiro_invoices_date_due ON admin_spiro_invoices(date_due);
     CREATE TABLE IF NOT EXISTS admin_spiro_invoice_refresh_log (
+      id TEXT PRIMARY KEY,
+      refreshed_at INTEGER NOT NULL,
+      manual INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS admin_spiro_photographers (
+      photographer_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      markets TEXT NOT NULL DEFAULT '[]',
+      active INTEGER NOT NULL DEFAULT 1,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_spiro_photographer_shoots (
+      photographer_id TEXT NOT NULL,
+      month TEXT NOT NULL,
+      shoots INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (photographer_id, month)
+    );
+    CREATE TABLE IF NOT EXISTS admin_spiro_photographer_refresh_log (
       id TEXT PRIMARY KEY,
       refreshed_at INTEGER NOT NULL,
       manual INTEGER NOT NULL DEFAULT 0

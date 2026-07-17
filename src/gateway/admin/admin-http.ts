@@ -61,6 +61,11 @@ import {
   updateResource,
 } from "./resource-store.js";
 import {
+  ensurePhotographersScheduler,
+  getPhotographersReport,
+  refreshPhotographers,
+} from "./spiro-photographers-store.js";
+import {
   ensureSpiroReportScheduler,
   getAgentCancellationReport,
   getRankingsReport,
@@ -366,6 +371,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   ensureSpiroReportScheduler();
   ensureFinancialsScheduler();
   ensureClevelandScheduler();
+  ensurePhotographersScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -1739,6 +1745,35 @@ export async function handleAdminHttpRequest(
       return true;
     }
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/reports/photographers — roster + shoot counts over a range
+  if (subPath === "/reports/photographers" && req.method === "GET") {
+    if (!(await hasReportAccess("photographers"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const months = last12Months();
+    const from = normalizeString(url.searchParams.get("from")) ?? months[0]!;
+    const to = normalizeString(url.searchParams.get("to")) ?? months[months.length - 1]!;
+    const report = await getPhotographersReport({ from, to });
+    sendJson(res, 200, { report });
+    return true;
+  }
+
+  // POST /api/admin/reports/photographers/refresh — manual refresh (admin only)
+  if (subPath === "/reports/photographers/refresh" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    try {
+      const result = await refreshPhotographers({ manual: true });
+      sendJson(res, 200, { ok: true, count: result.count });
+    } catch (err) {
+      sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 

@@ -695,6 +695,28 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         </div>
       </div>
 
+      <!-- Photographers report -->
+      <div id="page-photographers" class="page hidden">
+        <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label>Shoots from</label>
+              <select id="photog-from-sel"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>To</label>
+              <select id="photog-to-sel"></select>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+              <span class="text-muted" id="photog-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-primary btn-sm" id="photog-refresh-btn">↻ Refresh now</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:0"><div id="photog-table"></div></div>
+      </div>
+
       <!-- Support: Tickets page -->
       <div id="page-tickets" class="page hidden">
         <div class="stats-grid" id="ticket-stats-grid" style="margin-bottom:1rem"></div>
@@ -1469,6 +1491,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     reports: { el: 'page-reports-home', title: 'Reports', adminOnly: true, superAdminOnly: false },
     'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: true, superAdminOnly: false },
+    photographers: { el: 'page-photographers', title: 'Photographers', adminOnly: true, superAdminOnly: false },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: true, superAdminOnly: false },
     departments: { el: 'page-departments', title: 'Departments', adminOnly: true, superAdminOnly: false },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: true, superAdminOnly: false },
@@ -1519,6 +1542,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'reports') loadReportsHome();
     if (page === 'report-cancellations') loadReports();
     if (page === 'rankings') loadRankings();
+    if (page === 'photographers') loadPhotographers();
     if (page === 'tickets') loadTickets();
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();
@@ -2442,7 +2466,8 @@ ${REPORT_TABLE_COMPONENT_JS}
   // wiring. Later this list is filtered by the viewer's report permissions.
   var REPORTS = [
     { key: 'report-cancellations', icon: '📉', title: 'Agent Cancellation Report', desc: 'Cancellations and reschedules per client over a chosen date range and market.' },
-    { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' }
+    { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' },
+    { key: 'photographers', icon: '📸', title: 'Photographers', desc: 'Roster with the markets each serves and how many shoots they completed in a selectable range.' }
   ];
   function loadReportsHome() {
     var grid = document.getElementById('reports-home-grid');
@@ -2583,6 +2608,53 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
     await loadRankMarkets();
     await Promise.all([loadRankTables(), loadRankStatus()]);
+  });
+
+  // ── Photographers report ────────────────────────────────────────────────────
+  function photographerCols() {
+    return [
+      { key: 'name', label: 'Photographer', value: function(r){ return r.name; } },
+      { key: 'markets', label: 'Markets', value: function(r){ return (r.markets || []).join(', '); } },
+      { key: 'shoots', label: '# Shoots', type: 'num', value: function(r){ return r.shoots; } },
+      { key: 'status', label: 'Status', value: function(r){ return r.active ? 'Active' : 'Inactive'; } }
+    ];
+  }
+  var photogTable = null;
+  function populatePhotogMonthSelects() {
+    var opts = reportMonths.map(function(m){ return '<option value="' + m + '">' + monthLabel(m) + '</option>'; }).join('');
+    var fromSel = document.getElementById('photog-from-sel'), toSel = document.getElementById('photog-to-sel');
+    fromSel.innerHTML = opts; toSel.innerHTML = opts;
+    fromSel.value = reportMonths[0]; toSel.value = reportMonths[reportMonths.length - 1];
+  }
+  async function loadPhotogTable() {
+    var from = document.getElementById('photog-from-sel').value;
+    var to = document.getElementById('photog-to-sel').value;
+    if (!photogTable) photogTable = createReportTable({ containerId: 'photog-table', reportKey: 'photographers', frozenFirst: true, emptyMsg: 'No photographers cached yet. Try Refresh now.', columns: photographerCols() });
+    var r = await api('GET', '/reports/photographers?from=' + from + '&to=' + to);
+    if (!r.ok) { photogTable.setError(); return; }
+    photogTable.setData(r.data.report.rows);
+    var span = document.getElementById('photog-refreshed-at');
+    span.textContent = r.data.report.refreshedAt ? 'Updated ' + new Date(r.data.report.refreshedAt).toLocaleString() : 'Never refreshed';
+  }
+  async function loadPhotographers() {
+    if (reportMonths.length === 0) {
+      reportMonths = Array.from({ length: 12 }, function(_, i) {
+        var d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - (11 - i));
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+      });
+    }
+    populatePhotogMonthSelects();
+    await loadPhotogTable();
+  }
+  document.getElementById('photog-from-sel').addEventListener('change', loadPhotogTable);
+  document.getElementById('photog-to-sel').addEventListener('change', loadPhotogTable);
+  document.getElementById('photog-refresh-btn').addEventListener('click', async () => {
+    var btn = document.getElementById('photog-refresh-btn');
+    btn.disabled = true; btn.textContent = 'Refreshing…';
+    var r = await api('POST', '/reports/photographers/refresh');
+    btn.disabled = false; btn.innerHTML = '↻ Refresh now';
+    if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
+    await loadPhotogTable();
   });
 
   // ── Financials: Past Due Accounts ──────────────────────────────────────────
