@@ -1480,26 +1480,58 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   // ── Routing ──────────────────────────────────────────────────────────────
+  // Access model. Admins pass everything; superadmin-only pages stay role-locked
+  // regardless of grants. For a non-admin, a page opens only if its feature or
+  // report grant is held — adminOnly pages (user management, financials) are
+  // never grantable. Mirrors the server-side gate in admin-http.ts; the server
+  // is the enforcement, this is what keeps the nav honest.
   const pages = {
     dashboard: { el: 'page-dashboard', title: 'Dashboard', adminOnly: false, superAdminOnly: false },
     users: { el: 'page-users', title: 'Users', adminOnly: true, superAdminOnly: false },
     agents: { el: 'page-agents', title: 'Agents', adminOnly: false, superAdminOnly: true },
-    chat: { el: 'page-chat', title: 'Chat', adminOnly: false, superAdminOnly: false },
-    resources: { el: 'page-resources', title: 'Resource Library', adminOnly: true, superAdminOnly: false },
+    chat: { el: 'page-chat', title: 'Chat', adminOnly: false, superAdminOnly: false, feature: 'chat' },
+    resources: { el: 'page-resources', title: 'Resource Library', adminOnly: false, superAdminOnly: false, feature: 'resources' },
     system: { el: 'page-system', title: 'System', adminOnly: true, superAdminOnly: true },
     account: { el: 'page-account', title: 'My Account', adminOnly: false, superAdminOnly: false },
-    projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false },
-    reports: { el: 'page-reports-home', title: 'Reports', adminOnly: true, superAdminOnly: false },
-    'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: true, superAdminOnly: false },
-    rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: true, superAdminOnly: false },
-    photographers: { el: 'page-photographers', title: 'Photographers', adminOnly: true, superAdminOnly: false },
-    tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: true, superAdminOnly: false },
-    departments: { el: 'page-departments', title: 'Departments', adminOnly: true, superAdminOnly: false },
-    categories: { el: 'page-categories', title: 'Request Types', adminOnly: true, superAdminOnly: false },
-    'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: true, superAdminOnly: false },
+    projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false, feature: 'projects' },
+    reports: { el: 'page-reports-home', title: 'Reports', adminOnly: false, superAdminOnly: false, reportAny: true },
+    'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: false, superAdminOnly: false, report: 'report-cancellations' },
+    rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: false, superAdminOnly: false, report: 'rankings' },
+    photographers: { el: 'page-photographers', title: 'Photographers', adminOnly: false, superAdminOnly: false, report: 'photographers' },
+    tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: false, superAdminOnly: false, feature: 'tickets' },
+    departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
+    categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
+    'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: false, superAdminOnly: false, feature: 'ticket-form' },
     financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
     cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
   };
+
+  // Sections only the admin SPA can serve. A non-admin holding one of these is
+  // kept here instead of being bounced to the portal, which has no ticket UI.
+  var ADMIN_SPA_ONLY_FEATURES = ['tickets', 'ticket-departments', 'ticket-categories', 'ticket-form'];
+
+  function grants() { return (currentUser && currentUser.permissions) || []; }
+  function hasFeature(f) { return grants().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
+  function hasReport(k) { return grants().some(function(p){ return p.permissionType === 'report' && p.value === k; }); }
+  function needsAdminSpa() { return ADMIN_SPA_ONLY_FEATURES.some(hasFeature); }
+
+  function canAccessPage(key) {
+    const def = pages[key];
+    if (!def) return false;
+    if (def.superAdminOnly) return isSuperAdmin();
+    if (isAdmin()) return true;
+    if (def.adminOnly) return false;
+    if (def.feature) return hasFeature(def.feature);
+    if (def.report) return hasReport(def.report);
+    if (def.reportAny) return REPORTS.some(function(r){ return hasReport(r.key); });
+    return true; // dashboard, account
+  }
+
+  function firstAllowedPage() {
+    const order = ['dashboard', 'tickets', 'chat', 'projects', 'reports', 'resources', 'departments', 'categories', 'form-preview'];
+    for (const key of order) { if (canAccessPage(key)) return key; }
+    return 'account';
+  }
 
   function mountAdminChatFrame() {
     if (chatFrameMounted) return;
@@ -1517,9 +1549,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   function navigate(page) {
     let def = pages[page];
     if (!def) { page = 'dashboard'; def = pages.dashboard; }
-    if ((def.adminOnly && !isAdmin()) || (def.superAdminOnly && !isSuperAdmin())) {
-      page = 'dashboard';
-      def = pages.dashboard;
+    // Deep links (and stale hashes) go through the same gate as the nav, so a
+    // hand-typed #tickets can't open a page the user wasn't granted.
+    if (!canAccessPage(page)) {
+      page = firstAllowedPage();
+      def = pages[page];
     }
     const isChatPage = page === 'chat';
     document.getElementById('main-topbar').classList.toggle('hidden', isChatPage);
@@ -1623,8 +1657,10 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
   async function showApp() {
-    // Non-admin users belong in the user portal, not the admin panel.
-    if (!isAdmin()) {
+    // Non-admins belong in the user portal — unless they hold a grant only this
+    // SPA can serve (the ticket surfaces), in which case they stay here with the
+    // nav filtered down to what they're actually granted.
+    if (!isAdmin() && !needsAdminSpa()) {
       localStorage.setItem('oc_portal_token', token);
       localStorage.removeItem('oc_admin_token');
       token = null;
@@ -1644,12 +1680,21 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.querySelectorAll('.superadmin-only').forEach(el => {
       el.classList.toggle('hidden', !isSuperAdmin());
     });
-    // Fetch gateway config for the chat iframe
+    // For a granted non-admin the role classes above are too blunt: re-derive
+    // every nav item from the same predicate navigate() enforces, so what's
+    // visible and what's reachable can't drift apart.
+    if (!isAdmin()) {
+      document.querySelectorAll('.nav-link[data-page]').forEach(el => {
+        el.classList.toggle('hidden', !canAccessPage(el.dataset.page));
+      });
+    }
+    // Fetch gateway config for the chat iframe (chat-gated server-side; a user
+    // without chat access simply gets no frame).
     const cfgRes = await api('GET', '/portal/config');
     if (cfgRes.ok) gatewayConfig = cfgRes.data;
     // Show superadmin role option only for superadmins
-    const page = location.hash.replace('#', '') || 'dashboard';
-    navigate(page);
+    const requested = location.hash.replace('#', '');
+    navigate(requested || firstAllowedPage());
   }
 
   // ── Dashboard ────────────────────────────────────────────────────────────

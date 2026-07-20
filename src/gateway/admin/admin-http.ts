@@ -177,31 +177,39 @@ function normalizeString(v: unknown): string | null {
 }
 
 /**
- * Map a `/tickets...` admin subpath to the portal feature that unlocks it.
+ * Grants that unlock a `/tickets...` admin request — holding any one suffices.
  *
  * The ticket queue and its three configuration surfaces are granted separately,
  * so someone can work the queue without being able to rewire departments,
  * request types, or the public intake form.
  *
+ * Reads of the department and category lists are the exception: the queue needs
+ * them to fill its filter dropdowns and to show labels instead of raw keys, so
+ * `tickets` alone is enough to GET them. Mutating them still requires the
+ * matching config grant.
+ *
  * Deliberately total: any path under `/tickets` that isn't a known config
- * surface falls back to the `tickets` grant rather than returning null. A new
+ * surface falls back to the `tickets` grant rather than returning nothing. A new
  * ticket route therefore ships closed for non-admins instead of unguarded.
  */
-function ticketFeatureForSubPath(subPath: string): PortalFeature {
-  if (subPath === "/tickets/departments" || subPath.startsWith("/tickets/departments/")) {
-    return "ticket-departments";
-  }
+function ticketFeaturesForRequest(subPath: string, method: string): PortalFeature[] {
+  const isRead = method === "GET" || method === "HEAD";
+  // Category routing is edited on the Departments page, so it travels with that
+  // grant rather than with request types.
   if (
-    subPath === "/tickets/categories" ||
-    subPath.startsWith("/tickets/categories/") ||
+    subPath === "/tickets/departments" ||
+    subPath.startsWith("/tickets/departments/") ||
     subPath === "/tickets/category-routes"
   ) {
-    return "ticket-categories";
+    return isRead ? ["ticket-departments", "tickets"] : ["ticket-departments"];
+  }
+  if (subPath === "/tickets/categories" || subPath.startsWith("/tickets/categories/")) {
+    return isRead ? ["ticket-categories", "tickets"] : ["ticket-categories"];
   }
   if (subPath === "/tickets/test-token") {
-    return "ticket-form";
+    return ["ticket-form"];
   }
-  return "tickets";
+  return ["tickets"];
 }
 
 /** Read the editable fields of a ticket category off a JSON body. */
@@ -906,20 +914,29 @@ export async function handleAdminHttpRequest(
   // only when granted. Placed ahead of those route groups so one check covers
   // every verb on them. Admins always pass.
   if (!isAdmin) {
-    const gatedFeature =
+    const gatedFeatures: PortalFeature[] | null =
       subPath === "/resources" || subPath.startsWith("/resources/")
-        ? "resources"
+        ? ["resources"]
         : subPath === "/projects" ||
             subPath.startsWith("/projects/") ||
             subPath === "/tasks" ||
             subPath.startsWith("/tasks/")
-          ? "projects"
+          ? ["projects"]
           : subPath === "/tickets" || subPath.startsWith("/tickets/")
-            ? ticketFeatureForSubPath(subPath)
+            ? ticketFeaturesForRequest(subPath, req.method ?? "GET")
             : null;
-    if (gatedFeature && !(await hasFeatureAccess(gatedFeature))) {
-      sendForbidden(res);
-      return true;
+    if (gatedFeatures) {
+      let allowed = false;
+      for (const feature of gatedFeatures) {
+        if (await hasFeatureAccess(feature)) {
+          allowed = true;
+          break;
+        }
+      }
+      if (!allowed) {
+        sendForbidden(res);
+        return true;
+      }
     }
   }
 

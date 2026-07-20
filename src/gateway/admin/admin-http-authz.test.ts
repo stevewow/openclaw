@@ -199,12 +199,64 @@ describe("ticket surfaces are gated per-grant", () => {
       const plainToken = await tokenFor(plainId);
       for (const probe of SURFACES) {
         const res = await call("GET", probe.path, { token: plainToken });
-        const allowed = probe.feature === target.feature;
+        // The queue grant also carries READ of the department/category lookups —
+        // it needs them for filter dropdowns and to render labels, not raw keys.
+        const allowed =
+          probe.feature === target.feature ||
+          (target.feature === "tickets" &&
+            (probe.feature === "ticket-departments" || probe.feature === "ticket-categories"));
         expect(
           `grant=${target.feature} probe=${probe.path} -> ${res.status === 403 ? "403" : "ok"}`,
         ).toBe(`grant=${target.feature} probe=${probe.path} -> ${allowed ? "ok" : "403"}`);
       }
     }
+  });
+
+  it("lets the queue grant READ the lookups but never WRITE them", async () => {
+    await userStore.setUserPermissions(plainId, [{ permissionType: "feature", value: "tickets" }]);
+    const plainToken = await tokenFor(plainId);
+
+    // Reads the queue page actually depends on.
+    expect((await call("GET", "/tickets/departments", { token: plainToken })).status).not.toBe(403);
+    expect((await call("GET", "/tickets/categories", { token: plainToken })).status).not.toBe(403);
+
+    // Mutations still require the matching config grant.
+    const writes: Array<[string, string]> = [
+      ["POST", "/tickets/departments"],
+      ["PUT", "/tickets/departments/editing"],
+      ["DELETE", "/tickets/departments/editing"],
+      ["POST", "/tickets/categories"],
+      ["PUT", "/tickets/categories/edit_request"],
+      ["DELETE", "/tickets/categories/edit_request"],
+      ["PUT", "/tickets/category-routes"],
+    ];
+    for (const [method, path] of writes) {
+      const res = await call(method, path, { token: plainToken, body: { label: "x" } });
+      expect(`${method} ${path} -> ${res.status}`).toBe(`${method} ${path} -> 403`);
+    }
+  });
+
+  it("routes category-routes with the Departments grant, where it is edited", async () => {
+    await userStore.setUserPermissions(plainId, [
+      { permissionType: "feature", value: "ticket-departments" },
+    ]);
+    const plainToken = await tokenFor(plainId);
+    const res = await call("PUT", "/tickets/category-routes", {
+      token: plainToken,
+      body: { routes: {} },
+    });
+    expect(res.status).not.toBe(403);
+
+    // The request-types grant must NOT unlock it.
+    await userStore.setUserPermissions(plainId, [
+      { permissionType: "feature", value: "ticket-categories" },
+    ]);
+    const other = await tokenFor(plainId);
+    const denied = await call("PUT", "/tickets/category-routes", {
+      token: other,
+      body: { routes: {} },
+    });
+    expect(denied.status).toBe(403);
   });
 
   it("closes an unknown ticket subpath by default rather than leaving it open", async () => {
