@@ -615,6 +615,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           bootstrapTokenCandidate,
           deviceTokenCandidate,
           deviceTokenCandidateSource,
+          portalUserId: authPortalUserId,
         } = await resolveConnectAuthState({
           resolvedAuth,
           connectAuth: connectParams.auth,
@@ -828,7 +829,12 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           }
         }
 
-        ({ authResult, authOk, authMethod } = await resolveConnectAuthDecision({
+        ({
+          authResult,
+          authOk,
+          authMethod,
+          portalUserId: authPortalUserId,
+        } = await resolveConnectAuthDecision({
           state: {
             authResult,
             authOk,
@@ -838,6 +844,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
             bootstrapTokenCandidate,
             deviceTokenCandidate,
             deviceTokenCandidateSource,
+            portalUserId: authPortalUserId,
           },
           hasDeviceIdentity: Boolean(device),
           deviceId: device?.id,
@@ -1408,9 +1415,37 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           ? resolveSharedGatewaySessionGeneration(resolvedAuth, trustedProxies)
           : undefined;
         clearHandshakeTimer();
+        // Portal identity. When the connection authenticated *as* a portal
+        // session the id comes from the credential itself and is mandatory —
+        // there is nothing the client can omit to shed its identity. The
+        // legacy `portalSessionToken` hint is still honored for shared-secret
+        // operator connections (it only ever narrows what they see).
         const portalSessionTokenRaw = connectParams.auth?.portalSessionToken;
+        const portalIdentityId = authMethod === "portal-session" ? authPortalUserId : undefined;
         let resolvedPortalUser: import("../../admin/types.js").PortalUser | undefined;
-        if (portalSessionTokenRaw && typeof portalSessionTokenRaw === "string") {
+        if (portalIdentityId) {
+          try {
+            const { getUserById, getUserPermissions } = await import("../../admin/user-store.js");
+            const portalUserRecord = await getUserById(portalIdentityId);
+            if (portalUserRecord) {
+              resolvedPortalUser = {
+                id: portalUserRecord.id,
+                role: portalUserRecord.role,
+                permissions: await getUserPermissions(portalUserRecord.id),
+              };
+            }
+          } catch {
+            // Fall through to the hard failure below.
+          }
+          if (!resolvedPortalUser) {
+            // The credential authenticated but the account vanished mid-connect.
+            // Fail closed rather than continuing as an unscoped operator.
+            markHandshakeFailure("portal-user-unresolved", { auth: authMethod });
+            sendHandshakeErrorResponse(ErrorCodes.INVALID_REQUEST, "portal session invalid");
+            close(1008, "portal session invalid");
+            return;
+          }
+        } else if (portalSessionTokenRaw && typeof portalSessionTokenRaw === "string") {
           try {
             const { resolveSessionUser, getUserPermissions } =
               await import("../../admin/user-store.js");
@@ -1426,6 +1461,17 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           } catch {
             // Portal session lookup failure is non-fatal; proceed without portal user identity.
           }
+        }
+        if (authMethod === "portal-session") {
+          // Cap the credential's authority. Applied here, after pairing and
+          // device-token verification, so a paired portal browser cannot widen
+          // its own scopes by asking for more at connect time.
+          const { PORTAL_OPERATOR_SCOPES } = await import("../../admin/portal-session-scope.js");
+          scopes = scopes.filter((scope) => PORTAL_OPERATOR_SCOPES.includes(scope));
+          if (scopes.length === 0) {
+            scopes = [...PORTAL_OPERATOR_SCOPES];
+          }
+          connectParams.scopes = scopes;
         }
         const nextClient: GatewayWsClient = {
           socket,

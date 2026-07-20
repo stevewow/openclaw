@@ -626,6 +626,9 @@ ${REPORT_TABLE_COMPONENT_JS}
     const frame = document.getElementById('chat-frame');
     // Pass credentials via hash fragment — the control UI reads #token=, #gatewayUrl=,
     // and #portalToken= on load and strips them from the URL.
+    // NOTE: cfg.gatewayToken is this user's own portal session token, NOT the
+    // shared gateway secret. The gateway authenticates it as a portal-session
+    // and caps the connection's scopes, so it is safe to hand to the browser.
     // Hash params don't appear in server logs. sessionStorage is per-frame and can't be
     // pre-seeded from the parent, so URL fragment is the correct handoff mechanism.
     const hash = [];

@@ -197,6 +197,36 @@ function requireSessionKey(key: unknown, respond: RespondFn): string | null {
   return normalized;
 }
 
+/**
+ * Enforce per-portal-user session isolation on a caller-supplied key.
+ *
+ * Portal users all reach the same gateway, so namespacing session keys only
+ * hides other users' chats from the sidebar — it is not an access control on
+ * its own. Every RPC that accepts a key must run through this, otherwise a
+ * portal user can name another user's session directly and read, write or
+ * subscribe to it.
+ *
+ * Non-portal (operator) connections are unaffected. Returns true when the
+ * request has been rejected and the handler should stop.
+ */
+function denyForeignPortalSession(
+  client: GatewayRequestHandlerOptions["client"],
+  key: string,
+  respond: RespondFn,
+): boolean {
+  const portalUserId = client?.portalUser?.id;
+  if (!portalUserId) {
+    return false;
+  }
+  if (sessionKeyBelongsToPortalUser(key, portalUserId)) {
+    return false;
+  }
+  // Deliberately indistinguishable from a missing session so the namespace
+  // can't be probed for which other users exist.
+  respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "session not found"));
+  return true;
+}
+
 function rejectPluginRuntimeDeleteMismatch(params: {
   client: GatewayClient | null;
   key: string;
@@ -582,6 +612,9 @@ async function handleSessionSend(params: {
   if (!key) {
     return;
   }
+  if (denyForeignPortalSession(params.client, key, params.respond)) {
+    return;
+  }
   const { cfg, entry, canonicalKey, storePath } = loadSessionEntry(key);
   // Reject sends/steers targeting sessions whose owning agent was deleted (#65524).
   const deletedAgentId = resolveDeletedAgentIdFromSessionKey(cfg, canonicalKey);
@@ -864,6 +897,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    if (denyForeignPortalSession(client, key, respond)) {
+      return;
+    }
     const { canonicalKey } = loadSessionEntry(key);
     if (connId) {
       context.subscribeSessionMessageEvents(connId, canonicalKey);
@@ -888,21 +924,28 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    if (denyForeignPortalSession(client, key, respond)) {
+      return;
+    }
     const { canonicalKey } = loadSessionEntry(key);
     if (connId) {
       context.unsubscribeSessionMessageEvents(connId, canonicalKey);
     }
     respond(true, { subscribed: false, key: canonicalKey }, undefined);
   },
-  "sessions.preview": ({ params, respond, context }) => {
+  "sessions.preview": ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateSessionsPreviewParams, "sessions.preview", respond)) {
       return;
     }
     const p = params;
+    const portalUserId = client?.portalUser?.id;
     const keysRaw = Array.isArray(p.keys) ? p.keys : [];
     const keys = keysRaw
       .map((key) => normalizeOptionalString(key ?? ""))
       .filter((key): key is string => Boolean(key))
+      // Preview takes a batch, so silently drop foreign keys rather than
+      // failing the whole call — same outcome, no probing signal.
+      .filter((key) => !portalUserId || sessionKeyBelongsToPortalUser(key, portalUserId))
       .slice(0, 64);
     const limit =
       typeof p.limit === "number" && Number.isFinite(p.limit) ? Math.max(1, p.limit) : 12;
@@ -956,12 +999,15 @@ export const sessionsHandlers: GatewayRequestHandlers = {
 
     respond(true, { ts: Date.now(), previews } satisfies SessionsPreviewResult, undefined);
   },
-  "sessions.describe": ({ params, respond, context }) => {
+  "sessions.describe": ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateSessionsDescribeParams, "sessions.describe", respond)) {
       return;
     }
     const key = requireSessionKey(params.key, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
     const cfg = context.getRuntimeConfig();
@@ -998,7 +1044,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
     respond(true, { ok: true, key: resolved.key }, undefined);
   },
-  "sessions.compaction.list": ({ params, respond }) => {
+  "sessions.compaction.list": ({ params, respond, client }) => {
     if (
       !assertValidParams(
         params,
@@ -1013,6 +1059,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    if (denyForeignPortalSession(client, key, respond)) {
+      return;
+    }
     const { entry, canonicalKey } = loadSessionEntry(key);
     respond(
       true,
@@ -1024,7 +1073,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       undefined,
     );
   },
-  "sessions.compaction.get": ({ params, respond }) => {
+  "sessions.compaction.get": ({ params, respond, client }) => {
     if (
       !assertValidParams(
         params,
@@ -1038,6 +1087,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
     const checkpointId = normalizeOptionalString(p.checkpointId) ?? "";
@@ -1072,6 +1124,11 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const cfg = context.getRuntimeConfig();
     const requestedKey = normalizeOptionalString(p.key);
+    // A portal user may only create sessions inside their own namespace,
+    // otherwise they could plant a session in someone else's chat list.
+    if (requestedKey && denyForeignPortalSession(client, requestedKey, respond)) {
+      return;
+    }
     const agentId = normalizeAgentId(
       normalizeOptionalString(p.agentId) ?? resolveDefaultAgentId(cfg),
     );
@@ -1346,7 +1403,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       });
     }
   },
-  "sessions.compaction.branch": async ({ params, respond, context }) => {
+  "sessions.compaction.branch": async ({ params, respond, context, client }) => {
     if (
       !assertValidParams(
         params,
@@ -1360,6 +1417,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
     const checkpointId =
@@ -1457,6 +1517,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
     if (rejectWebchatSessionMutation({ action: "restore", client, isWebchatConnect, respond })) {
@@ -1583,6 +1646,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    if (denyForeignPortalSession(client, key, respond)) {
+      return;
+    }
     const { canonicalKey } = loadSessionEntry(key);
     const abortSessionKey = resolveAbortSessionKey({
       context,
@@ -1675,6 +1741,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    if (denyForeignPortalSession(client, key, respond)) {
+      return;
+    }
     if (rejectWebchatSessionMutation({ action: "patch", client, isWebchatConnect, respond })) {
       return;
     }
@@ -1758,6 +1827,12 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     if (!key) {
       return;
     }
+    // Redundant with the ADMIN_SCOPE check below (portal sessions are capped to
+    // operator scopes and can never hold it), but kept so the invariant "every
+    // key-accepting handler runs through the guard" stays auditable.
+    if (denyForeignPortalSession(client, key, respond)) {
+      return;
+    }
     if (rejectWebchatSessionMutation({ action: "patch", client, isWebchatConnect, respond })) {
       return;
     }
@@ -1823,13 +1898,16 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       reason: "plugin-patch",
     });
   },
-  "sessions.reset": async ({ params, respond, context }) => {
+  "sessions.reset": async ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateSessionsResetParams, "sessions.reset", respond)) {
       return;
     }
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
 
@@ -1857,6 +1935,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
     if (rejectWebchatSessionMutation({ action: "delete", client, isWebchatConnect, respond })) {
@@ -1950,10 +2031,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       });
     }
   },
-  "sessions.get": async ({ params, respond, context }) => {
+  "sessions.get": async ({ params, respond, context, client }) => {
     const p = params;
     const key = requireSessionKey(p.key ?? p.sessionKey, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
     const limit =
@@ -1989,6 +2073,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+    if (denyForeignPortalSession(client, key, respond)) {
       return;
     }
     if (rejectWebchatSessionMutation({ action: "compact", client, isWebchatConnect, respond })) {

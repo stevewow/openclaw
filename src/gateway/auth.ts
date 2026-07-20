@@ -41,8 +41,14 @@ export type GatewayAuthResult = {
     | "tailscale"
     | "device-token"
     | "bootstrap-token"
-    | "trusted-proxy";
+    | "trusted-proxy"
+    | "portal-session";
   user?: string;
+  /**
+   * Admin portal user this connection is bound to. Only set for
+   * `portal-session` auth, where the credential *is* the user's identity.
+   */
+  portalUserId?: string;
   reason?: string;
   /** Present when the request was blocked by the rate limiter. */
   rateLimited?: boolean;

@@ -30,6 +30,8 @@ export type ConnectAuthState = {
   bootstrapTokenCandidate?: string;
   deviceTokenCandidate?: string;
   deviceTokenCandidateSource?: DeviceTokenCandidateSource;
+  /** Set when the presented token resolved to an admin portal session. */
+  portalUserId?: string;
 };
 
 type VerifyDeviceTokenResult = { ok: boolean; reason?: string };
@@ -39,7 +41,30 @@ export type ConnectAuthDecision = {
   authResult: GatewayAuthResult;
   authOk: boolean;
   authMethod: GatewayAuthResult["method"];
+  portalUserId?: string;
 };
+
+/**
+ * Resolve a presented token as an admin portal session.
+ *
+ * Portal users are handed their own admin session token instead of the shared
+ * gateway secret, so this is the credential check for the portal. It is
+ * deliberately confined to the WS control-UI surface: a portal session must
+ * never authorize the gateway's HTTP APIs.
+ *
+ * The admin module is imported lazily so gateways running without it (or with
+ * no admin database) simply fail this check instead of failing to boot.
+ */
+async function resolvePortalSessionAuth(token: string | undefined): Promise<string | null> {
+  if (!token) return null;
+  try {
+    const { resolveSessionUser } = await import("../../admin/user-store.js");
+    const user = await resolveSessionUser(token);
+    return user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 function mapDeviceTokenAuthFailureReason(params: {
   tokenCheckReason?: string;
@@ -133,16 +158,33 @@ export async function resolveConnectAuthState(params: {
       (sharedAuthResult.method === "token" || sharedAuthResult.method === "password")) ||
     (authResult.ok && authResult.method === "trusted-proxy");
 
+  // A token that is not the shared secret may still be a portal session token.
+  // Checked only after the shared-secret path declines, so operator connections
+  // never pay for the lookup and the shared secret keeps its normal meaning.
+  let portalUserId: string | undefined;
+  if (!authResult.ok && !sharedAuthOk) {
+    const resolvedPortalUserId = await resolvePortalSessionAuth(sharedConnectAuth?.token);
+    if (resolvedPortalUserId) {
+      portalUserId = resolvedPortalUserId;
+      authResult = { ok: true, method: "portal-session", portalUserId: resolvedPortalUserId };
+      // The shared-secret path already recorded a failure for this attempt.
+      params.rateLimiter?.reset(params.clientIp, AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET);
+    }
+  }
+
   return {
     authResult,
     authOk: authResult.ok,
     authMethod:
       authResult.method ?? (params.resolvedAuth.mode === "password" ? "password" : "token"),
+    // Portal sessions are explicitly NOT shared auth: they must not inherit the
+    // pairing bypass that trusted operator credentials get.
     sharedAuthOk,
     sharedAuthProvided,
     bootstrapTokenCandidate,
     deviceTokenCandidate,
     deviceTokenCandidateSource,
+    ...(portalUserId ? { portalUserId } : {}),
   };
 }
 
@@ -195,9 +237,10 @@ export async function resolveConnectAuthDecision(params: {
     }
   }
 
+  const portalUserId = params.state.portalUserId;
   const deviceTokenCandidate = params.state.deviceTokenCandidate;
   if (!params.hasDeviceIdentity || !params.deviceId || authOk || !deviceTokenCandidate) {
-    return { authResult, authOk, authMethod };
+    return { authResult, authOk, authMethod, ...(portalUserId ? { portalUserId } : {}) };
   }
 
   let deviceTokenRateLimited = false;
@@ -243,5 +286,5 @@ export async function resolveConnectAuthDecision(params: {
     }
   }
 
-  return { authResult, authOk, authMethod };
+  return { authResult, authOk, authMethod, ...(portalUserId ? { portalUserId } : {}) };
 }

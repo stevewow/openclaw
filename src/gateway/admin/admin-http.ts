@@ -92,7 +92,7 @@ import {
   type TicketStatus,
   type UpdateTicketParams,
 } from "./ticket-store.js";
-import type { AdminUserRole } from "./types.js";
+import type { AdminUserRole, PortalFeature } from "./types.js";
 import {
   createSession,
   createUser,
@@ -174,6 +174,34 @@ function sendMethodNotAllowed(res: ServerResponse) {
 
 function normalizeString(v: unknown): string | null {
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+/**
+ * Map a `/tickets...` admin subpath to the portal feature that unlocks it.
+ *
+ * The ticket queue and its three configuration surfaces are granted separately,
+ * so someone can work the queue without being able to rewire departments,
+ * request types, or the public intake form.
+ *
+ * Deliberately total: any path under `/tickets` that isn't a known config
+ * surface falls back to the `tickets` grant rather than returning null. A new
+ * ticket route therefore ships closed for non-admins instead of unguarded.
+ */
+function ticketFeatureForSubPath(subPath: string): PortalFeature {
+  if (subPath === "/tickets/departments" || subPath.startsWith("/tickets/departments/")) {
+    return "ticket-departments";
+  }
+  if (
+    subPath === "/tickets/categories" ||
+    subPath.startsWith("/tickets/categories/") ||
+    subPath === "/tickets/category-routes"
+  ) {
+    return "ticket-categories";
+  }
+  if (subPath === "/tickets/test-token") {
+    return "ticket-form";
+  }
+  return "tickets";
 }
 
 /** Read the editable fields of a ticket category off a JSON body. */
@@ -509,11 +537,15 @@ export async function handleAdminHttpRequest(
     const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
     const wsProto = proto === "https" ? "wss" : "ws";
     const gatewayWsUrl = `${wsProto}://${host}`;
+    // The browser gets the user's own portal session token as its gateway
+    // credential — never the shared gateway secret. The gateway authenticates
+    // it as `portal-session`, binds the connection to this user, and caps its
+    // scopes. A portal user therefore cannot connect as an unscoped operator.
     sendJson(res, 200, {
       gatewayWsUrl,
-      gatewayToken: auth?.mode === "token" ? (auth.token ?? null) : null,
-      gatewayPassword: auth?.mode === "password" ? (auth.password ?? null) : null,
-      gatewayMode: auth?.mode ?? "none",
+      gatewayToken: token ?? null,
+      gatewayPassword: null,
+      gatewayMode: auth?.mode === "none" ? "none" : "token",
       portalSessionToken: token ?? null,
     });
     return true;
@@ -882,7 +914,9 @@ export async function handleAdminHttpRequest(
             subPath === "/tasks" ||
             subPath.startsWith("/tasks/")
           ? "projects"
-          : null;
+          : subPath === "/tickets" || subPath.startsWith("/tickets/")
+            ? ticketFeatureForSubPath(subPath)
+            : null;
     if (gatedFeature && !(await hasFeatureAccess(gatedFeature))) {
       sendForbidden(res);
       return true;
@@ -1308,13 +1342,12 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // ── Support tickets (management review; admin only) ────────────────────────
+  // ── Support tickets ────────────────────────────────────────────────────────
+  // Admins pass unconditionally; non-admins are gated by the per-surface ticket
+  // grants applied in the prefix gate above (see `ticketFeatureForSubPath`), so
+  // these handlers carry no inline role checks of their own.
   // GET /api/admin/tickets — queue, with optional status/category/department/q filters
   if (subPath === "/tickets" && req.method === "GET") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const filters: ListTicketFilters = {};
     const status = url.searchParams.get("status");
     if (status && TICKET_STATUSES.includes(status as TicketStatus))
@@ -1335,10 +1368,6 @@ export async function handleAdminHttpRequest(
 
   // GET /api/admin/tickets/stats — counts by status for the dashboard tiles
   if (subPath === "/tickets/stats" && req.method === "GET") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     sendJson(res, 200, { stats: await getTicketStats() });
     return true;
   }
@@ -1347,10 +1376,6 @@ export async function handleAdminHttpRequest(
   // that lets the (public) intake preview submit a TEST ticket whose department
   // email is diverted to `email`. Admin-gated: only staff can authorize a divert.
   if (subPath === "/tickets/test-token" && req.method === "GET") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const email = normalizeString(url.searchParams.get("email"));
     if (!email || !email.includes("@")) {
       sendBadRequest(res, "a valid override email is required");
@@ -1362,20 +1387,12 @@ export async function handleAdminHttpRequest(
 
   // GET /api/admin/tickets/departments — managed departments + category routing
   if (subPath === "/tickets/departments" && req.method === "GET") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     sendJson(res, 200, { departments: await listDepartments(), routes: await getCategoryRoutes() });
     return true;
   }
 
   // POST /api/admin/tickets/departments — add a department
   if (subPath === "/tickets/departments" && req.method === "POST") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1399,10 +1416,6 @@ export async function handleAdminHttpRequest(
   // PUT /api/admin/tickets/departments/:key — edit label/email
   const deptEditMatch = subPath.match(/^\/tickets\/departments\/([^/]+)$/);
   if (deptEditMatch && req.method === "PUT") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1423,10 +1436,6 @@ export async function handleAdminHttpRequest(
     return true;
   }
   if (deptEditMatch && req.method === "DELETE") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     await deleteDepartment(deptEditMatch[1]!);
     sendJson(res, 200, { ok: true });
     return true;
@@ -1434,10 +1443,6 @@ export async function handleAdminHttpRequest(
 
   // PUT /api/admin/tickets/category-routes — set which department each category routes to
   if (subPath === "/tickets/category-routes" && req.method === "PUT") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1453,10 +1458,6 @@ export async function handleAdminHttpRequest(
 
   // GET /api/admin/tickets/categories — managed request types for the form
   if (subPath === "/tickets/categories" && req.method === "GET") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     await ensureCategorySeed();
     sendJson(res, 200, {
       categories: await listCategories(),
@@ -1467,10 +1468,6 @@ export async function handleAdminHttpRequest(
 
   // POST /api/admin/tickets/categories — add a request type
   if (subPath === "/tickets/categories" && req.method === "POST") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1499,10 +1496,6 @@ export async function handleAdminHttpRequest(
   // PUT/DELETE /api/admin/tickets/categories/:key — edit or remove a request type
   const categoryEditMatch = subPath.match(/^\/tickets\/categories\/([^/]+)$/);
   if (categoryEditMatch && req.method === "PUT") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1522,10 +1515,6 @@ export async function handleAdminHttpRequest(
     return true;
   }
   if (categoryEditMatch && req.method === "DELETE") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     // Deletes only when unused; otherwise deactivates so history keeps its label.
     const result = await removeCategory(categoryEditMatch[1]);
     if (result.outcome === "not_found") {
@@ -1538,10 +1527,6 @@ export async function handleAdminHttpRequest(
 
   // POST /api/admin/tickets — manual create (the intake form uses the same store)
   if (subPath === "/tickets" && req.method === "POST") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1583,10 +1568,6 @@ export async function handleAdminHttpRequest(
   // POST /api/admin/tickets/:id/comment — append a staff note to the thread
   const ticketCommentMatch = subPath.match(/^\/tickets\/([^/]+)\/comment$/);
   if (ticketCommentMatch && req.method === "POST") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const id = ticketCommentMatch[1]!;
     if (!(await getTicket(id))) {
       sendNotFound(res);
@@ -1616,10 +1597,6 @@ export async function handleAdminHttpRequest(
   // GET / PUT / DELETE /api/admin/tickets/:id
   const ticketIdMatch = subPath.match(/^\/tickets\/([^/]+)$/);
   if (ticketIdMatch && req.method === "GET") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const ticket = await getTicket(ticketIdMatch[1]!);
     if (!ticket) {
       sendNotFound(res);
@@ -1630,10 +1607,6 @@ export async function handleAdminHttpRequest(
     return true;
   }
   if (ticketIdMatch && req.method === "PUT") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const id = ticketIdMatch[1]!;
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {

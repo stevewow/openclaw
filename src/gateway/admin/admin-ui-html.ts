@@ -1,4 +1,5 @@
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
+import { PORTAL_FEATURES } from "./types.js";
 
 export const ADMIN_UI_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -1840,11 +1841,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   // ── Permissions Modal ─────────────────────────────────────────────────────
   // Sections a portal user can be granted. Reports are sourced from the REPORTS
   // catalog so a new report is toggleable the moment it's added.
-  var FEATURES = [
-    { value: 'chat', label: 'Chat' },
-    { value: 'projects', label: 'Projects & Tasks' },
-    { value: 'resources', label: 'Resources' }
-  ];
+  // Sourced from PORTAL_FEATURES so a new grantable section shows up here the
+  // moment the server learns to gate it.
+  var FEATURES = ${JSON.stringify(PORTAL_FEATURES)};
   function renderPermCheckbox(kind, value, label, checked) {
     return '<div class="flex items-center gap-2 mb-4" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">'+
       '<input type="checkbox" id="'+kind+'-perm-'+esc(value)+'" data-perm-kind="'+kind+'" value="'+esc(value)+'"'+(checked?' checked':'')+'>'+
