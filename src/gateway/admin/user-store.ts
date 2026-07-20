@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { Kysely } from "kysely";
 import { resolveStateDir } from "../../config/paths.js";
@@ -319,6 +320,16 @@ export function getAdminDb(): Kysely<AdminDb> {
   const { DatabaseSync } = requireNodeSqlite();
   const dbPath = resolveAdminDbPath();
   const db = new DatabaseSync(dbPath);
+  // node:sqlite creates the file with the process umask (0644 by default), and
+  // it holds customer PII, password hashes and live session tokens. Tighten it
+  // before WAL mode runs, since SQLite copies the main file's mode onto the
+  // -wal and -shm sidecars it creates.
+  try {
+    fs.chmodSync(dbPath, 0o600);
+  } catch (err) {
+    // Non-fatal: a read-only or foreign-owned file should not block startup.
+    console.warn(`admin: could not tighten permissions on ${dbPath}:`, err);
+  }
   db.exec("PRAGMA journal_mode=WAL");
   db.exec("PRAGMA foreign_keys=ON");
 

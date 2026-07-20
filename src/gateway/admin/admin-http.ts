@@ -496,8 +496,14 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/portal/config — gateway connection info for portal users
+  // GET /api/admin/portal/config — gateway connection info for portal users.
+  // Hands out the gateway credential, so it is gated on chat access the same way
+  // the portal's chat section is. The client-side hasFeature() check is cosmetic.
   if (subPath === "/portal/config" && req.method === "GET") {
+    if (!(await hasFeatureAccess("chat"))) {
+      sendForbidden(res);
+      return true;
+    }
     const auth = _getResolvedAuth?.();
     const host = req.headers.host ?? "localhost";
     const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
@@ -593,6 +599,17 @@ export async function handleAdminHttpRequest(
       sendForbidden(res);
       return true;
     }
+    // Only a superadmin may mutate a superadmin. Without this an admin could
+    // seize the superadmin account by resetting its password.
+    const editTarget = await getUserById(targetId);
+    if (!editTarget) {
+      sendNotFound(res);
+      return true;
+    }
+    if (editTarget.role === "superadmin" && !isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -641,6 +658,12 @@ export async function handleAdminHttpRequest(
     const targetId = userDeleteMatch[1]!;
     if (targetId === sessionUser.id) {
       sendBadRequest(res, "cannot delete own account");
+      return true;
+    }
+    // Only a superadmin may delete a superadmin.
+    const deleteTarget = await getUserById(targetId);
+    if (deleteTarget?.role === "superadmin" && !isSuperAdmin) {
+      sendForbidden(res);
       return true;
     }
     await deleteUser(targetId);

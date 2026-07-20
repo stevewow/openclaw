@@ -4164,8 +4164,10 @@ ${REPORT_TABLE_COMPONENT_JS}
   });
 
   // ── Utils ─────────────────────────────────────────────────────────────────
+  // Escapes both quote styles: esc() output lands inside single-quoted JS string
+  // literals in inline handlers (onclick="fn('...')"), so missing ' is a breakout.
   function esc(str) {
-    return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
   function formatUptime(s) {
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);

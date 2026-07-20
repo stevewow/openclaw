@@ -461,8 +461,10 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     window.location.replace('/admin');
   });
 
+  // Escapes both quote styles: esc() output lands inside single-quoted JS string
+  // literals in inline handlers (onclick="fn('...')"), so missing ' is a breakout.
   function esc(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
   async function api(method, path, body) {
