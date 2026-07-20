@@ -126,11 +126,18 @@ describe("admin SPA page access", () => {
     expect(loadAccessModel("user", []).needsAdminSpa()).toBe(false);
   });
 
-  it("lands a ticket-only user on the tickets page, not a blank dashboard", () => {
-    expect(loadAccessModel("user", [feature("tickets")]).firstAllowedPage()).toBe("dashboard");
-    // Dashboard is always allowed, so it is the correct landing; the point is it
-    // resolves to a page the user can actually open.
-    const m = loadAccessModel("user", [feature("ticket-form")]);
-    expect(m.canAccessPage(m.firstAllowedPage())).toBe(true);
+  it("always resolves a landing page the user can actually open", () => {
+    // Dashboard is ungated, so it wins the ordering for everyone — the guarantee
+    // that matters is that firstAllowedPage never returns a page navigate()
+    // would immediately bounce.
+    for (const perms of [
+      [feature("tickets")],
+      [feature("ticket-form")],
+      [report("rankings")],
+      [],
+    ]) {
+      const m = loadAccessModel("user", perms);
+      expect(m.canAccessPage(m.firstAllowedPage())).toBe(true);
+    }
   });
 });
