@@ -90,3 +90,67 @@ describe("applyInboundReply", () => {
     expect(inEvt?.meta).toMatchObject({ verified: false });
   });
 });
+
+describe("test tickets are replyable", () => {
+  // Regression: TEST- tickets were minted with a `test-####` reply token and a
+  // `[TEST] [TEST-####]` subject, but inbound matching was hardcoded to `wvt-`.
+  // Every reply to a demo ticket was silently dropped as no_token, so UPDATE and
+  // RESOLVED appeared to do nothing.
+  it("extracts a token from a TEST ticket's hash, reply address, and subject", () => {
+    expect(inbound.extractReplyToken({ MailboxHash: "test-1001" })).toBe("test-1001");
+    expect(
+      inbound.extractReplyToken({ OriginalRecipient: "ticket+test-1001@tickets.example.com" }),
+    ).toBe("test-1001");
+    expect(
+      inbound.extractReplyToken({ Subject: "Re: [TEST] [TEST-1001] Additional service" }),
+    ).toBe("test-1001");
+  });
+
+  it("applies RESOLVED to a test ticket end to end", async () => {
+    const t = await store.createTicket({
+      category: "additional_service",
+      subject: "demo",
+      isTest: true,
+    });
+    expect(t.number.startsWith("TEST-")).toBe(true);
+
+    const outcome = await inbound.applyInboundReply(
+      {
+        FromFull: { Email: "steve@wowvideotours.com" },
+        MailboxHash: t.replyToken,
+        StrippedTextReply: "RESOLVED\nDemo complete.",
+      },
+      { allowlist: ["steve@wowvideotours.com"] },
+    );
+
+    expect(outcome).toEqual({
+      status: "applied",
+      ticketNumber: t.number,
+      command: "resolved",
+      newStatus: "resolved",
+    });
+    const after = await store.getTicket(t.id);
+    expect(after?.status).toBe("resolved");
+    expect(after?.resolvedAt).toBeTruthy();
+  });
+
+  it("applies UPDATE to a test ticket without closing it", async () => {
+    const t = await store.createTicket({ category: "other", subject: "demo2", isTest: true });
+    const outcome = await inbound.applyInboundReply(
+      {
+        FromFull: { Email: "steve@wowvideotours.com" },
+        MailboxHash: t.replyToken,
+        StrippedTextReply: "UPDATE: still working on it",
+      },
+      { allowlist: ["steve@wowvideotours.com"] },
+    );
+    expect(outcome).toMatchObject({
+      status: "applied",
+      command: "update",
+      newStatus: "in_progress",
+    });
+    const after = await store.getTicket(t.id);
+    expect(after?.status).toBe("in_progress");
+    expect(after?.resolvedAt).toBeFalsy();
+  });
+});

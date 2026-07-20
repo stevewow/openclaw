@@ -62,6 +62,17 @@ const TICKET_PREFIX = "WVT-";
 const TEST_TICKET_PREFIX = "TEST-";
 const TICKET_SEQ_START = 1000;
 
+/**
+ * Every prefix a ticket number (and therefore a reply token) can carry.
+ *
+ * Inbound email matching builds its pattern from this list, so adding a prefix
+ * here is all it takes for replies to that ticket class to route. Keeping it
+ * beside the minting logic is deliberate: when TEST- was introduced the inbound
+ * matcher still only knew WVT-, and every reply to a test ticket was silently
+ * dropped as unmatched.
+ */
+export const TICKET_NUMBER_PREFIXES = [TICKET_PREFIX, TEST_TICKET_PREFIX] as const;
+
 // ── Activity thread ───────────────────────────────────────────────────────
 // Every state change and message is an append-only event so the dashboard is a
 // faithful mirror of the email conversation and management has an audit trail.

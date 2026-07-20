@@ -3,6 +3,7 @@ import {
   getTicketByReplyToken,
   parseReplyCommand,
   statusForReplyCommand,
+  TICKET_NUMBER_PREFIXES,
   updateTicket,
 } from "./ticket-store.js";
 
@@ -30,7 +31,14 @@ export type NormalizedInbound = {
   text: string;
 };
 
-const TOKEN_RE = /wvt-\d+/i;
+// Built from the minting prefixes so a new ticket class can never become
+// unreplyable: `(?:wvt|test)-\d+`.
+const PREFIX_ALTERNATION = TICKET_NUMBER_PREFIXES.map((p) =>
+  p.replace(/-$/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+).join("|");
+const TOKEN_RE = new RegExp(`(?:${PREFIX_ALTERNATION})-\\d+`, "i");
+/** Anchored variant for pulling a token out of a larger string. */
+const TOKEN_CAPTURE_RE = new RegExp(`((?:${PREFIX_ALTERNATION})-\\d+)`, "i");
 
 /** Pull the ticket reply token from a Postmark inbound payload, best-effort. */
 export function extractReplyToken(payload: PostmarkInboundPayload): string | null {
@@ -49,7 +57,9 @@ export function extractReplyToken(payload: PostmarkInboundPayload): string | nul
     if (plus && TOKEN_RE.test(plus[1]!)) return plus[1]!.toLowerCase();
   }
 
-  const subj = payload.Subject?.match(/\[(wvt-\d+)\]/i);
+  // Subject carries `[WVT-1042]` (and `[TEST] [TEST-1001]` for demos), so match
+  // the bracketed token rather than assuming which prefix it uses.
+  const subj = payload.Subject?.match(new RegExp(`\\[${TOKEN_CAPTURE_RE.source}\\]`, "i"));
   if (subj) return subj[1]!.toLowerCase();
   return null;
 }
