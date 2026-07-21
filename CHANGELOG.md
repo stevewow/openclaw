@@ -46,6 +46,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Admin dashboard: attach links and file uploads to tasks and projects, with per-card attachment counts, authenticated downloads, and access that mirrors the item they hang off.
 - Admin dashboard: drag task cards between board columns and reorder within a column, persisting status and position on both the admin board and the staff portal.
 - Admin dashboard: duplicate a project with its whole task tree, so recurring workflows such as newsletters restart without being retyped.
 - Admin dashboard: keep completed and archived projects out of the board, calendar, and project pickers behind a "Show closed" toggle.

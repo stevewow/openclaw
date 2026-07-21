@@ -7,6 +7,16 @@ import type { ResolvedGatewayAuth } from "../auth-resolve.js";
 import { readJsonBody } from "../hooks.js";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
+import {
+  createAttachment,
+  deleteAttachment,
+  deleteAttachmentsForOwner,
+  ensureAttachmentsDir,
+  getAttachment,
+  listAttachments,
+  listAttachmentsForOwners,
+  resolveAttachmentFilePath,
+} from "./attachment-store.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
 let _getResolvedAuth: (() => ResolvedGatewayAuth) | undefined;
@@ -43,6 +53,7 @@ import {
   deleteProject,
   deleteTask,
   duplicateProject,
+  getProject,
   getTask,
   listProjects,
   listTasks,
@@ -921,7 +932,9 @@ export async function handleAdminHttpRequest(
         : subPath === "/projects" ||
             subPath.startsWith("/projects/") ||
             subPath === "/tasks" ||
-            subPath.startsWith("/tasks/")
+            subPath.startsWith("/tasks/") ||
+            // Attachments hang off tasks/projects, so they ride the same grant.
+            subPath.startsWith("/attachments/")
           ? ["projects"]
           : subPath === "/tickets" || subPath.startsWith("/tickets/")
             ? ticketFeaturesForRequest(subPath, req.method ?? "GET")
@@ -1122,7 +1135,13 @@ export async function handleAdminHttpRequest(
   // GET /api/admin/projects — scoped to the viewer (admins see all)
   if (subPath === "/projects" && req.method === "GET") {
     const projects = await listProjects({ userId: sessionUser.id, role: sessionUser.role });
-    sendJson(res, 200, { projects });
+    const counts = await listAttachmentsForOwners(
+      "project",
+      projects.map((p) => p.id),
+    );
+    sendJson(res, 200, {
+      projects: projects.map((p) => ({ ...p, attachmentCount: counts.get(p.id)?.length ?? 0 })),
+    });
     return true;
   }
 
@@ -1206,6 +1225,12 @@ export async function handleAdminHttpRequest(
       sendForbidden(res);
       return true;
     }
+    // Tasks cascade in SQL, but attachments carry files on disk that need
+    // removing, so drop the project's and its tasks' attachments first.
+    for (const task of await listTasks({ projectId: id })) {
+      await deleteAttachmentsForOwner("task", task.id);
+    }
+    await deleteAttachmentsForOwner("project", id);
     await deleteProject(id);
     sendJson(res, 200, { ok: true });
     return true;
@@ -1246,7 +1271,13 @@ export async function handleAdminHttpRequest(
       userId: sessionUser.id,
       role: sessionUser.role,
     });
-    sendJson(res, 200, { tasks });
+    const counts = await listAttachmentsForOwners(
+      "task",
+      tasks.map((t) => t.id),
+    );
+    sendJson(res, 200, {
+      tasks: tasks.map((t) => ({ ...t, attachmentCount: counts.get(t.id)?.length ?? 0 })),
+    });
     return true;
   }
 
@@ -1388,9 +1419,139 @@ export async function handleAdminHttpRequest(
       sendForbidden(res);
       return true;
     }
+    await deleteAttachmentsForOwner("task", id);
     await deleteTask(id);
     sendJson(res, 200, { ok: true });
     return true;
+  }
+
+  // ── Task / project attachments ─────────────────────────────────────────────
+  // Links and uploads that travel with the item; access mirrors the owner's.
+  const attachmentListMatch = subPath.match(/^\/(tasks|projects)\/([^/]+)\/attachments$/);
+  if (attachmentListMatch) {
+    const ownerType = attachmentListMatch[1] === "tasks" ? "task" : "project";
+    const ownerId = attachmentListMatch[2]!;
+    // Admins bypass the access guard, so existence has to be checked on its own:
+    // attaching to an id that isn't there would strand a row and an uploaded file.
+    const owner = ownerType === "task" ? await getTask(ownerId) : await getProject(ownerId);
+    if (!owner) {
+      sendNotFound(res);
+      return true;
+    }
+    const viewer = { userId: sessionUser.id, role: sessionUser.role };
+    const canAccess =
+      ownerType === "task"
+        ? await canAccessTask(viewer, ownerId)
+        : await canAccessProject(viewer, ownerId);
+    if (!canAccess) {
+      sendForbidden(res);
+      return true;
+    }
+    if (req.method === "GET") {
+      sendJson(res, 200, { attachments: await listAttachments(ownerType, ownerId) });
+      return true;
+    }
+    if (req.method === "POST") {
+      const body = await readJsonBody(req, MAX_BODY_BYTES_RESOURCE);
+      if (!body.ok) {
+        sendBadRequest(res, body.error);
+        return true;
+      }
+      const data = body.value as Record<string, unknown>;
+      const type = data.type === "file" ? "file" : "link";
+      if (type === "link") {
+        const urlVal = normalizeString(data.url);
+        if (!urlVal) {
+          sendBadRequest(res, "url required for link type");
+          return true;
+        }
+        // Only http(s) links: the UI renders these straight into an href, so a
+        // javascript:/data: URL would be a stored XSS vector.
+        if (!/^https?:\/\//i.test(urlVal)) {
+          sendBadRequest(res, "url must start with http:// or https://");
+          return true;
+        }
+        const attachment = await createAttachment({
+          ownerType,
+          ownerId,
+          type: "link",
+          title: normalizeString(data.title) ?? urlVal,
+          url: urlVal,
+          createdBy: sessionUser.id,
+        });
+        sendJson(res, 201, { attachment });
+        return true;
+      }
+      const fileData = normalizeString(data.fileData);
+      const filename = normalizeString(data.filename);
+      if (!fileData || !filename) {
+        sendBadRequest(res, "fileData and filename required for file type");
+        return true;
+      }
+      await ensureAttachmentsDir();
+      const ext = path.extname(filename).toLowerCase();
+      const storedFilename = `${crypto.randomUUID()}${ext}`;
+      const buf = Buffer.from(fileData, "base64");
+      await fs.writeFile(resolveAttachmentFilePath(storedFilename), buf);
+      const attachment = await createAttachment({
+        ownerType,
+        ownerId,
+        type: "file",
+        title: normalizeString(data.title) ?? filename,
+        filename,
+        storedFilename,
+        mimetype: normalizeString(data.mimetype) ?? "application/octet-stream",
+        filesize: buf.byteLength,
+        createdBy: sessionUser.id,
+      });
+      sendJson(res, 201, { attachment });
+      return true;
+    }
+  }
+
+  // GET /api/admin/attachments/:id/file — download, DELETE /api/admin/attachments/:id
+  const attachmentFileMatch = subPath.match(/^\/attachments\/([^/]+)\/file$/);
+  const attachmentEditMatch = subPath.match(/^\/attachments\/([^/]+)$/);
+  const attachmentId = attachmentFileMatch?.[1] ?? attachmentEditMatch?.[1];
+  if (attachmentId && (req.method === "GET" || req.method === "DELETE")) {
+    const attachment = await getAttachment(attachmentId);
+    if (!attachment) {
+      sendNotFound(res);
+      return true;
+    }
+    const viewer = { userId: sessionUser.id, role: sessionUser.role };
+    const canAccess =
+      attachment.ownerType === "task"
+        ? await canAccessTask(viewer, attachment.ownerId)
+        : await canAccessProject(viewer, attachment.ownerId);
+    if (!canAccess) {
+      sendForbidden(res);
+      return true;
+    }
+    if (attachmentEditMatch && req.method === "DELETE") {
+      await deleteAttachment(attachmentId);
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+    if (attachmentFileMatch && req.method === "GET") {
+      if (attachment.type !== "file" || !attachment.storedFilename) {
+        sendNotFound(res);
+        return true;
+      }
+      try {
+        const fileContent = await fs.readFile(resolveAttachmentFilePath(attachment.storedFilename));
+        res.statusCode = 200;
+        res.setHeader("Content-Type", attachment.mimetype ?? "application/octet-stream");
+        // Quotes/newlines in a filename would break out of the header value.
+        const safeName = (attachment.filename ?? "file").replace(/[^\w.\-() ]+/g, "_");
+        res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+        res.setHeader("Content-Length", fileContent.byteLength);
+        res.end(fileContent);
+      } catch {
+        sendNotFound(res);
+      }
+      return true;
+    }
   }
 
   // ── Support tickets ────────────────────────────────────────────────────────

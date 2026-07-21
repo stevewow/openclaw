@@ -290,7 +290,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .project-select { padding: 0.4rem 0.75rem; font-size: 0.875rem; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: inherit; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
   .project-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
   .board-wrap { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; }
-  .board-column { flex: 0 0 280px; display: flex; flex-direction: column; }
+  .board-column { flex: 0 0 320px; display: flex; flex-direction: column; }
   .board-col-header { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px 8px 0 0; border-bottom: none; }
   .board-col-title { font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
   .board-col-count { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.5rem; min-width: 24px; text-align: center; }
@@ -305,18 +305,38 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .board-col-body.drag-over { background: rgba(192,0,10,0.05); border-color: var(--accent); border-style: dashed; }
   /* Placeholder marking where the dragged card lands. */
   .task-drop-slot { height: 2px; background: var(--accent); border-radius: 2px; margin: 0.25rem 0 0.6rem; }
-  .task-card-project-bar { width: 4px; flex-shrink: 0; }
-  .task-card-body { padding: 0.7rem 0.75rem; flex: 1; min-width: 0; }
-  .task-card-title { font-weight: 600; font-size: 0.875rem; line-height: 1.35; margin-bottom: 0.3rem; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .task-card-project-badge { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; margin-bottom: 0.35rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .task-card-meta { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.2rem; }
-  .task-due { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; }
-  .task-recurrence { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; text-transform: capitalize; }
+  .task-card-project-bar { width: 5px; flex-shrink: 0; }
+  .task-card-body { padding: 0.85rem 0.95rem; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+  /* Title and priority share the top row, like the project card's title/status row. */
+  .task-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+  .task-card-title { font-weight: 650; font-size: 0.9rem; line-height: 1.35; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .task-card-project-badge { display: inline-block; padding: 0.12rem 0.5rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }
+  .task-prio { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.12rem 0.45rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; text-transform: capitalize; white-space: nowrap; }
+  .prio-low { background: var(--surface2); color: var(--text-muted); }
+  .prio-med { background: #dbeafe; color: #1d4ed8; }
+  .prio-high { background: #ffedd5; color: #c2410c; }
+  .prio-urgent { background: #fee2e2; color: #b91c1c; }
+  .task-card-desc { font-size: 0.78rem; line-height: 1.45; color: var(--text-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  /* One fact per line so nothing truncates mid-word the way a wrapped meta row does. */
+  .task-card-facts { display: flex; flex-direction: column; gap: 0.3rem; }
+  .task-card-fact { display: flex; align-items: center; gap: 0.4rem; font-size: 0.73rem; color: var(--text-muted); min-width: 0; }
+  .task-card-fact-label { flex-shrink: 0; opacity: 0.75; }
+  .task-card-fact-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-card-meta { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+  .task-due { font-size: 0.73rem; color: var(--text-muted); font-weight: 500; }
+  .task-recurrence { font-size: 0.73rem; color: var(--text-muted); font-weight: 500; text-transform: capitalize; }
   .task-due-overdue { color: #ef4444 !important; font-weight: 700; }
-  .task-assignee { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.6rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .task-subtask-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; }
-  .task-tags { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.35rem; }
-  .task-tag { padding: 0.1rem 0.35rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: 0.65rem; font-weight: 500; color: var(--text-muted); }
+  .task-assignee-chip { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.5rem 0.1rem 0.15rem; font-size: 0.7rem; color: var(--text); max-width: 100%; }
+  .task-assignee { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.58rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .task-assignee-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-assignee-row { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+  .task-subtask-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
+  .task-subtask-bar { display: flex; flex-direction: column; gap: 0.25rem; }
+  .task-subtask-track { height: 4px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+  .task-subtask-fill { height: 100%; background: var(--success); }
+  .task-attach-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
+  .task-tags { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+  .task-tag { padding: 0.12rem 0.4rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: 0.65rem; font-weight: 500; color: var(--text-muted); }
   .cal-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
   .cal-header { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); }
   .cal-title { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
@@ -350,6 +370,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .subtask-done { text-decoration: line-through; color: var(--text-muted); }
   .subtask-delete { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; line-height: 1; padding: 0 0.2rem; transition: color 0.1s; }
   .subtask-delete:hover { color: var(--danger); }
+  .attach-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; }
+  .attach-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.55rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; font-size: 0.8rem; }
+  .attach-icon { flex-shrink: 0; }
+  .attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-decoration: none; }
+  .attach-name:hover { text-decoration: underline; }
+  .attach-size { flex-shrink: 0; font-size: 0.7rem; color: var(--text-muted); }
+  .attach-del { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1rem; line-height: 1; padding: 0 0.15rem; }
+  .attach-del:hover { color: var(--danger); }
+  .attach-empty { font-size: 0.78rem; color: var(--text-muted); padding: 0.25rem 0; }
+  .attach-actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+  .attach-url-input { flex: 1; min-width: 160px; padding: 0.45rem 0.75rem; font-size: 13px; }
   .show-closed-toggle { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; }
   .proj-status-tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; flex-shrink: 0; }
   .projects-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
@@ -1143,6 +1174,16 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <button type="button" class="btn btn-ghost btn-sm" id="add-subtask-btn">Add</button>
         </div>
       </div>
+      <div id="task-attach-section" class="hidden" style="margin-bottom:1.125rem">
+        <label style="display:block;margin-bottom:0.5rem;font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted)">Links &amp; Files</label>
+        <div id="task-attach-list" class="attach-list"></div>
+        <div class="attach-actions">
+          <input id="task-attach-url" class="attach-url-input" placeholder="Paste a link (https://…)">
+          <button type="button" class="btn btn-ghost btn-sm" id="task-attach-link-btn">Add Link</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="task-attach-file-btn">Upload File</button>
+          <input type="file" id="task-attach-file" class="hidden">
+        </div>
+      </div>
       <div class="modal-actions" style="justify-content:flex-start">
         <button type="button" class="btn btn-danger btn-sm hidden" id="task-modal-delete">Delete</button>
         <div style="flex:1"></div>
@@ -1210,6 +1251,16 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div class="form-group">
         <label>Members <span style="font-weight:400;text-transform:none">(can view this project & its tasks)</span></label>
         <div id="proj-members-list" class="member-picker"></div>
+      </div>
+      <div id="proj-attach-section" class="hidden" style="margin-bottom:1.125rem">
+        <label style="display:block;margin-bottom:0.5rem;font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted)">Links &amp; Files</label>
+        <div id="proj-attach-list" class="attach-list"></div>
+        <div class="attach-actions">
+          <input id="proj-attach-url" class="attach-url-input" placeholder="Paste a link (https://…)">
+          <button type="button" class="btn btn-ghost btn-sm" id="proj-attach-link-btn">Add Link</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="proj-attach-file-btn">Upload File</button>
+          <input type="file" id="proj-attach-file" class="hidden">
+        </div>
       </div>
       <div class="modal-actions" style="justify-content:flex-start">
         <button type="button" class="btn btn-danger btn-sm hidden" id="proj-modal-delete">Delete Project</button>
@@ -3250,6 +3301,7 @@ ${REPORT_TABLE_COMPONENT_JS}
           '<div class="project-list-card-tasks">' + doneCount + ' / ' + tasksForProj.length + ' tasks done</div>' +
           (p.startDate || p.endDate ? '<div class="text-muted" style="font-size:0.78rem;margin-bottom:0.5rem">📅 ' + esc(formatDateRange(p.startDate, p.endDate)) + '</div>' : '') +
           (p.memberIds && p.memberIds.length ? '<div class="text-muted" style="font-size:0.78rem;margin-bottom:0.5rem">👥 ' + esc(p.memberIds.map(userLabel).join(', ')) + '</div>' : '') +
+          (p.attachmentCount ? '<div class="text-muted" style="font-size:0.78rem;margin-bottom:0.5rem">📎 ' + p.attachmentCount + (p.attachmentCount === 1 ? ' attachment' : ' attachments') + '</div>' : '') +
           (p.tags && p.tags.length ? '<div class="resource-tags">' + p.tags.map(function(t) { return '<span class="resource-tag">' + esc(t) + '</span>'; }).join('') + '</div>' : '') +
         '</div>' +
         '<div class="resource-card-footer">' +
@@ -3502,42 +3554,229 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (status === 'done' && prevStatus !== 'done' && task.recurrence) await loadProjects();
   }
 
+  // ── Attachments (links & files on a task or project) ───────────────────────
+  // Counts ride along on the list payloads so a card never queries per-render;
+  // the open modal keeps its own live list.
+  function attachmentCountFor(ownerType, id) {
+    const list = ownerType === 'task' ? allTasks : allProjects;
+    const item = list.find(function(x) { return x.id === id; });
+    return (item && item.attachmentCount) || 0;
+  }
+
+  function formatFilesize(bytes) {
+    if (!bytes && bytes !== 0) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function renderAttachments(prefix, ownerType, ownerId, items) {
+    const box = document.getElementById(prefix + '-attach-list');
+    if (!box) return;
+    if (!items.length) {
+      box.innerHTML = '<div class="attach-empty">Nothing attached yet.</div>';
+      return;
+    }
+    box.innerHTML = items.map(function(a) {
+      const isLink = a.type === 'link';
+      // Links open where they point; uploads go through the authenticated
+      // download route, so they are fetched rather than linked directly.
+      const href = isLink ? a.url : '#';
+      const cls = isLink ? '' : ' attach-download';
+      return '<div class="attach-row" data-id="' + esc(a.id) + '">' +
+        '<span class="attach-icon">' + (isLink ? '🔗' : '📄') + '</span>' +
+        '<a class="attach-name' + cls + '" href="' + esc(href) + '"' +
+          (isLink ? ' target="_blank" rel="noopener noreferrer"' : '') +
+          ' data-id="' + esc(a.id) + '" data-name="' + esc(a.filename || a.title) + '">' + esc(a.title) + '</a>' +
+        (a.filesize ? '<span class="attach-size">' + esc(formatFilesize(a.filesize)) + '</span>' : '') +
+        '<button type="button" class="attach-del" data-id="' + esc(a.id) + '" title="Remove">✕</button>' +
+      '</div>';
+    }).join('');
+    box.querySelectorAll('.attach-del').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        const r = await api('DELETE', '/attachments/' + this.dataset.id);
+        if (!r.ok) { alert('Could not remove that attachment.'); return; }
+        await loadAttachments(prefix, ownerType, ownerId);
+        await refreshAttachmentCounts();
+      });
+    });
+    box.querySelectorAll('.attach-download').forEach(function(link) {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        downloadAttachment(this.dataset.id, this.dataset.name);
+      });
+    });
+  }
+
+  /** Fetch an upload with the session token, then hand it to the browser. */
+  async function downloadAttachment(id, filename) {
+    const res = await fetch(API + '/attachments/' + id + '/file', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) { alert('Could not download that file.'); return; }
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename || 'file';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  async function loadAttachments(prefix, ownerType, ownerId) {
+    const path = (ownerType === 'task' ? '/tasks/' : '/projects/') + ownerId + '/attachments';
+    const r = await api('GET', path);
+    renderAttachments(prefix, ownerType, ownerId, (r.ok && r.data.attachments) || []);
+  }
+
+  /** Re-pull the lists so card badges match what the modal just changed. */
+  async function refreshAttachmentCounts() {
+    const [pr, tr] = await Promise.all([api('GET', '/projects'), api('GET', '/tasks')]);
+    if (pr.ok) allProjects = pr.data.projects || [];
+    if (tr.ok) allTasks = tr.data.tasks || [];
+    renderProjectsPage();
+  }
+
+  async function addLinkAttachment(prefix, ownerType, ownerId) {
+    const input = document.getElementById(prefix + '-attach-url');
+    const url = input.value.trim();
+    if (!url) return;
+    if (!/^https?:\\/\\//i.test(url)) { alert('Links must start with http:// or https://'); return; }
+    const path = (ownerType === 'task' ? '/tasks/' : '/projects/') + ownerId + '/attachments';
+    const r = await api('POST', path, { type: 'link', url: url, title: url });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not add that link.'); return; }
+    input.value = '';
+    await loadAttachments(prefix, ownerType, ownerId);
+    await refreshAttachmentCounts();
+  }
+
+  const MAX_ATTACH_BYTES = 15 * 1024 * 1024;
+
+  async function uploadAttachment(prefix, ownerType, ownerId, file) {
+    if (!file) return;
+    // The API caps the base64 body at 20MB; 15MB of raw bytes stays under it.
+    if (file.size > MAX_ATTACH_BYTES) { alert('That file is larger than 15 MB.'); return; }
+    const dataUrl = await new Promise(function(resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.onerror = function() { reject(reader.error); };
+      reader.readAsDataURL(file);
+    }).catch(function() { return null; });
+    if (!dataUrl) { alert('Could not read that file.'); return; }
+    const base64 = String(dataUrl).split(',')[1] || '';
+    const path = (ownerType === 'task' ? '/tasks/' : '/projects/') + ownerId + '/attachments';
+    const r = await api('POST', path, {
+      type: 'file', fileData: base64, filename: file.name, mimetype: file.type || 'application/octet-stream', title: file.name,
+    });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not upload that file.'); return; }
+    await loadAttachments(prefix, ownerType, ownerId);
+    await refreshAttachmentCounts();
+  }
+
+  // Task modal attachment controls
+  document.getElementById('task-attach-link-btn').addEventListener('click', function() {
+    if (editingTaskId) addLinkAttachment('task', 'task', editingTaskId);
+  });
+  document.getElementById('task-attach-url').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); if (editingTaskId) addLinkAttachment('task', 'task', editingTaskId); }
+  });
+  document.getElementById('task-attach-file-btn').addEventListener('click', function() {
+    document.getElementById('task-attach-file').click();
+  });
+  document.getElementById('task-attach-file').addEventListener('change', function() {
+    const file = this.files && this.files[0];
+    this.value = '';
+    if (editingTaskId) uploadAttachment('task', 'task', editingTaskId, file);
+  });
+
+  // Project modal attachment controls
+  document.getElementById('proj-attach-link-btn').addEventListener('click', function() {
+    if (editingProjectId) addLinkAttachment('proj', 'project', editingProjectId);
+  });
+  document.getElementById('proj-attach-url').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); if (editingProjectId) addLinkAttachment('proj', 'project', editingProjectId); }
+  });
+  document.getElementById('proj-attach-file-btn').addEventListener('click', function() {
+    document.getElementById('proj-attach-file').click();
+  });
+  document.getElementById('proj-attach-file').addEventListener('change', function() {
+    const file = this.files && this.files[0];
+    this.value = '';
+    if (editingProjectId) uploadAttachment('proj', 'project', editingProjectId, file);
+  });
+
+  function initials(name) {
+    const parts = String(name || '').trim().split(/\\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
   function renderTaskCard(task) {
     const prioMap = { low: { icon: '▿', cls: 'prio-low' }, medium: { icon: '●', cls: 'prio-med' }, high: { icon: '▲', cls: 'prio-high' }, urgent: { icon: '⚑', cls: 'prio-urgent' } };
     const prio = prioMap[task.priority] || prioMap.medium;
     const proj = task.projectId ? allProjects.find(function(p) { return p.id === task.projectId; }) : null;
     const subtasks = allTasks.filter(function(t) { return t.parentTaskId === task.id; });
     const doneSubs = subtasks.filter(function(t) { return t.status === 'done'; });
+    const color = proj ? proj.color : '#94a3b8';
 
     let html = '<div class="task-card" draggable="true" data-id="' + esc(task.id) + '" data-status="' + esc(task.status) + '">';
-    if (proj) {
-      html += '<div class="task-card-proj" style="border-left:3px solid ' + esc(proj.color) + ';padding-left:6px;margin-bottom:4px;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(proj.title) + '</div>';
-    }
+    html += '<div class="task-card-project-bar" style="background:' + esc(color) + '"></div>';
+    html += '<div class="task-card-body">';
+    html += '<div class="task-card-head">';
     html += '<div class="task-card-title">' + esc(task.title) + '</div>';
-    html += '<div class="task-card-meta">';
     html += '<span class="task-prio ' + prio.cls + '">' + prio.icon + ' ' + esc(task.priority) + '</span>';
+    html += '</div>';
+    if (proj) {
+      html += '<span class="task-card-project-badge" style="background:' + esc(proj.color) + '1f;color:' + esc(proj.color) + '">' + esc(proj.title) + '</span>';
+    }
+    if (task.description) {
+      html += '<div class="task-card-desc">' + esc(task.description) + '</div>';
+    }
+
+    // Dates and recurrence read as labelled facts rather than a cramped chip row.
+    let facts = '';
     if (task.dueDate) {
       const d = new Date(task.dueDate);
       const now = new Date(); now.setHours(0,0,0,0);
       const overdue = d < now && task.status !== 'done';
-      html += '<span class="task-due' + (overdue ? ' task-due-overdue' : '') + '">📅 ' + esc(formatDateShort(task.dueDate)) + '</span>';
+      facts += '<div class="task-card-fact"><span class="task-card-fact-label">📅</span>' +
+        '<span class="task-card-fact-value task-due' + (overdue ? ' task-due-overdue' : '') + '">' +
+        esc(formatDateShort(task.dueDate)) + (overdue ? ' · overdue' : '') + '</span></div>';
     }
+    if (task.recurrence) {
+      facts += '<div class="task-card-fact"><span class="task-card-fact-label">🔁</span>' +
+        '<span class="task-card-fact-value task-recurrence">' + esc(task.recurrence) + '</span></div>';
+    }
+    const attachCount = attachmentCountFor('task', task.id);
+    if (attachCount) {
+      facts += '<div class="task-card-fact"><span class="task-card-fact-label">📎</span>' +
+        '<span class="task-card-fact-value task-attach-count">' + attachCount + (attachCount === 1 ? ' attachment' : ' attachments') + '</span></div>';
+    }
+    if (facts) html += '<div class="task-card-facts">' + facts + '</div>';
+
+    // Every assignee gets a named chip — the old card truncated to two names.
     const assigneeNames = (task.assigneeIds || []).map(userLabel);
     if (!assigneeNames.length && task.assignedTo) assigneeNames.push(task.assignedTo);
     if (assigneeNames.length) {
-      const shown = assigneeNames.slice(0, 2).map(esc).join(', ');
-      const extra = assigneeNames.length > 2 ? ' +' + (assigneeNames.length - 2) : '';
-      html += '<span class="task-assignee" style="width:auto;border-radius:999px;padding:0 0.4rem">👤 ' + shown + extra + '</span>';
+      html += '<div class="task-assignee-row">' + assigneeNames.map(function(n) {
+        return '<span class="task-assignee-chip"><span class="task-assignee">' + esc(initials(n)) + '</span>' +
+          '<span class="task-assignee-name">' + esc(n) + '</span></span>';
+      }).join('') + '</div>';
     }
-    if (task.recurrence) html += '<span class="task-recurrence">🔁 ' + esc(task.recurrence) + '</span>';
-    html += '</div>';
+    if (subtasks.length) {
+      const pct = Math.round((doneSubs.length / subtasks.length) * 100);
+      html += '<div class="task-subtask-bar">' +
+        '<span class="task-subtask-count">' + doneSubs.length + '/' + subtasks.length + ' subtasks</span>' +
+        '<span class="task-subtask-track"><span class="task-subtask-fill" style="width:' + pct + '%"></span></span>' +
+        '</div>';
+    }
     if (task.tags && task.tags.length) {
       html += '<div class="task-tags">' + task.tags.map(function(t) { return '<span class="task-tag">' + esc(t) + '</span>'; }).join('') + '</div>';
     }
-    if (subtasks.length) {
-      html += '<div class="task-subtask-bar"><span class="task-subtask-count">' + doneSubs.length + '/' + subtasks.length + ' subtasks</span></div>';
-    }
-    html += '</div>';
+    html += '</div></div>';
     return html;
   }
 
@@ -3612,6 +3851,8 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.getElementById('task-modal-form').reset();
     document.getElementById('task-modal-delete').classList.add('hidden');
     document.getElementById('task-subtasks-section').classList.add('hidden');
+    // Attachments need an id to hang off, so they appear once the task exists.
+    document.getElementById('task-attach-section').classList.add('hidden');
     document.getElementById('task-status').value = status || 'todo';
     document.getElementById('task-priority').value = 'medium';
     if (dateMs) {
@@ -3643,7 +3884,10 @@ ${REPORT_TABLE_COMPONENT_JS}
     renderMemberPicker('task-assignees-list', task.assigneeIds || []);
     document.getElementById('task-modal-delete').classList.remove('hidden');
     document.getElementById('task-subtasks-section').classList.remove('hidden');
+    document.getElementById('task-attach-section').classList.remove('hidden');
+    document.getElementById('task-attach-url').value = '';
     renderSubtasks(id);
+    loadAttachments('task', 'task', id);
     document.getElementById('task-modal').classList.remove('hidden');
     document.getElementById('task-title').focus();
   }
@@ -3789,6 +4033,8 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.getElementById('proj-modal-error').classList.add('hidden');
     document.getElementById('proj-modal-form').reset();
     document.getElementById('proj-modal-delete').classList.add('hidden');
+    // Attachments need an id to hang off, so they appear once the project exists.
+    document.getElementById('proj-attach-section').classList.add('hidden');
     document.getElementById('proj-status').value = 'active';
     document.getElementById('proj-start').value = '';
     document.getElementById('proj-end').value = '';
@@ -3815,6 +4061,9 @@ ${REPORT_TABLE_COMPONENT_JS}
     renderProjModalTags();
     renderMemberPicker('proj-members-list', proj.memberIds || []);
     document.getElementById('proj-modal-delete').classList.remove('hidden');
+    document.getElementById('proj-attach-section').classList.remove('hidden');
+    document.getElementById('proj-attach-url').value = '';
+    loadAttachments('proj', 'project', id);
     document.getElementById('proj-modal').classList.remove('hidden');
     document.getElementById('proj-name').focus();
   }

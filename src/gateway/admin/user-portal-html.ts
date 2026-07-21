@@ -168,8 +168,19 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .board-col.drag-over { border-color: var(--accent); border-style: dashed; background: rgba(0,0,0,0.02); }
   .task-drop-slot { height: 2px; background: var(--accent); border-radius: 2px; margin: 0.25rem 0 0.6rem; }
   .task-card-proj { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .task-card-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; }
-  .task-card-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; font-size: 0.7rem; }
+  .task-card-title { font-weight: 650; font-size: 0.88rem; line-height: 1.35; }
+  .task-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.35rem; }
+  .task-card-desc { font-size: 0.76rem; line-height: 1.45; color: var(--text-muted); margin-bottom: 0.4rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .task-card-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; font-size: 0.7rem; margin-top: 0.3rem; }
+  .attach-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; }
+  .attach-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.55rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; font-size: 0.8rem; }
+  .attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-decoration: none; }
+  .attach-name:hover { text-decoration: underline; }
+  .attach-size { flex-shrink: 0; font-size: 0.7rem; color: var(--text-muted); }
+  .attach-del { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1rem; line-height: 1; padding: 0 0.15rem; }
+  .attach-empty { font-size: 0.78rem; color: var(--text-muted); padding: 0.25rem 0; }
+  .attach-actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+  .attach-url-input { flex: 1; min-width: 160px; }
   .task-chip { padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); font-weight: 600; }
   .task-chip.overdue { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
   .prio-urgent { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
@@ -381,6 +392,16 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
       <div class="form-group">
         <label>Assigned To</label>
         <div id="pt-t-assignees" class="member-picker"></div>
+      </div>
+      <div id="pt-attach-section" class="form-group hidden">
+        <label>Links &amp; Files</label>
+        <div id="pt-attach-list" class="attach-list"></div>
+        <div class="attach-actions">
+          <input id="pt-attach-url" class="attach-url-input" placeholder="Paste a link (https://…)">
+          <button type="button" class="btn btn-ghost btn-sm" id="pt-attach-link-btn">Add Link</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="pt-attach-file-btn">Upload File</button>
+          <input type="file" id="pt-attach-file" class="hidden">
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost btn-sm hidden" id="pt-task-delete" style="color:#991b1b">Delete</button>
@@ -879,20 +900,116 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (status === 'done' && task.recurrence) await loadTasksPage();
   }
 
+  // ── Attachments on a task ──────────────────────────────────────────────────
+  function ptFormatFilesize(bytes) {
+    if (!bytes && bytes !== 0) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  async function ptLoadAttachments(taskId) {
+    const box = document.getElementById('pt-attach-list');
+    const r = await api('GET', '/tasks/' + taskId + '/attachments');
+    const items = (r.ok && r.data.attachments) || [];
+    if (!items.length) { box.innerHTML = '<div class="attach-empty">Nothing attached yet.</div>'; return; }
+    box.innerHTML = items.map(function(a) {
+      const isLink = a.type === 'link';
+      return '<div class="attach-row">' +
+        '<span>' + (isLink ? '🔗' : '📄') + '</span>' +
+        '<a class="attach-name' + (isLink ? '' : ' pt-attach-download') + '" href="' + esc(isLink ? a.url : '#') + '"' +
+          (isLink ? ' target="_blank" rel="noopener noreferrer"' : '') +
+          ' data-id="' + esc(a.id) + '" data-name="' + esc(a.filename || a.title) + '">' + esc(a.title) + '</a>' +
+        (a.filesize ? '<span class="attach-size">' + esc(ptFormatFilesize(a.filesize)) + '</span>' : '') +
+        '<button type="button" class="attach-del" data-id="' + esc(a.id) + '" title="Remove">✕</button>' +
+      '</div>';
+    }).join('');
+    box.querySelectorAll('.attach-del').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        const r2 = await api('DELETE', '/attachments/' + this.dataset.id);
+        if (!r2.ok) { alert('Could not remove that attachment.'); return; }
+        await ptLoadAttachments(taskId);
+        await loadTasksPage();
+      });
+    });
+    box.querySelectorAll('.pt-attach-download').forEach(function(link) {
+      link.addEventListener('click', async function(e) {
+        e.preventDefault();
+        const res = await fetch('/api/admin/attachments/' + this.dataset.id + '/file', {
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        if (!res.ok) { alert('Could not download that file.'); return; }
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl; a.download = this.dataset.name || 'file';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(objectUrl);
+      });
+    });
+  }
+
+  document.getElementById('pt-attach-link-btn').addEventListener('click', async function() {
+    if (!ptEditingTask) return;
+    const input = document.getElementById('pt-attach-url');
+    const url = input.value.trim();
+    if (!url) return;
+    if (!/^https?:\\/\\//i.test(url)) { alert('Links must start with http:// or https://'); return; }
+    const r = await api('POST', '/tasks/' + ptEditingTask + '/attachments', { type: 'link', url: url, title: url });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not add that link.'); return; }
+    input.value = '';
+    await ptLoadAttachments(ptEditingTask);
+    await loadTasksPage();
+  });
+  document.getElementById('pt-attach-file-btn').addEventListener('click', function() {
+    document.getElementById('pt-attach-file').click();
+  });
+  document.getElementById('pt-attach-file').addEventListener('change', async function() {
+    const file = this.files && this.files[0];
+    this.value = '';
+    if (!file || !ptEditingTask) return;
+    if (file.size > 15 * 1024 * 1024) { alert('That file is larger than 15 MB.'); return; }
+    const dataUrl = await new Promise(function(resolve) {
+      const reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.onerror = function() { resolve(null); };
+      reader.readAsDataURL(file);
+    });
+    if (!dataUrl) { alert('Could not read that file.'); return; }
+    const r = await api('POST', '/tasks/' + ptEditingTask + '/attachments', {
+      type: 'file', fileData: String(dataUrl).split(',')[1] || '', filename: file.name,
+      mimetype: file.type || 'application/octet-stream', title: file.name,
+    });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not upload that file.'); return; }
+    await ptLoadAttachments(ptEditingTask);
+    await loadTasksPage();
+  });
+
   function ptTaskCard(task) {
     const proj = task.projectId ? ptProjects.find(function(p) { return p.id === task.projectId; }) : null;
-    let html = '<div class="task-card" draggable="true" data-id="' + esc(task.id) + '">';
-    if (proj) html += '<div class="task-card-proj" style="border-left:3px solid ' + esc(proj.color || '#3b82f6') + ';padding-left:6px">' + esc(proj.title) + '</div>';
+    const color = proj ? (proj.color || '#3b82f6') : '#94a3b8';
+    let html = '<div class="task-card" draggable="true" data-id="' + esc(task.id) + '" style="border-left:4px solid ' + esc(color) + '">';
+    html += '<div class="task-card-head">';
     html += '<div class="task-card-title">' + esc(task.title) + '</div>';
-    html += '<div class="task-card-meta">';
     html += '<span class="task-chip prio-' + esc(task.priority) + '">' + esc(task.priority) + '</span>';
+    html += '</div>';
+    if (proj) html += '<div class="task-card-proj">' + esc(proj.title) + '</div>';
+    if (task.description) html += '<div class="task-card-desc">' + esc(task.description) + '</div>';
+    html += '<div class="task-card-meta">';
     if (task.dueDate) {
       const overdue = task.dueDate < Date.now() && task.status !== 'done';
       html += '<span class="task-chip' + (overdue ? ' overdue' : '') + '">📅 ' + esc(ptFormatDate(task.dueDate)) + '</span>';
     }
+    if (task.attachmentCount) html += '<span class="task-chip">📎 ' + task.attachmentCount + '</span>';
+    html += '</div>';
+    // Every assignee named, rather than the old "+N" truncation.
     const names = (task.assigneeIds || []).map(ptUserLabel);
-    if (names.length) html += '<span class="task-chip">👤 ' + esc(names.slice(0, 2).join(', ')) + (names.length > 2 ? ' +' + (names.length - 2) : '') + '</span>';
-    html += '</div></div>';
+    if (names.length) {
+      html += '<div class="task-card-meta">' + names.map(function(n) {
+        return '<span class="task-chip">👤 ' + esc(n) + '</span>';
+      }).join('') + '</div>';
+    }
+    html += '</div>';
     return html;
   }
 
@@ -915,6 +1032,10 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.getElementById('pt-t-due').value = task && task.dueDate ? new Date(task.dueDate).toISOString().slice(0,10) : '';
     ptRenderMemberPicker('pt-t-assignees', task ? (task.assigneeIds || []) : []);
     document.getElementById('pt-task-delete').classList.toggle('hidden', !task);
+    // Attachments need a task id to hang off, so they appear once it exists.
+    document.getElementById('pt-attach-section').classList.toggle('hidden', !task);
+    document.getElementById('pt-attach-url').value = '';
+    if (task) ptLoadAttachments(task.id);
     document.getElementById('pt-task-modal').classList.remove('hidden');
     document.getElementById('pt-t-title').focus();
   }

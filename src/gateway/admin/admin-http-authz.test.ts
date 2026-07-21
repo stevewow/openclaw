@@ -326,6 +326,115 @@ describe("project duplication and board reordering", () => {
     expect(res.status).toBe(404);
   });
 
+  it("attaches links and files to a task, and gates them on the projects grant", async () => {
+    const created = await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "Has attachments" },
+    });
+    const taskId = (created.json?.task as { id: string }).id;
+
+    const link = await call("POST", `/tasks/${taskId}/attachments`, {
+      token: adminToken,
+      body: { type: "link", url: "https://example.com/brief", title: "Brief" },
+    });
+    expect(link.status).toBe(201);
+    expect((link.json?.attachment as { url: string }).url).toBe("https://example.com/brief");
+
+    const upload = await call("POST", `/tasks/${taskId}/attachments`, {
+      token: adminToken,
+      body: {
+        type: "file",
+        filename: "notes.txt",
+        mimetype: "text/plain",
+        fileData: Buffer.from("hello there").toString("base64"),
+      },
+    });
+    expect(upload.status).toBe(201);
+    const uploaded = upload.json?.attachment as { id: string; filesize: number };
+    expect(uploaded.filesize).toBe(11);
+
+    const listed = await call("GET", `/tasks/${taskId}/attachments`, { token: adminToken });
+    expect((listed.json?.attachments as unknown[]).length).toBe(2);
+
+    // The download route returns the bytes that went in.
+    const fileRes = await fetch(`${base}/api/admin/attachments/${uploaded.id}/file`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(fileRes.status).toBe(200);
+    expect(await fileRes.text()).toBe("hello there");
+
+    // The task list carries a count so cards can badge without N queries.
+    const tasks = await call("GET", "/tasks", { token: adminToken });
+    const row = (tasks.json?.tasks as Array<{ id: string; attachmentCount: number }>).find(
+      (t) => t.id === taskId,
+    );
+    expect(row?.attachmentCount).toBe(2);
+
+    // Someone with no grant cannot read or write them.
+    await userStore.setUserPermissions(plainId, []);
+    const ungranted = await tokenFor(plainId);
+    expect((await call("GET", `/tasks/${taskId}/attachments`, { token: ungranted })).status).toBe(
+      403,
+    );
+    expect(
+      (await call("GET", `/attachments/${uploaded.id}/file`, { token: ungranted })).status,
+    ).toBe(403);
+
+    // The projects grant alone is not enough — it still is not their task.
+    await userStore.setUserPermissions(plainId, [{ permissionType: "feature", value: "projects" }]);
+    const granted = await tokenFor(plainId);
+    expect((await call("GET", `/tasks/${taskId}/attachments`, { token: granted })).status).toBe(
+      403,
+    );
+
+    const removed = await call("DELETE", `/attachments/${uploaded.id}`, { token: adminToken });
+    expect(removed.status).toBe(200);
+    expect(
+      (
+        (await call("GET", `/tasks/${taskId}/attachments`, { token: adminToken })).json
+          ?.attachments as unknown[]
+      ).length,
+    ).toBe(1);
+  });
+
+  it("refuses a link scheme that would run as script when clicked", async () => {
+    const created = await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "Link guard" },
+    });
+    const taskId = (created.json?.task as { id: string }).id;
+    for (const url of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "ftp://x",
+    ]) {
+      const res = await call("POST", `/tasks/${taskId}/attachments`, {
+        token: adminToken,
+        body: { type: "link", url },
+      });
+      expect(`${url} -> ${res.status}`).toBe(`${url} -> 400`);
+    }
+  });
+
+  it("404s attachments on an owner that does not exist", async () => {
+    // Admins bypass the access guard, so without an explicit existence check
+    // this would 200 on read and strand an orphan row + file on write.
+    expect(
+      (await call("GET", "/tasks/no-such-task/attachments", { token: adminToken })).status,
+    ).toBe(404);
+    expect(
+      (await call("GET", "/projects/no-such-project/attachments", { token: adminToken })).status,
+    ).toBe(404);
+    expect(
+      (
+        await call("POST", "/tasks/no-such-task/attachments", {
+          token: adminToken,
+          body: { type: "link", url: "https://example.com" },
+        })
+      ).status,
+    ).toBe(404);
+  });
+
   it("persists position so a dragged card keeps its slot", async () => {
     const created = await call("POST", "/tasks", {
       token: adminToken,

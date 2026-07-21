@@ -83,6 +83,21 @@ type TaskAssigneesTable = {
   user_id: string;
 };
 
+type AttachmentsTable = {
+  id: string;
+  owner_type: string;
+  owner_id: string;
+  type: string;
+  title: string;
+  url: string | null;
+  filename: string | null;
+  stored_filename: string | null;
+  mimetype: string | null;
+  filesize: number | null;
+  created_by: string | null;
+  created_at: number;
+};
+
 type TasksTable = {
   id: string;
   project_id: string | null;
@@ -258,6 +273,7 @@ export type AdminDb = {
   admin_project_members: ProjectMembersTable;
   admin_tasks: TasksTable;
   admin_task_assignees: TaskAssigneesTable;
+  admin_attachments: AttachmentsTable;
   admin_spiro_orders: SpiroOrdersTable;
   admin_spiro_refresh_log: SpiroRefreshLogTable;
   admin_spiro_invoices: SpiroInvoicesTable;
@@ -439,6 +455,23 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       PRIMARY KEY (task_id, user_id)
     );
     CREATE INDEX IF NOT EXISTS admin_task_assignees_user ON admin_task_assignees(user_id);
+    -- Links and files hung off a task or project. No FK: owner_type decides which
+    -- table owner_id points at, so cascade is handled in the delete paths.
+    CREATE TABLE IF NOT EXISTS admin_attachments (
+      id TEXT PRIMARY KEY,
+      owner_type TEXT NOT NULL CHECK(owner_type IN ('task','project')),
+      owner_id TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('link','file')),
+      title TEXT NOT NULL,
+      url TEXT,
+      filename TEXT,
+      stored_filename TEXT,
+      mimetype TEXT,
+      filesize INTEGER,
+      created_by TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_attachments_owner ON admin_attachments(owner_type, owner_id);
     CREATE TABLE IF NOT EXISTS admin_spiro_orders (
       id TEXT PRIMARY KEY,
       month TEXT NOT NULL,
