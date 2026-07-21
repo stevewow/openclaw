@@ -10,10 +10,31 @@ import { toQuoteRequest, type OrderDraft } from "./order-draft.js";
 import { GREETING } from "./prompt.js";
 import type { IntakeSession } from "./session-store.js";
 
+/**
+ * A structured input the widget renders instead of making the visitor type a
+ * sentence: tap-able options for enumerable answers, labelled boxes for the
+ * rest. Keeping the ask in fields is what lets the prose stay one line.
+ */
+export type IntakeFieldType = "choice" | "text" | "number" | "tel" | "email";
+
+export type IntakeFieldOption = {
+  value: string;
+  label: string;
+};
+
+export type IntakeField = {
+  key: string;
+  label: string;
+  type: IntakeFieldType;
+  options?: IntakeFieldOption[];
+  placeholder?: string;
+};
+
 export type BrainTurn = {
   reply: string;
   draft: OrderDraft;
   handoff?: HandoffNotification;
+  fields?: IntakeField[];
 };
 
 export interface IntakeBrain {
@@ -35,6 +56,8 @@ type Slot = {
   filled: (d: OrderDraft) => boolean;
   question: string;
   apply: (d: OrderDraft, answer: string) => void;
+  // How the widget should ask. Omitted slots fall back to the free-text box.
+  field?: IntakeField;
 };
 
 function firstNumber(s: string): number | undefined {
@@ -72,6 +95,12 @@ const SLOTS: Slot[] = [
     id: "address",
     filled: (d) => !!d.property.address,
     question: "What's the address of the listing you'd like to book?",
+    field: {
+      key: "address",
+      label: "Property address",
+      type: "text",
+      placeholder: "123 Main St, Dayton OH",
+    },
     apply: (d, a) => {
       d.property.address = a.trim();
     },
@@ -79,8 +108,19 @@ const SLOTS: Slot[] = [
   {
     id: "service",
     filled: (d) => !!d.service.bundleId || (d.service.singleServiceIds?.length ?? 0) > 0,
-    question:
-      "Great — what would you like to book for it? We have bundles like WOW Essentials, WOW Essentials + Aerial Silver, and the Luxury Listing Package, or individual services.",
+    question: "Great — what would you like to book for it?",
+    field: {
+      key: "service",
+      label: "What would you like to book?",
+      type: "choice",
+      options: [
+        { value: "WOW Essentials", label: "WOW Essentials" },
+        { value: "WOW Essentials + Aerial Silver", label: "Essentials + Aerial" },
+        { value: "Luxury Listing Package", label: "Luxury Listing" },
+        { value: "Zillow Showcase", label: "Zillow Showcase" },
+        { value: "individual services", label: "Individual services" },
+      ],
+    },
     apply: (d, a) => {
       const m = matchSelection(a);
       if (m.bundleId) d.service.bundleId = m.bundleId;
@@ -92,6 +132,7 @@ const SLOTS: Slot[] = [
     id: "squareFeet",
     filled: (d) => d.property.squareFeet != null,
     question: "Roughly how many square feet is the home? (Pricing is based on square footage.)",
+    field: { key: "squareFeet", label: "Square feet", type: "number", placeholder: "2400" },
     apply: (d, a) => {
       const n = firstNumber(a);
       if (n != null) d.property.squareFeet = n;
@@ -101,6 +142,7 @@ const SLOTS: Slot[] = [
     id: "listingPrice",
     filled: (d) => d.property.listingPrice != null,
     question: "What's the listing price?",
+    field: { key: "listingPrice", label: "Listing price", type: "number", placeholder: "310000" },
     apply: (d, a) => {
       const n = firstNumber(a);
       if (n != null) d.property.listingPrice = n;
@@ -110,6 +152,15 @@ const SLOTS: Slot[] = [
     id: "vacancy",
     filled: (d) => !!d.property.vacancy,
     question: "Is the home vacant or occupied?",
+    field: {
+      key: "vacancy",
+      label: "Is the home vacant or occupied?",
+      type: "choice",
+      options: [
+        { value: "vacant", label: "Vacant" },
+        { value: "occupied", label: "Occupied" },
+      ],
+    },
     apply: (d, a) => {
       d.property.vacancy = /vacant|empty/i.test(a) ? "vacant" : "occupied";
     },
@@ -118,6 +169,7 @@ const SLOTS: Slot[] = [
     id: "agentName",
     filled: (d) => !!d.agent.firstName && !!d.agent.lastName,
     question: "Let's get your details so the team can follow up. What's your first and last name?",
+    field: { key: "agentName", label: "Your full name", type: "text", placeholder: "Jane Smith" },
     apply: (d, a) => {
       const parts = a.trim().split(/\s+/);
       d.agent.firstName = parts[0];
@@ -128,6 +180,7 @@ const SLOTS: Slot[] = [
     id: "agentCompany",
     filled: (d) => !!d.agent.companyName,
     question: "Which brokerage or company are you with?",
+    field: { key: "agentCompany", label: "Brokerage or company", type: "text" },
     apply: (d, a) => {
       d.agent.companyName = a.trim();
     },
@@ -136,6 +189,7 @@ const SLOTS: Slot[] = [
     id: "agentPhone",
     filled: (d) => !!d.agent.phone,
     question: "Best phone number to reach you?",
+    field: { key: "agentPhone", label: "Phone", type: "tel", placeholder: "(937) 555-0123" },
     apply: (d, a) => {
       d.agent.phone = a.trim();
     },
@@ -144,6 +198,7 @@ const SLOTS: Slot[] = [
     id: "agentEmail",
     filled: (d) => !!d.agent.email,
     question: "And your email?",
+    field: { key: "agentEmail", label: "Email", type: "email", placeholder: "you@brokerage.com" },
     apply: (d, a) => {
       d.agent.email = a.trim();
     },
@@ -159,8 +214,18 @@ const SLOTS: Slot[] = [
   {
     id: "entry",
     filled: (d) => !!d.entry?.method,
-    question:
-      "How should our photographer access the property? (e.g. lockbox, you'll meet on-site, homeowner present)",
+    question: "How should our photographer access the property?",
+    field: {
+      key: "entry",
+      label: "How should our photographer get in?",
+      type: "choice",
+      options: [
+        { value: "lockbox", label: "Lockbox" },
+        { value: "I'll meet them on-site", label: "I'll meet them" },
+        { value: "homeowner will be present", label: "Homeowner present" },
+        { value: "other", label: "Other" },
+      ],
+    },
     apply: (d, a) => {
       d.entry = { method: a.trim() };
     },
@@ -168,8 +233,18 @@ const SLOTS: Slot[] = [
   {
     id: "scheduling",
     filled: (d) => !!d.scheduling,
-    question:
-      "When would you like the shoot? (ASAP, or a preferred day/time — we'll confirm availability.)",
+    question: "When would you like the shoot? We'll confirm availability.",
+    field: {
+      key: "scheduling",
+      label: "When would you like the shoot?",
+      type: "choice",
+      options: [
+        { value: "ASAP", label: "ASAP" },
+        { value: "this week", label: "This week" },
+        { value: "next week", label: "Next week" },
+        { value: "a specific day", label: "A specific day" },
+      ],
+    },
     apply: (d, a) => {
       d.scheduling = /asap|soon|earliest/i.test(a)
         ? { kind: "asap" }
@@ -245,6 +320,7 @@ export class ScriptedBrain implements IntakeBrain {
     return {
       reply: next.question + runningEstimate(d),
       draft: d,
+      fields: next.field ? [next.field] : undefined,
     };
   }
 }

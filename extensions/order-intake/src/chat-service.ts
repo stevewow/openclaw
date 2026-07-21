@@ -137,7 +137,11 @@ export function createChatService(opts: ChatServiceOptions) {
         session.history.push({ role: "assistant", text: turn.reply, at: now });
         session.updatedAt = now;
         opts.store.save(session);
-        sendJson(res, 200, { reply: turn.reply, done: session.handedOff });
+        sendJson(res, 200, {
+          reply: turn.reply,
+          done: session.handedOff,
+          ...(turn.fields ? { fields: turn.fields } : {}),
+        });
       } catch (err) {
         // A brain/model failure must not blank the widget. Drop the unprocessed
         // visitor message so a resend doesn't duplicate it, keep the session and

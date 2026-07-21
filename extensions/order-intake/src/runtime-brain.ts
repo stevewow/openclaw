@@ -13,14 +13,25 @@
 import path from "node:path";
 import { resolvePreferredOpenClawTmpDir, withTempWorkspace } from "openclaw/plugin-sdk/temp-path";
 import type { OpenClawPluginApi } from "../api.js";
-import { runningEstimate, type BrainTurn, type IntakeBrain } from "./brain.js";
+import {
+  runningEstimate,
+  type BrainTurn,
+  type IntakeBrain,
+  type IntakeField,
+  type IntakeFieldType,
+} from "./brain.js";
 import { catalogReference, priceSnapshot } from "./catalog-prompt.js";
 import { formatHandoff, type HandoffSender } from "./handoff.js";
 import { checkCompleteness, coerceDraft, type OrderDraft } from "./order-draft.js";
 import { GREETING, INTAKE_SYSTEM_PROMPT } from "./prompt.js";
 import type { IntakeSession } from "./session-store.js";
 
-type LlmTurnResult = { reply: string; draft: OrderDraft; readyToSubmit: boolean };
+type LlmTurnResult = {
+  reply: string;
+  draft: OrderDraft;
+  readyToSubmit: boolean;
+  fields?: IntakeField[];
+};
 
 // A structured draft schema (not a bare object) so the model reliably writes
 // the extracted facts into the fields the estimator and completeness check read
@@ -136,8 +147,93 @@ const TURN_SCHEMA = {
       description:
         "True only when the order is complete AND the visitor has agreed to the terms of service.",
     },
+    fields: {
+      type: "array",
+      description:
+        "The inputs the visitor should fill in for THIS question, rendered as tap-able buttons or labelled boxes. Put the ask here and keep `reply` to one short line. Use type 'choice' with options whenever the answer is one of a known set. Group fields that belong together (e.g. name/phone/email/company) into ONE turn. Omit entirely when a free-text answer is the natural response.",
+      maxItems: 6,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["key", "label", "type"],
+        properties: {
+          key: { type: "string", description: "Short identifier, e.g. 'squareFeet'." },
+          label: { type: "string", description: "Label shown above the input." },
+          type: {
+            type: "string",
+            enum: ["choice", "text", "number", "tel", "email"],
+          },
+          placeholder: { type: "string" },
+          options: {
+            type: "array",
+            description: "Required for type 'choice'. Keep to 6 or fewer.",
+            maxItems: 6,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["value", "label"],
+              properties: {
+                value: { type: "string" },
+                label: { type: "string", description: "Short button text, 1-3 words." },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 } as const;
+
+const FIELD_TYPES: IntakeFieldType[] = ["choice", "text", "number", "tel", "email"];
+
+/**
+ * Model output drives real UI, so take only what matches the contract: known
+ * types, string labels, bounded counts, and choices that actually have options.
+ */
+export function coerceFields(value: unknown): IntakeField[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const fields: IntakeField[] = [];
+  for (const raw of value.slice(0, 6)) {
+    if (typeof raw !== "object" || raw === null) {
+      continue;
+    }
+    const f = raw as Record<string, unknown>;
+    const key = typeof f.key === "string" ? f.key.trim() : "";
+    const label = typeof f.label === "string" ? f.label.trim() : "";
+    const type = FIELD_TYPES.find((t) => t === f.type);
+    if (!key || !label || !type) {
+      continue;
+    }
+    const options: IntakeField["options"] = [];
+    if (Array.isArray(f.options)) {
+      for (const rawOpt of f.options.slice(0, 6)) {
+        if (typeof rawOpt !== "object" || rawOpt === null) {
+          continue;
+        }
+        const o = rawOpt as Record<string, unknown>;
+        const optValue = typeof o.value === "string" ? o.value.trim() : "";
+        const optLabel = typeof o.label === "string" ? o.label.trim() : optValue;
+        if (optValue) {
+          options.push({ value: optValue, label: optLabel || optValue });
+        }
+      }
+    }
+    // A choice with nothing to choose from would render as a dead end.
+    if (type === "choice" && options.length === 0) {
+      continue;
+    }
+    fields.push({
+      key,
+      label,
+      type,
+      ...(options.length > 0 ? { options } : {}),
+      ...(typeof f.placeholder === "string" ? { placeholder: f.placeholder } : {}),
+    });
+  }
+  return fields.length > 0 ? fields : undefined;
+}
 
 export type RuntimeBrainOptions = {
   api: OpenClawPluginApi;
@@ -205,7 +301,7 @@ export class RuntimeBrain implements IntakeBrain {
       session.handedOff = true;
       return { reply: parsed.reply + runningEstimate(draft), draft, handoff: notification };
     }
-    return { reply: parsed.reply + runningEstimate(draft), draft };
+    return { reply: parsed.reply + runningEstimate(draft), draft, fields: parsed.fields };
   }
 
   private async runLlm(prompt: string): Promise<unknown> {
@@ -268,7 +364,7 @@ export class RuntimeBrain implements IntakeBrain {
     const reply = typeof v.reply === "string" ? v.reply : "Could you tell me a bit more?";
     const draft = coerceDraft(v.draft, prev);
     const readyToSubmit = v.readyToSubmit === true;
-    return { reply, draft, readyToSubmit };
+    return { reply, draft, readyToSubmit, fields: coerceFields(v.fields) };
   }
 }
 

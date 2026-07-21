@@ -39,6 +39,20 @@ export function chatPageHtml(base: string): string {
   button { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 0 16px; font-size: 14px; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
   .disclaimer { font-size: 11px; color: var(--ink-2); text-align: center; padding: 6px 12px 10px; background: #fff; }
+  /* Structured asks: tap-able options, or a small labelled form. */
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; align-self: flex-start; max-width: 92%; }
+  .chip { background: #fff; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px;
+    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; line-height: 1.2; }
+  .chip:hover { background: var(--accent); color: #fff; }
+  .fieldform { align-self: flex-start; max-width: 92%; width: 320px; background: #fff; border: 1px solid var(--line);
+    border-radius: 14px; border-bottom-left-radius: 4px; padding: 13px; display: flex; flex-direction: column; gap: 10px; }
+  .fieldrow { display: flex; flex-direction: column; gap: 4px; }
+  .fieldrow label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+  .fieldrow input, .fieldrow select { padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+    font-size: 14px; font-family: inherit; background: #fff; color: var(--ink); width: 100%; }
+  .fieldrow input:focus, .fieldrow select:focus { outline: none; border-color: var(--accent); }
+  .fieldform button { padding: 10px 16px; border-radius: 9px; }
+  .answered { opacity: .55; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -79,6 +93,100 @@ export function chatPageHtml(base: string): string {
   }
   function setBusy(b) { send.disabled = b; input.disabled = b; }
 
+  // ── Structured asks ────────────────────────────────────────────────────────
+  // A turn may come back with fields describing what it wants. One set of
+  // choices renders as tap-able chips; anything else becomes a small form.
+  // Either way the answer is sent as ordinary text, so the brain contract and
+  // the transcript are unchanged.
+  var activeAsk = null;
+
+  function clearAsk() {
+    if (activeAsk) { activeAsk.remove(); activeAsk = null; }
+  }
+
+  function submitAnswer(text, node) {
+    if (node) { node.classList.add("answered"); }
+    clearAsk();
+    sendMessage(text, true);
+  }
+
+  function renderChips(field) {
+    var wrap = document.createElement("div");
+    wrap.className = "chips";
+    field.options.forEach(function (opt) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = opt.label || opt.value;
+      b.addEventListener("click", function () { submitAnswer(opt.value, wrap); });
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+
+  function renderForm(fields) {
+    var form = document.createElement("div");
+    form.className = "fieldform";
+    var inputs = [];
+    fields.forEach(function (f) {
+      var row = document.createElement("div");
+      row.className = "fieldrow";
+      var id = "fld_" + Math.random().toString(36).slice(2);
+      var label = document.createElement("label");
+      label.textContent = f.label;
+      label.setAttribute("for", id);
+      row.appendChild(label);
+      var control;
+      if (f.type === "choice") {
+        control = document.createElement("select");
+        var blank = document.createElement("option");
+        blank.value = ""; blank.textContent = "Select…";
+        control.appendChild(blank);
+        (f.options || []).forEach(function (opt) {
+          var o = document.createElement("option");
+          o.value = opt.value; o.textContent = opt.label || opt.value;
+          control.appendChild(o);
+        });
+      } else {
+        control = document.createElement("input");
+        control.type = f.type === "number" ? "number" : f.type === "tel" ? "tel" : f.type === "email" ? "email" : "text";
+        if (f.placeholder) control.placeholder = f.placeholder;
+      }
+      control.id = id;
+      row.appendChild(control);
+      form.appendChild(row);
+      inputs.push({ field: f, control: control });
+    });
+    var go = document.createElement("button");
+    go.type = "button";
+    go.textContent = "Continue";
+    go.addEventListener("click", function () {
+      // Compose one plain sentence per answer so the brain reads it exactly as
+      // if the visitor had typed it.
+      var parts = [];
+      inputs.forEach(function (entry) {
+        var val = String(entry.control.value || "").trim();
+        if (val) parts.push(entry.field.label + ": " + val);
+      });
+      if (!parts.length) return;
+      submitAnswer(parts.join("\\n"), form);
+    });
+    form.appendChild(go);
+    return form;
+  }
+
+  function showAsk(fields) {
+    clearAsk();
+    if (!fields || !fields.length) return;
+    var single = fields.length === 1 ? fields[0] : null;
+    var node = single && single.type === "choice" && single.options && single.options.length
+      ? renderChips(single)
+      : renderForm(fields);
+    log.appendChild(node);
+    log.scrollTop = log.scrollHeight;
+    activeAsk = node;
+  }
+
   function post(path, body) {
     return fetch(BASE + path, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -98,12 +206,11 @@ export function chatPageHtml(base: string): string {
     })
     .catch(function () { bubble("assistant", ${JSON.stringify(GREETING)}); });
 
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    var text = input.value.trim();
+  function sendMessage(text, fromAsk) {
     if (!text) return;
     bubble("visitor", text);
-    input.value = "";
+    if (!fromAsk) input.value = "";
+    clearAsk();
     setBusy(true);
     var typing = document.createElement("div");
     typing.className = "typing"; typing.textContent = "…";
@@ -113,14 +220,23 @@ export function chatPageHtml(base: string): string {
       .then(function (res) {
         typing.remove();
         bubble("assistant", (res && res.reply) || "Sorry, something went wrong. Please try again.");
-        setBusy(!!(res && res.done));
-        if (!(res && res.done)) input.focus();
+        var done = !!(res && res.done);
+        setBusy(done);
+        if (!done) {
+          if (res && res.fields) showAsk(res.fields);
+          input.focus();
+        }
       })
       .catch(function () {
         typing.remove();
         bubble("assistant", "Sorry, something went wrong. Please try again.");
         setBusy(false); input.focus();
       });
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    sendMessage(input.value.trim(), false);
   });
   input.focus();
 })();

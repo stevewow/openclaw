@@ -42,7 +42,11 @@ describe("web-chat service (M0)", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ visitorId, message }),
     });
-    return (await r.json()) as { reply: string; done: boolean };
+    return (await r.json()) as {
+      reply: string;
+      done: boolean;
+      fields?: Array<{ key: string; type: string; options?: Array<{ value: string }> }>;
+    };
   }
 
   it("serves the widget page", async () => {
@@ -163,5 +167,39 @@ describe("web-chat service (M0)", () => {
   it("404s unknown subpaths under the base", async () => {
     const r = await fetch(`${ctx.url}${BASE}/nope`);
     expect(r.status).toBe(404);
+  });
+
+  it("hands the widget structured asks alongside the reply", async () => {
+    // The address slot answers first, so the service choice comes back as
+    // tap-able options rather than a paragraph listing the bundles.
+    const turn = await say("v-fields", "123 Main St, Dayton OH");
+    expect(turn.fields?.[0]?.type).toBe("choice");
+    expect((turn.fields?.[0]?.options ?? []).length).toBeGreaterThan(1);
+    // With the ask carried in fields, the prose stays short.
+    expect(turn.reply.split("\n")[0]!.length).toBeLessThan(120);
+  });
+
+  it("sends no fields once the order is handed off", async () => {
+    const answers = [
+      "123 Main St",
+      "WOW Essentials",
+      "2400",
+      "310000",
+      "vacant",
+      "Jane Smith",
+      "Acme Realty",
+      "937-555-0123",
+      "jane@acme.com",
+      "Highlight the kitchen",
+      "lockbox",
+      "ASAP",
+      "I agree",
+    ];
+    let last = await say("v-done", answers[0]!);
+    for (const answer of answers.slice(1)) {
+      last = await say("v-done", answer);
+    }
+    expect(last.done).toBe(true);
+    expect(last.fields).toBeUndefined();
   });
 });
