@@ -298,8 +298,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .board-add-btn { width: 100%; padding: 0.5rem; background: transparent; border: 1px dashed var(--border); border-top: none; border-radius: 0 0 8px 8px; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; transition: all 0.12s; font-family: inherit; }
   .board-add-btn:hover { background: var(--surface); color: var(--accent); border-color: var(--accent); }
   .board-empty { font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1.5rem 0.5rem; }
-  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 0.5rem; cursor: pointer; overflow: hidden; transition: box-shadow 0.12s, transform 0.1s; display: flex; }
+  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 0.5rem; cursor: grab; overflow: hidden; transition: box-shadow 0.12s, transform 0.1s; display: flex; }
   .task-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-1px); }
+  .task-card:active { cursor: grabbing; }
+  .task-card.dragging { opacity: 0.45; cursor: grabbing; }
+  .board-col-body.drag-over { background: rgba(192,0,10,0.05); border-color: var(--accent); border-style: dashed; }
+  /* Placeholder marking where the dragged card lands. */
+  .task-drop-slot { height: 2px; background: var(--accent); border-radius: 2px; margin: 0.25rem 0 0.6rem; }
   .task-card-project-bar { width: 4px; flex-shrink: 0; }
   .task-card-body { padding: 0.7rem 0.75rem; flex: 1; min-width: 0; }
   .task-card-title { font-weight: 600; font-size: 0.875rem; line-height: 1.35; margin-bottom: 0.3rem; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -329,6 +334,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .cal-task-chip { display: block; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.65rem; font-weight: 600; color: #fff; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
   .cal-task-chip:hover { opacity: 0.85; }
   .cal-more { font-size: 0.65rem; color: var(--text-muted); font-weight: 600; padding: 0 0.3rem; }
+  /* Project date ranges, drawn above that day's task chips. */
+  .cal-proj-bar { display: block; font-size: 0.62rem; font-weight: 700; color: var(--text); padding: 0.05rem 0.3rem; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 3px solid transparent; }
+  .cal-proj-bar.cal-proj-start { border-radius: 3px 0 0 3px; }
+  .cal-proj-bar.cal-proj-end { border-radius: 0 3px 3px 0; }
+  .cal-proj-bar.cal-proj-solo { border-radius: 3px; }
+  .cal-proj-bar:hover { filter: brightness(0.95); }
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
   .color-swatch:hover { transform: scale(1.15); }
@@ -339,6 +350,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .subtask-done { text-decoration: line-through; color: var(--text-muted); }
   .subtask-delete { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; line-height: 1; padding: 0 0.2rem; transition: color 0.1s; }
   .subtask-delete:hover { color: var(--danger); }
+  .show-closed-toggle { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; }
   .proj-status-tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; flex-shrink: 0; }
   .projects-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
   .project-list-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
@@ -557,7 +569,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               <option value="all">All Projects</option>
             </select>
             <button class="btn btn-ghost btn-sm" id="edit-project-btn" style="padding:0.4rem 0.6rem" title="Edit selected project" disabled>✎</button>
+            <button class="btn btn-ghost btn-sm" id="dup-project-btn" style="padding:0.4rem 0.6rem" title="Duplicate selected project" disabled>⧉</button>
           </div>
+          <label class="show-closed-toggle" title="Include completed and archived projects">
+            <input type="checkbox" id="show-closed-projects"> Show closed
+          </label>
           <div style="margin-left:auto;display:flex;gap:0.5rem;flex-shrink:0">
             <button class="btn btn-ghost btn-sm" id="add-project-btn">+ New Project</button>
             <button class="btn btn-primary btn-sm" id="add-task-btn">+ New Task</button>
@@ -3110,6 +3126,9 @@ ${REPORT_TABLE_COMPONENT_JS}
   let projectsView = 'board'; // 'board' | 'calendar' | 'list'
   let projectsFilter = ''; // project id or ''
   let projectsStatusFilter = 'all'; // 'all' | ProjectStatus
+  // Completed/archived projects stay out of the board, calendar, and pickers
+  // until asked for; the Projects list keeps its own status tabs.
+  let showClosedProjects = false;
   let calYear = new Date().getFullYear();
   let calMonth = new Date().getMonth(); // 0-11
   let taskModalTags = [];
@@ -3135,25 +3154,47 @@ ${REPORT_TABLE_COMPONENT_JS}
     return Array.prototype.slice.call(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(function(cb) { return cb.value; });
   }
 
+  function isClosedProject(p) {
+    return p.status === 'completed' || p.status === 'archived';
+  }
+
+  /** Projects offered in pickers and drawn on the board/calendar. */
+  function selectableProjects() {
+    if (showClosedProjects) return allProjects;
+    // A closed project stays listed while it is the active filter, so the
+    // selection does not silently reset when someone archives it.
+    return allProjects.filter(function(p) { return !isClosedProject(p) || p.id === projectsFilter; });
+  }
+
   async function loadProjects() {
     await ensureUsersLoaded();
     const [pr, tr] = await Promise.all([api('GET', '/projects'), api('GET', '/tasks')]);
     if (pr.ok) allProjects = pr.data.projects || [];
     if (tr.ok) allTasks = tr.data.tasks || [];
-    const sel = document.getElementById('project-filter-sel');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">All Projects</option>' +
-      allProjects.map(function(p) { return '<option value="' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('');
-    sel.value = prev && allProjects.find(function(p) { return p.id === prev; }) ? prev : '';
-    projectsFilter = sel.value;
+    populateProjectFilter();
     renderProjectsPage();
   }
 
+  function populateProjectFilter() {
+    const sel = document.getElementById('project-filter-sel');
+    const prev = projectsFilter || sel.value;
+    const options = selectableProjects();
+    sel.innerHTML = '<option value="">All Projects</option>' +
+      options.map(function(p) {
+        return '<option value="' + esc(p.id) + '">' + esc(p.title) + (isClosedProject(p) ? ' (' + esc(p.status) + ')' : '') + '</option>';
+      }).join('');
+    sel.value = prev && options.find(function(p) { return p.id === prev; }) ? prev : '';
+    projectsFilter = sel.value;
+  }
+
   function getFilteredTasks() {
+    // Tasks with no project always show; project-bound ones follow their
+    // project's visibility.
+    const visible = new Set(selectableProjects().map(function(p) { return p.id; }));
     return allTasks.filter(function(t) {
       if (t.parentTaskId) return false; // subtasks shown in modal only
       if (projectsFilter) return t.projectId === projectsFilter;
-      return true;
+      return !t.projectId || visible.has(t.projectId);
     });
   }
 
@@ -3164,9 +3205,15 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (projectsView === 'board') renderBoard();
     else if (projectsView === 'calendar') renderCalendar();
     else renderProjectsList();
-    const editBtn = document.getElementById('edit-project-btn');
-    editBtn.disabled = !projectsFilter;
+    document.getElementById('edit-project-btn').disabled = !projectsFilter;
+    document.getElementById('dup-project-btn').disabled = !projectsFilter;
   }
+
+  document.getElementById('show-closed-projects').addEventListener('change', function() {
+    showClosedProjects = this.checked;
+    populateProjectFilter();
+    renderProjectsPage();
+  });
 
   // View toggle
   function switchProjectsView(view) {
@@ -3208,6 +3255,7 @@ ${REPORT_TABLE_COMPONENT_JS}
         '<div class="resource-card-footer">' +
           '<button type="button" class="btn btn-ghost btn-sm proj-list-view-btn" data-id="' + esc(p.id) + '">View Tasks</button>' +
           '<button type="button" class="btn btn-ghost btn-sm proj-list-edit-btn" data-id="' + esc(p.id) + '">Edit</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm proj-list-dup-btn" data-id="' + esc(p.id) + '">Duplicate</button>' +
         '</div>' +
       '</div>';
     }).join('');
@@ -3220,6 +3268,9 @@ ${REPORT_TABLE_COMPONENT_JS}
     });
     grid.querySelectorAll('.proj-list-edit-btn').forEach(function(btn) {
       btn.addEventListener('click', function() { openEditProject(this.dataset.id); });
+    });
+    grid.querySelectorAll('.proj-list-dup-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { duplicateProjectFlow(this.dataset.id); });
     });
   }
 
@@ -3242,6 +3293,35 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (projectsFilter) openEditProject(projectsFilter);
   });
 
+  // Duplicate current project button
+  document.getElementById('dup-project-btn').addEventListener('click', function() {
+    if (projectsFilter) duplicateProjectFlow(projectsFilter);
+  });
+
+  /**
+   * Copy a project and its tasks under a new name. Tasks come back as Todo with
+   * no due dates, so a recurring workflow can be restarted without retyping it.
+   */
+  async function duplicateProjectFlow(id) {
+    const source = allProjects.find(function(p) { return p.id === id; });
+    if (!source) return;
+    const title = prompt('Name for the copy (tasks are copied as Todo, without due dates):', source.title + ' (copy)');
+    if (title === null) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const r = await api('POST', '/projects/' + id + '/duplicate', { title: trimmed });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not duplicate that project.'); return; }
+    await loadProjects();
+    // Land on the copy so the new tasks are right there.
+    const copyId = r.data && r.data.project && r.data.project.id;
+    if (copyId) {
+      projectsFilter = copyId;
+      populateProjectFilter();
+      document.getElementById('project-filter-sel').value = copyId;
+      renderProjectsPage();
+    }
+  }
+
   // New project / task buttons
   document.getElementById('add-project-btn').addEventListener('click', function() { openAddProject(); });
   document.getElementById('add-task-btn').addEventListener('click', function() { openAddTask('todo', null); });
@@ -3256,10 +3336,12 @@ ${REPORT_TABLE_COMPONENT_JS}
 
   // Calendar event delegation
   document.getElementById('projects-calendar').addEventListener('click', function(e) {
-    const chip = e.target.closest('.cal-chip');
+    const bar = e.target.closest('.cal-proj-bar');
+    if (bar) { openEditProject(bar.dataset.projectId); return; }
+    const chip = e.target.closest('.cal-task-chip');
     if (chip) { openEditTask(chip.dataset.id); return; }
     const day = e.target.closest('.cal-day[data-date]');
-    if (day && !e.target.closest('.cal-chip')) { openAddTask('todo', parseInt(day.dataset.date, 10)); }
+    if (day) { openAddTask('todo', parseInt(day.dataset.date, 10)); }
   });
 
   // Calendar prev/next
@@ -3272,16 +3354,152 @@ ${REPORT_TABLE_COMPONENT_JS}
     renderCalendar();
   });
 
+  const BOARD_STATUSES = ['todo', 'in_progress', 'review', 'done'];
+
   function renderBoard() {
-    const statuses = ['todo', 'in_progress', 'review', 'done'];
     const tasks = getFilteredTasks();
-    statuses.forEach(function(status) {
+    BOARD_STATUSES.forEach(function(status) {
       const col = document.getElementById('col-' + status);
       const countEl = document.getElementById('col-count-' + status);
-      const matching = tasks.filter(function(t) { return t.status === status; });
+      const matching = tasks
+        .filter(function(t) { return t.status === status; })
+        .sort(function(a, b) { return a.position - b.position || a.createdAt - b.createdAt; });
       if (countEl) countEl.textContent = matching.length;
       if (col) col.innerHTML = matching.length ? matching.map(renderTaskCard).join('') : '<div class="board-empty">No tasks yet</div>';
     });
+  }
+
+  // ── Board drag & drop ──────────────────────────────────────────────────────
+  // Cards carry their status/position; dropping writes both back so a move
+  // across columns and a reorder within one column are the same operation.
+  let dragTaskId = null;
+
+  function boardColumns() {
+    return BOARD_STATUSES.map(function(s) { return document.getElementById('col-' + s); }).filter(Boolean);
+  }
+
+  function clearDropMarkers() {
+    document.querySelectorAll('.task-drop-slot').forEach(function(el) { el.remove(); });
+    boardColumns().forEach(function(col) { col.classList.remove('drag-over'); });
+  }
+
+  /** Card the pointer sits above, so the slot lands before it. */
+  function cardAfterPoint(col, y) {
+    const cards = Array.prototype.slice.call(col.querySelectorAll('.task-card:not(.dragging)'));
+    for (let i = 0; i < cards.length; i++) {
+      const box = cards[i].getBoundingClientRect();
+      if (y < box.top + box.height / 2) return cards[i];
+    }
+    return null;
+  }
+
+  document.getElementById('projects-board').addEventListener('dragstart', function(e) {
+    const card = e.target.closest('.task-card');
+    if (!card) return;
+    dragTaskId = card.dataset.id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox only starts a drag when data is set.
+    e.dataTransfer.setData('text/plain', card.dataset.id);
+  });
+
+  document.getElementById('projects-board').addEventListener('dragend', function() {
+    document.querySelectorAll('.task-card.dragging').forEach(function(el) { el.classList.remove('dragging'); });
+    clearDropMarkers();
+    dragTaskId = null;
+  });
+
+  boardColumns().forEach(function(col) {
+    col.addEventListener('dragover', function(e) {
+      if (!dragTaskId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      col.classList.add('drag-over');
+      const empty = col.querySelector('.board-empty');
+      if (empty) empty.remove();
+      let slot = col.querySelector('.task-drop-slot');
+      if (!slot) {
+        slot = document.createElement('div');
+        slot.className = 'task-drop-slot';
+      }
+      const before = cardAfterPoint(col, e.clientY);
+      if (before) col.insertBefore(slot, before);
+      else col.appendChild(slot);
+    });
+
+    col.addEventListener('dragleave', function(e) {
+      // Ignore moves onto a child element inside the same column.
+      if (col.contains(e.relatedTarget)) return;
+      col.classList.remove('drag-over');
+      const slot = col.querySelector('.task-drop-slot');
+      if (slot) slot.remove();
+    });
+
+    col.addEventListener('drop', async function(e) {
+      if (!dragTaskId) return;
+      e.preventDefault();
+      const status = col.id.replace('col-', '');
+      const slot = col.querySelector('.task-drop-slot');
+      // Index among the cards already in this column, ignoring the dragged one.
+      const siblings = Array.prototype.slice.call(col.children).filter(function(el) {
+        return el.classList.contains('task-card') && el.dataset.id !== dragTaskId;
+      });
+      let index = siblings.length;
+      if (slot) {
+        const nextCard = (function() {
+          let n = slot.nextElementSibling;
+          while (n && !n.classList.contains('task-card')) n = n.nextElementSibling;
+          return n;
+        })();
+        if (nextCard) {
+          const found = siblings.indexOf(nextCard);
+          if (found >= 0) index = found;
+        }
+      }
+      const movedId = dragTaskId;
+      dragTaskId = null;
+      clearDropMarkers();
+      await moveTask(movedId, status, index);
+    });
+  });
+
+  /**
+   * Persist a dropped card: it takes the target slot, and every card in that
+   * column is renumbered so positions stay dense and stable.
+   */
+  async function moveTask(taskId, status, index) {
+    const task = allTasks.find(function(t) { return t.id === taskId; });
+    if (!task) return;
+    const prevStatus = task.status;
+    const prevPosition = task.position;
+    const column = getFilteredTasks()
+      .filter(function(t) { return t.status === status && t.id !== taskId; })
+      .sort(function(a, b) { return a.position - b.position || a.createdAt - b.createdAt; });
+    const clamped = Math.max(0, Math.min(index, column.length));
+    column.splice(clamped, 0, task);
+    const positionsBefore = new Map(column.map(function(t) { return [t.id, t.position]; }));
+
+    // Optimistic: repaint immediately, roll back if the write fails.
+    task.status = status;
+    column.forEach(function(t, i) { t.position = i; });
+    renderProjectsPage();
+
+    // Only the moved card and any sibling whose slot actually shifted get written.
+    const writes = column.map(function(t, i) {
+      if (t.id === taskId) return api('PUT', '/tasks/' + t.id, { status: status, position: i });
+      return positionsBefore.get(t.id) === i ? null : api('PUT', '/tasks/' + t.id, { position: i });
+    }).filter(Boolean);
+    const results = await Promise.all(writes);
+    if (results.some(function(r) { return !r.ok; })) {
+      task.status = prevStatus;
+      task.position = prevPosition;
+      renderProjectsPage();
+      alert('Could not move that task. Reloading the board.');
+      await loadProjects();
+      return;
+    }
+    // A recurring task completed on drop spawns its next occurrence server-side.
+    if (status === 'done' && prevStatus !== 'done' && task.recurrence) await loadProjects();
   }
 
   function renderTaskCard(task) {
@@ -3291,7 +3509,7 @@ ${REPORT_TABLE_COMPONENT_JS}
     const subtasks = allTasks.filter(function(t) { return t.parentTaskId === task.id; });
     const doneSubs = subtasks.filter(function(t) { return t.status === 'done'; });
 
-    let html = '<div class="task-card" data-id="' + esc(task.id) + '">';
+    let html = '<div class="task-card" draggable="true" data-id="' + esc(task.id) + '" data-status="' + esc(task.status) + '">';
     if (proj) {
       html += '<div class="task-card-proj" style="border-left:3px solid ' + esc(proj.color) + ';padding-left:6px;margin-bottom:4px;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(proj.title) + '</div>';
     }
@@ -3302,7 +3520,7 @@ ${REPORT_TABLE_COMPONENT_JS}
       const d = new Date(task.dueDate);
       const now = new Date(); now.setHours(0,0,0,0);
       const overdue = d < now && task.status !== 'done';
-      html += '<span class="task-due' + (overdue ? ' overdue' : '') + '">📅 ' + esc(formatDateShort(task.dueDate)) + '</span>';
+      html += '<span class="task-due' + (overdue ? ' task-due-overdue' : '') + '">📅 ' + esc(formatDateShort(task.dueDate)) + '</span>';
     }
     const assigneeNames = (task.assigneeIds || []).map(userLabel);
     if (!assigneeNames.length && task.assignedTo) assigneeNames.push(task.assignedTo);
@@ -3314,39 +3532,72 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (task.recurrence) html += '<span class="task-recurrence">🔁 ' + esc(task.recurrence) + '</span>';
     html += '</div>';
     if (task.tags && task.tags.length) {
-      html += '<div class="task-tags">' + task.tags.map(function(t) { return '<span class="tag-chip">' + esc(t) + '</span>'; }).join('') + '</div>';
+      html += '<div class="task-tags">' + task.tags.map(function(t) { return '<span class="task-tag">' + esc(t) + '</span>'; }).join('') + '</div>';
     }
     if (subtasks.length) {
-      html += '<div class="task-subtask-bar"><span class="subtask-count">' + doneSubs.length + '/' + subtasks.length + ' subtasks</span></div>';
+      html += '<div class="task-subtask-bar"><span class="task-subtask-count">' + doneSubs.length + '/' + subtasks.length + ' subtasks</span></div>';
     }
     html += '</div>';
     return html;
+  }
+
+  /** Projects drawn on the calendar: visible ones that carry at least one date. */
+  function calendarProjects() {
+    return selectableProjects().filter(function(p) {
+      if (projectsFilter && p.id !== projectsFilter) return false;
+      return p.startDate || p.endDate;
+    });
   }
 
   function renderCalendar() {
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     document.getElementById('cal-title').textContent = monthNames[calMonth] + ' ' + calYear;
     const tasks = getFilteredTasks().filter(function(t) { return t.dueDate; });
+    const projects = calendarProjects();
     const firstDay = new Date(calYear, calMonth, 1).getDay(); // 0=Sun
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
     const today = new Date(); today.setHours(0,0,0,0);
 
     let html = '';
-    // Leading empty cells
-    for (let i = 0; i < firstDay; i++) html += '<div class="cal-day cal-day-empty"></div>';
+    // Leading blanks so the 1st lands on its weekday.
+    for (let i = 0; i < firstDay; i++) html += '<div class="cal-day other-month"></div>';
     for (let d = 1; d <= daysInMonth; d++) {
       const dayStart = new Date(calYear, calMonth, d).getTime();
       const dayEnd = dayStart + 86400000;
-      const dayTasks = tasks.filter(function(t) { return t.dueDate >= dayStart && t.dueDate < dayEnd; });
+      const weekday = new Date(calYear, calMonth, d).getDay();
       const isToday = isSameDay(dayStart, today.getTime());
-      html += '<div class="cal-day' + (isToday ? ' cal-today' : '') + '" data-date="' + dayStart + '">';
+      html += '<div class="cal-day' + (isToday ? ' today' : '') + '" data-date="' + dayStart + '">';
       html += '<div class="cal-day-num">' + d + '</div>';
+
+      // Project ranges first — they frame the day; a one-sided range marks
+      // just the date it has.
+      const dayProjects = projects.filter(function(p) {
+        const from = p.startDate || p.endDate;
+        const to = p.endDate || p.startDate;
+        return from < dayEnd && to >= dayStart;
+      });
+      dayProjects.slice(0, 2).forEach(function(p) {
+        const from = p.startDate || p.endDate;
+        const to = p.endDate || p.startDate;
+        const isStart = from >= dayStart && from < dayEnd;
+        const isEnd = to >= dayStart && to < dayEnd;
+        const shape = isStart && isEnd ? ' cal-proj-solo' : isStart ? ' cal-proj-start' : isEnd ? ' cal-proj-end' : '';
+        // Repeat the name at each week break so a long run stays readable.
+        const label = isStart || weekday === 0 ? p.title : '&nbsp;';
+        html += '<div class="cal-proj-bar' + shape + '" data-project-id="' + esc(p.id) + '"' +
+          ' style="background:' + esc(p.color) + '22;border-left-color:' + (isStart ? esc(p.color) : 'transparent') + '"' +
+          ' title="' + esc(p.title + ' · ' + formatDateRange(p.startDate, p.endDate)) + '">' +
+          (label === '&nbsp;' ? label : esc(label)) + '</div>';
+      });
+      if (dayProjects.length > 2) html += '<div class="cal-more">+' + (dayProjects.length - 2) + ' project' + (dayProjects.length - 2 === 1 ? '' : 's') + '</div>';
+
+      const dayTasks = tasks.filter(function(t) { return t.dueDate >= dayStart && t.dueDate < dayEnd; });
       dayTasks.slice(0, 3).forEach(function(t) {
         const proj = t.projectId ? allProjects.find(function(p) { return p.id === t.projectId; }) : null;
         const color = proj ? proj.color : '#6b7280';
-        html += '<div class="cal-chip" data-id="' + esc(t.id) + '" style="background:' + esc(color) + '20;border-left:2px solid ' + esc(color) + '" title="' + esc(t.title) + '">' + esc(t.title) + '</div>';
+        html += '<div class="cal-task-chip" data-id="' + esc(t.id) + '" style="background:' + esc(color) + '" title="' + esc(t.title) + '">' + esc(t.title) + '</div>';
       });
-      if (dayTasks.length > 3) html += '<div class="cal-chip-more">+' + (dayTasks.length - 3) + ' more</div>';
+      if (dayTasks.length > 3) html += '<div class="cal-more">+' + (dayTasks.length - 3) + ' more</div>';
       html += '</div>';
     }
     document.getElementById('cal-days').innerHTML = html;
@@ -3399,8 +3650,12 @@ ${REPORT_TABLE_COMPONENT_JS}
 
   function populateTaskProjectSelect(selectedId) {
     const sel = document.getElementById('task-project');
+    // Closed projects stay out of the picker unless the task already sits in one.
+    const options = allProjects.filter(function(p) {
+      return showClosedProjects || !isClosedProject(p) || p.id === selectedId;
+    });
     sel.innerHTML = '<option value="">— No Project —</option>' +
-      allProjects.map(function(p) { return '<option value="' + esc(p.id) + '"' + (p.id === selectedId ? ' selected' : '') + '>' + esc(p.title) + '</option>'; }).join('');
+      options.map(function(p) { return '<option value="' + esc(p.id) + '"' + (p.id === selectedId ? ' selected' : '') + '>' + esc(p.title) + (isClosedProject(p) ? ' (' + esc(p.status) + ')' : '') + '</option>'; }).join('');
   }
 
   function renderSubtasks(parentId) {

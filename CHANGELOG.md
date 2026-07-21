@@ -46,6 +46,10 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Admin dashboard: drag task cards between board columns and reorder within a column, persisting status and position on both the admin board and the staff portal.
+- Admin dashboard: duplicate a project with its whole task tree, so recurring workflows such as newsletters restart without being retyped.
+- Admin dashboard: keep completed and archived projects out of the board, calendar, and project pickers behind a "Show closed" toggle.
+- Admin dashboard: draw project start/end ranges on the projects calendar alongside task due dates.
 - Voice Call/Telnyx: add realtime media-streaming call support for conversational voice calls. (#81024) Thanks @dynamite-bud.
 - Gateway/OpenAI HTTP: honor `max_completion_tokens` and `max_tokens` on inbound `/v1/chat/completions` requests so client-provided token caps reach the upstream provider via `streamParams.maxTokens`, with `max_completion_tokens` taking precedence when both are sent. Thanks @Lellansin.
 - Models/OpenAI CLI auth: make `openclaw models auth login --provider openai` start the ChatGPT/Codex account login by default, while `--method api-key` remains the explicit OpenAI API-key setup path.

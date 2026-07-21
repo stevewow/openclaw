@@ -99,3 +99,101 @@ describe("project/task viewer scoping", () => {
     expect(await store.canAccessTask({ userId: alice, role: "user" }, task.id)).toBe(true);
   });
 });
+
+describe("duplicateProject", () => {
+  it("copies the project, its members, and its task tree as fresh todos", async () => {
+    const source = await store.createProject({
+      title: "June Newsletter",
+      description: "Monthly send",
+      status: "active",
+      color: "#ff0000",
+      tags: ["marketing"],
+      startDate: 1000,
+      endDate: 2000,
+      memberIds: [bob],
+      createdBy: alice,
+    });
+    const draft = await store.createTask({
+      title: "Draft copy",
+      projectId: source.id,
+      status: "done",
+      priority: "high",
+      tags: ["writing"],
+      position: 0,
+      dueDate: 5_000,
+      assigneeIds: [bob],
+      createdBy: alice,
+    });
+    await store.createTask({
+      title: "Proofread",
+      projectId: source.id,
+      parentTaskId: draft.id,
+      status: "in_progress",
+      createdBy: alice,
+    });
+
+    const copy = await store.duplicateProject(source.id, { createdBy: alice });
+    expect(copy).not.toBeNull();
+    expect(copy!.id).not.toBe(source.id);
+    expect(copy!.title).toBe("June Newsletter (copy)");
+    expect(copy!.description).toBe("Monthly send");
+    expect(copy!.color).toBe("#ff0000");
+    expect(copy!.tags).toEqual(["marketing"]);
+    expect(copy!.memberIds).toEqual([bob]);
+    // Dates belong to the original run, not the copy.
+    expect(copy!.startDate).toBeNull();
+    expect(copy!.endDate).toBeNull();
+
+    const copied = await store.listTasks({ projectId: copy!.id });
+    expect(copied.length).toBe(2);
+    // Every copied task restarts, keeping priority/tags/assignees.
+    expect(copied.every((t) => t.status === "todo")).toBe(true);
+    expect(copied.every((t) => t.dueDate === null)).toBe(true);
+    const copiedDraft = copied.find((t) => t.title === "Draft copy")!;
+    expect(copiedDraft.priority).toBe("high");
+    expect(copiedDraft.tags).toEqual(["writing"]);
+    expect(copiedDraft.assigneeIds).toEqual([bob]);
+    expect(copiedDraft.parentTaskId).toBeNull();
+    // Subtask nesting is remapped onto the copied parent, not the original.
+    const copiedSub = copied.find((t) => t.title === "Proofread")!;
+    expect(copiedSub.parentTaskId).toBe(copiedDraft.id);
+
+    // The source is untouched.
+    const originalTasks = await store.listTasks({ projectId: source.id });
+    expect(originalTasks.length).toBe(2);
+    expect(originalTasks.find((t) => t.title === "Draft copy")!.status).toBe("done");
+  });
+
+  it("reopens a finished project and can shift due dates and drop assignees", async () => {
+    const source = await store.createProject({
+      title: "May Newsletter",
+      status: "completed",
+      createdBy: alice,
+    });
+    await store.createTask({
+      title: "Send",
+      projectId: source.id,
+      dueDate: 10_000,
+      assigneeIds: [bob],
+      createdBy: alice,
+    });
+
+    const copy = await store.duplicateProject(source.id, {
+      title: "July Newsletter",
+      dueDateShiftMs: 500,
+      includeAssignees: false,
+      createdBy: alice,
+    });
+    expect(copy!.title).toBe("July Newsletter");
+    // A completed source must not hand its status to the copy.
+    expect(copy!.status).toBe("planning");
+
+    const [task] = await store.listTasks({ projectId: copy!.id });
+    expect(task.dueDate).toBe(10_500);
+    expect(task.assigneeIds).toEqual([]);
+  });
+
+  it("returns null for a project that does not exist", async () => {
+    expect(await store.duplicateProject("missing-id")).toBeNull();
+  });
+});

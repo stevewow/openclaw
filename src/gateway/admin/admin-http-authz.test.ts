@@ -276,3 +276,77 @@ describe("ticket surfaces are gated per-grant", () => {
     }
   });
 });
+
+describe("project duplication and board reordering", () => {
+  it("duplicates a project with its tasks and honors the projects grant", async () => {
+    const created = await call("POST", "/projects", {
+      token: adminToken,
+      body: { title: "Newsletter", status: "active" },
+    });
+    expect(created.status).toBe(201);
+    const projectId = (created.json?.project as { id: string }).id;
+    await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "Write draft", projectId, status: "review" },
+    });
+
+    // A user with no grants cannot reach the duplicate route at all.
+    await userStore.setUserPermissions(plainId, []);
+    const ungranted = await tokenFor(plainId);
+    expect(
+      (await call("POST", `/projects/${projectId}/duplicate`, { token: ungranted, body: {} }))
+        .status,
+    ).toBe(403);
+
+    // With the projects grant it is still scoped: not their project, still denied.
+    await userStore.setUserPermissions(plainId, [{ permissionType: "feature", value: "projects" }]);
+    const granted = await tokenFor(plainId);
+    expect(
+      (await call("POST", `/projects/${projectId}/duplicate`, { token: granted, body: {} })).status,
+    ).toBe(403);
+
+    const dup = await call("POST", `/projects/${projectId}/duplicate`, {
+      token: adminToken,
+      body: { title: "August Newsletter" },
+    });
+    expect(dup.status).toBe(201);
+    const copy = dup.json?.project as { id: string; title: string };
+    expect(copy.title).toBe("August Newsletter");
+    expect(copy.id).not.toBe(projectId);
+
+    const tasks = await call("GET", `/tasks?projectId=${copy.id}`, { token: adminToken });
+    const copied = tasks.json?.tasks as Array<{ title: string; status: string }>;
+    expect(copied.map((t) => t.title)).toEqual(["Write draft"]);
+    // Copies restart regardless of where the original had got to.
+    expect(copied[0].status).toBe("todo");
+  });
+
+  it("404s duplicating a project that does not exist", async () => {
+    const res = await call("POST", "/projects/nope/duplicate", { token: adminToken, body: {} });
+    expect(res.status).toBe(404);
+  });
+
+  it("persists position so a dragged card keeps its slot", async () => {
+    const created = await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "Draggable", status: "todo" },
+    });
+    const taskId = (created.json?.task as { id: string }).id;
+
+    const moved = await call("PUT", `/tasks/${taskId}`, {
+      token: adminToken,
+      body: { status: "in_progress", position: 3 },
+    });
+    expect(moved.status).toBe(200);
+    const task = moved.json?.task as { status: string; position: number };
+    expect(task.status).toBe("in_progress");
+    expect(task.position).toBe(3);
+
+    // Junk positions are ignored rather than written through.
+    const bad = await call("PUT", `/tasks/${taskId}`, {
+      token: adminToken,
+      body: { position: "first" },
+    });
+    expect((bad.json?.task as { position: number }).position).toBe(3);
+  });
+});

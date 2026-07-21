@@ -373,6 +373,87 @@ export async function deleteProject(id: string): Promise<void> {
   await db.deleteFrom("admin_projects").where("id", "=", id).execute();
 }
 
+export type DuplicateProjectParams = {
+  /** Defaults to `<original title> (copy)`. */
+  title?: string;
+  createdBy?: string | null;
+  /**
+   * Shift every copied task's due date by this many ms (e.g. next month's
+   * newsletter). When omitted, copies start with no due dates.
+   */
+  dueDateShiftMs?: number | null;
+  /** Carry task assignees over to the copy. Defaults to true. */
+  includeAssignees?: boolean;
+};
+
+/**
+ * Copy a project and its whole task tree so a recurring workflow (e.g. a
+ * newsletter) can be restarted without retyping it. Tasks come back as `todo`
+ * with their order, priorities, tags, and subtask nesting intact.
+ *
+ * Returns null when the source project does not exist.
+ */
+export async function duplicateProject(
+  sourceId: string,
+  params: DuplicateProjectParams = {},
+): Promise<Project | null> {
+  const source = await getProject(sourceId);
+  if (!source) {
+    return null;
+  }
+
+  // A finished project duplicated to start the next round should not arrive
+  // pre-finished; anything else keeps the source's status.
+  const status: ProjectStatus =
+    source.status === "completed" || source.status === "archived" ? "planning" : source.status;
+
+  const copy = await createProject({
+    title: params.title?.trim() || `${source.title} (copy)`,
+    description: source.description,
+    status,
+    color: source.color,
+    tags: source.tags,
+    startDate: null,
+    endDate: null,
+    memberIds: source.memberIds,
+    createdBy: params.createdBy ?? null,
+  });
+
+  const shift = params.dueDateShiftMs ?? null;
+  const includeAssignees = params.includeAssignees ?? true;
+  const sourceTasks = await listTasks({ projectId: sourceId });
+  // Parents before children so a subtask always finds its remapped parent.
+  const ordered = [
+    ...sourceTasks.filter((t) => !t.parentTaskId),
+    ...sourceTasks.filter((t) => t.parentTaskId),
+  ];
+  const idMap = new Map<string, string>();
+  for (const task of ordered) {
+    const parentTaskId = task.parentTaskId ? (idMap.get(task.parentTaskId) ?? null) : null;
+    // A subtask whose parent was not copied would become an orphan top-level task.
+    if (task.parentTaskId && !parentTaskId) {
+      continue;
+    }
+    const created = await createTask({
+      title: task.title,
+      description: task.description,
+      status: "todo",
+      priority: task.priority,
+      projectId: copy.id,
+      parentTaskId,
+      dueDate: task.dueDate !== null && shift !== null ? task.dueDate + shift : null,
+      assignedTo: includeAssignees ? task.assignedTo : null,
+      assigneeIds: includeAssignees ? task.assigneeIds : [],
+      tags: task.tags,
+      position: task.position,
+      recurrence: task.recurrence,
+      createdBy: params.createdBy ?? null,
+    });
+    idMap.set(task.id, created.id);
+  }
+  return getProject(copy.id);
+}
+
 // ── Tasks ──
 
 export async function listTasks(

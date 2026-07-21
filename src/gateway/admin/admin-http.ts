@@ -42,6 +42,7 @@ import {
   createTask,
   deleteProject,
   deleteTask,
+  duplicateProject,
   getTask,
   listProjects,
   listTasks,
@@ -1210,6 +1211,34 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
+  // POST /api/admin/projects/:id/duplicate — copy a project and its task tree
+  const projectDuplicateMatch = subPath.match(/^\/projects\/([^/]+)\/duplicate$/);
+  if (projectDuplicateMatch && req.method === "POST") {
+    const id = projectDuplicateMatch[1];
+    if (!(await canAccessProject(projectViewer, id))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const copy = await duplicateProject(id, {
+      title: normalizeString(data.title) ?? undefined,
+      dueDateShiftMs: typeof data.dueDateShiftMs === "number" ? data.dueDateShiftMs : null,
+      includeAssignees: data.includeAssignees !== false,
+      createdBy: sessionUser.id,
+    });
+    if (!copy) {
+      sendNotFound(res);
+      return true;
+    }
+    sendJson(res, 201, { project: copy });
+    return true;
+  }
+
   // GET /api/admin/tasks — scoped to the viewer (admins see all)
   if (subPath === "/tasks" && req.method === "GET") {
     const projectId = url.searchParams.get("projectId") ?? undefined;
@@ -1310,6 +1339,11 @@ export async function handleAdminHttpRequest(
       params.priority = data.priority as (typeof validPriorities)[number];
     }
     if (data.projectId !== undefined) params.projectId = normalizeString(data.projectId);
+    // Board drag-and-drop sends position alongside status to fix the card's
+    // slot within its new column.
+    if (typeof data.position === "number" && Number.isFinite(data.position)) {
+      params.position = Math.trunc(data.position);
+    }
     if (data.dueDate !== undefined)
       params.dueDate = typeof data.dueDate === "number" ? data.dueDate : null;
     if (data.assignedTo !== undefined) params.assignedTo = normalizeString(data.assignedTo);

@@ -161,8 +161,12 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .board-col { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.625rem; }
   .board-col-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0 0.15rem; }
   .board-col-count { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0 0.45rem; font-size: 0.7rem; color: var(--text-muted); }
-  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.625rem 0.7rem; margin-bottom: 0.5rem; box-shadow: var(--shadow); cursor: pointer; }
+  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.625rem 0.7rem; margin-bottom: 0.5rem; box-shadow: var(--shadow); cursor: grab; }
   .task-card:hover { border-color: #d1d1d6; }
+  .task-card:active { cursor: grabbing; }
+  .task-card.dragging { opacity: 0.45; cursor: grabbing; }
+  .board-col.drag-over { border-color: var(--accent); border-style: dashed; background: rgba(0,0,0,0.02); }
+  .task-drop-slot { height: 2px; background: var(--accent); border-radius: 2px; margin: 0.25rem 0 0.6rem; }
   .task-card-proj { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .task-card-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; }
   .task-card-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; font-size: 0.7rem; }
@@ -751,11 +755,13 @@ ${REPORT_TABLE_COMPONENT_JS}
       return true;
     });
     board.innerHTML = '<div class="board-wrap">' + PT_STATUSES.map(function(st) {
-      const matching = tasks.filter(function(t) { return t.status === st.key; });
+      const matching = tasks
+        .filter(function(t) { return t.status === st.key; })
+        .sort(function(a, b) { return a.position - b.position || a.createdAt - b.createdAt; });
       const cards = matching.length
         ? matching.map(ptTaskCard).join('')
         : '<div class="board-empty">No tasks</div>';
-      return '<div class="board-col">' +
+      return '<div class="board-col" data-status="' + esc(st.key) + '">' +
         '<div class="board-col-head"><span>' + st.label + '</span><span class="board-col-count">' + matching.length + '</span></div>' +
         cards +
       '</div>';
@@ -768,9 +774,114 @@ ${REPORT_TABLE_COMPONENT_JS}
     });
   }
 
+  // ── Board drag & drop ──────────────────────────────────────────────────────
+  // Columns are rebuilt on every render, so listeners live on the board root.
+  let ptDragId = null;
+
+  function ptClearDropMarkers() {
+    document.querySelectorAll('#pt-board .task-drop-slot').forEach(function(el) { el.remove(); });
+    document.querySelectorAll('#pt-board .board-col').forEach(function(c) { c.classList.remove('drag-over'); });
+  }
+
+  function ptCardAfterPoint(col, y) {
+    const cards = Array.prototype.slice.call(col.querySelectorAll('.task-card:not(.dragging)'));
+    for (let i = 0; i < cards.length; i++) {
+      const box = cards[i].getBoundingClientRect();
+      if (y < box.top + box.height / 2) return cards[i];
+    }
+    return null;
+  }
+
+  const ptBoardEl = document.getElementById('pt-board');
+  ptBoardEl.addEventListener('dragstart', function(e) {
+    const card = e.target.closest('.task-card');
+    if (!card) return;
+    ptDragId = card.dataset.id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', card.dataset.id);
+  });
+  ptBoardEl.addEventListener('dragend', function() {
+    document.querySelectorAll('#pt-board .task-card.dragging').forEach(function(el) { el.classList.remove('dragging'); });
+    ptClearDropMarkers();
+    ptDragId = null;
+  });
+  ptBoardEl.addEventListener('dragover', function(e) {
+    if (!ptDragId) return;
+    const col = e.target.closest('.board-col');
+    if (!col) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('#pt-board .board-col').forEach(function(c) { c.classList.toggle('drag-over', c === col); });
+    const empty = col.querySelector('.board-empty');
+    if (empty) empty.remove();
+    let slot = document.querySelector('#pt-board .task-drop-slot');
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.className = 'task-drop-slot';
+    }
+    const before = ptCardAfterPoint(col, e.clientY);
+    if (before) col.insertBefore(slot, before);
+    else col.appendChild(slot);
+  });
+  ptBoardEl.addEventListener('drop', async function(e) {
+    if (!ptDragId) return;
+    const col = e.target.closest('.board-col');
+    if (!col) return;
+    e.preventDefault();
+    const slot = col.querySelector('.task-drop-slot');
+    const siblings = Array.prototype.slice.call(col.children).filter(function(el) {
+      return el.classList.contains('task-card') && el.dataset.id !== ptDragId;
+    });
+    let index = siblings.length;
+    if (slot) {
+      let next = slot.nextElementSibling;
+      while (next && !next.classList.contains('task-card')) next = next.nextElementSibling;
+      const found = next ? siblings.indexOf(next) : -1;
+      if (found >= 0) index = found;
+    }
+    const movedId = ptDragId;
+    const status = col.dataset.status;
+    ptDragId = null;
+    ptClearDropMarkers();
+    await ptMoveTask(movedId, status, index);
+  });
+
+  /** Persist a dropped card and renumber its column so positions stay dense. */
+  async function ptMoveTask(taskId, status, index) {
+    const task = ptTasks.find(function(t) { return t.id === taskId; });
+    if (!task) return;
+    const column = ptTasks
+      .filter(function(t) {
+        if (t.parentTaskId || t.id === taskId || t.status !== status) return false;
+        return ptFilter === 'all' || t.projectId === ptFilter;
+      })
+      .sort(function(a, b) { return a.position - b.position || a.createdAt - b.createdAt; });
+    const clamped = Math.max(0, Math.min(index, column.length));
+    column.splice(clamped, 0, task);
+    const positionsBefore = new Map(column.map(function(t) { return [t.id, t.position]; }));
+
+    task.status = status;
+    column.forEach(function(t, i) { t.position = i; });
+    ptRenderBoard();
+
+    const writes = column.map(function(t, i) {
+      if (t.id === taskId) return api('PUT', '/tasks/' + t.id, { status: status, position: i });
+      return positionsBefore.get(t.id) === i ? null : api('PUT', '/tasks/' + t.id, { position: i });
+    }).filter(Boolean);
+    const results = await Promise.all(writes);
+    if (results.some(function(r) { return !r.ok; })) {
+      alert('Could not move that task.');
+      await loadTasksPage();
+      return;
+    }
+    // A recurring task completed on drop spawns its next occurrence server-side.
+    if (status === 'done' && task.recurrence) await loadTasksPage();
+  }
+
   function ptTaskCard(task) {
     const proj = task.projectId ? ptProjects.find(function(p) { return p.id === task.projectId; }) : null;
-    let html = '<div class="task-card" data-id="' + esc(task.id) + '">';
+    let html = '<div class="task-card" draggable="true" data-id="' + esc(task.id) + '">';
     if (proj) html += '<div class="task-card-proj" style="border-left:3px solid ' + esc(proj.color || '#3b82f6') + ';padding-left:6px">' + esc(proj.title) + '</div>';
     html += '<div class="task-card-title">' + esc(task.title) + '</div>';
     html += '<div class="task-card-meta">';
