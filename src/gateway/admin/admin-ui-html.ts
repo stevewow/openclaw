@@ -765,6 +765,24 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <div class="card" style="padding:0"><div id="photog-table"></div></div>
       </div>
 
+      <!-- Pipedrive Cleanup checklist -->
+      <div id="page-pipedrive-cleanup" class="page hidden">
+        <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div>
+              <div style="font-weight:700">Pipedrive Cleanup</div>
+              <div class="text-muted" style="font-size:0.85rem">Verify each suggested change. Approved items become a worklist for anyone you grant this report to.</div>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:1rem;flex-wrap:wrap" id="pdc-stats"></div>
+          </div>
+        </div>
+        <div style="margin-bottom:0.5rem;font-weight:700">To verify</div>
+        <div id="pdc-verify-list" style="margin-bottom:1.5rem"></div>
+        <div style="margin-bottom:0.5rem;font-weight:700">Released to worklist</div>
+        <div id="pdc-worklist"></div>
+      </div>
+
       <!-- Support: Tickets page -->
       <div id="page-tickets" class="page hidden">
         <div class="stats-grid" id="ticket-stats-grid" style="margin-bottom:1rem"></div>
@@ -1565,6 +1583,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: false, superAdminOnly: false, report: 'report-cancellations' },
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: false, superAdminOnly: false, report: 'rankings' },
     photographers: { el: 'page-photographers', title: 'Photographers', adminOnly: false, superAdminOnly: false, report: 'photographers' },
+    'pipedrive-cleanup': { el: 'page-pipedrive-cleanup', title: 'Pipedrive Cleanup', adminOnly: false, superAdminOnly: false, report: 'pipedrive-cleanup' },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: false, superAdminOnly: false, feature: 'tickets' },
     departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
@@ -1630,7 +1649,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('page-title').textContent = def.title;
     // Report sub-pages are reached from the Reports landing, not their own nav
     // item, so keep the Reports nav entry highlighted while viewing one.
-    const navKey = (page === 'report-cancellations' || page === 'rankings' || page === 'photographers') ? 'reports' : page;
+    const navKey = (page === 'report-cancellations' || page === 'rankings' || page === 'photographers' || page === 'pipedrive-cleanup') ? 'reports' : page;
     document.querySelectorAll('.nav-link').forEach(a => {
       a.classList.toggle('active', a.dataset.page === navKey);
     });
@@ -1645,6 +1664,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'report-cancellations') loadReports();
     if (page === 'rankings') loadRankings();
     if (page === 'photographers') loadPhotographers();
+    if (page === 'pipedrive-cleanup') loadPipedriveCleanup();
     if (page === 'tickets') loadTickets();
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();
@@ -2578,7 +2598,8 @@ ${REPORT_TABLE_COMPONENT_JS}
   var REPORTS = [
     { key: 'report-cancellations', icon: '📉', title: 'Agent Cancellation Report', desc: 'Cancellations and reschedules per client over a chosen date range and market.' },
     { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' },
-    { key: 'photographers', icon: '📸', title: 'Photographers', desc: 'Roster with the markets each serves and how many shoots they completed in a selectable range.' }
+    { key: 'photographers', icon: '📸', title: 'Photographers', desc: 'Roster with the markets each serves and how many shoots they completed in a selectable range.' },
+    { key: 'pipedrive-cleanup', icon: '🧹', title: 'Pipedrive Cleanup', desc: 'Suggested CRM fixes to verify. Approved items become a worklist for whoever you grant access.' }
   ];
   function loadReportsHome() {
     var grid = document.getElementById('reports-home-grid');
@@ -2767,6 +2788,57 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
     await loadPhotogTable();
   });
+
+  // ── Pipedrive Cleanup checklist ────────────────────────────────────────────
+  function pdcKindBadge(kind) {
+    var map = { merge:['Merge','#7c3aed'], fill:['Set office','#2563eb'], exclude:['Not a brokerage','#b5473b'], review:['Review','#b7791f'] };
+    var m = map[kind] || [kind,'#666666'];
+    return '<span style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;padding:2px 7px;border-radius:5px;background:'+m[1]+'1a;color:'+m[1]+'">'+esc(m[0])+'</span>';
+  }
+  function pdcItemCard(it, mode) {
+    var verify = it.verify ? '<span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#fbf1dd;color:#b7791f">⚠ Verify first</span>' : '';
+    var office = it.office ? '<span style="font-family:monospace;font-size:0.8rem;background:var(--border);border-radius:5px;padding:1px 6px">Office: '+esc(it.office)+'</span>' : '';
+    var actions = '';
+    if (mode === 'verify') {
+      actions = '<div style="display:flex;gap:0.5rem;margin-top:0.5rem">'+
+        '<button class="btn btn-primary btn-sm" data-pdc-approve="'+esc(it.id)+'">Approve</button>'+
+        '<button class="btn btn-sm" data-pdc-reject="'+esc(it.id)+'">Reject</button></div>';
+    } else {
+      var statusPill = it.status === 'done'
+        ? '<span style="color:#16855c;font-weight:700">✓ Done</span>'
+        : '<span class="text-muted">Awaiting VA</span>';
+      var noteHtml = it.note ? '<div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">VA note: '+esc(it.note)+'</div>' : '';
+      actions = '<div style="margin-top:0.4rem">'+statusPill+noteHtml+'</div>';
+    }
+    return '<div class="card" style="margin-bottom:0.6rem'+(it.status==='done'?';opacity:0.7':'')+'">'+
+      '<div class="flex items-center gap-2" style="flex-wrap:wrap;margin-bottom:0.35rem">'+pdcKindBadge(it.kind)+'<span style="font-weight:600">'+esc(it.title)+'</span>'+verify+'<span style="margin-left:auto">'+office+'</span></div>'+
+      '<div class="text-muted" style="font-size:0.85rem">'+esc(it.detail)+'</div>'+
+      actions+'</div>';
+  }
+  async function loadPipedriveCleanup() {
+    var r = await api('GET', '/reports/pipedrive-cleanup');
+    var statsEl = document.getElementById('pdc-stats');
+    var verifyEl = document.getElementById('pdc-verify-list');
+    var workEl = document.getElementById('pdc-worklist');
+    if (!r.ok) { verifyEl.innerHTML = '<div class="empty-state">Could not load.</div>'; workEl.innerHTML = ''; statsEl.innerHTML = ''; return; }
+    var items = r.data.items || [];
+    var s = r.data.summary || {};
+    statsEl.innerHTML =
+      '<div><span class="text-muted" style="font-size:0.75rem">To verify</span><div style="font-weight:700;font-size:1.1rem">'+(s.suggested||0)+'</div></div>'+
+      '<div><span class="text-muted" style="font-size:0.75rem">Approved</span><div style="font-weight:700;font-size:1.1rem">'+(s.approved||0)+'</div></div>'+
+      '<div><span class="text-muted" style="font-size:0.75rem">Done</span><div style="font-weight:700;font-size:1.1rem;color:#16855c">'+(s.done||0)+'</div></div>';
+    var suggested = items.filter(function(i){ return i.status === 'suggested'; });
+    var released = items.filter(function(i){ return i.status === 'approved' || i.status === 'done'; });
+    verifyEl.innerHTML = suggested.length ? suggested.map(function(i){ return pdcItemCard(i,'verify'); }).join('') : '<div class="empty-state">Nothing to verify right now.</div>';
+    workEl.innerHTML = released.length ? released.map(function(i){ return pdcItemCard(i,'work'); }).join('') : '<div class="empty-state">No approved items yet.</div>';
+    verifyEl.querySelectorAll('[data-pdc-approve]').forEach(function(b){ b.addEventListener('click', function(){ pdcDecide(b.dataset.pdcApprove, 'approve'); }); });
+    verifyEl.querySelectorAll('[data-pdc-reject]').forEach(function(b){ b.addEventListener('click', function(){ pdcDecide(b.dataset.pdcReject, 'reject'); }); });
+  }
+  async function pdcDecide(id, decision) {
+    var r = await api('PUT', '/reports/pipedrive-cleanup/items/' + id + '/' + decision);
+    if (!r.ok) { alert((r.data && r.data.error) || 'Failed.'); return; }
+    await loadPipedriveCleanup();
+  }
 
   // ── Financials: Past Due Accounts ──────────────────────────────────────────
   let finBreakdown = null;

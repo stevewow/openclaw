@@ -45,6 +45,15 @@ import {
   refreshInvoices,
 } from "./financials-store.js";
 import {
+  type CleanupImportItem,
+  decideCleanupItem,
+  getCleanupSummary,
+  importCleanupItems,
+  listCleanupItems,
+  setCleanupItemDone,
+  setCleanupItemNote,
+} from "./pipedrive-cleanup-store.js";
+import {
   canAccessProject,
   canAccessTask,
   computeNextDueDate,
@@ -1982,6 +1991,139 @@ export async function handleAdminHttpRequest(
     } catch (err) {
       sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
     }
+    return true;
+  }
+
+  // ── Pipedrive Cleanup checklist ─────────────────────────────────────────────
+  // GET /api/admin/reports/pipedrive-cleanup — items + summary. Admins see every
+  // status; a granted VA sees only approved/done (never un-verified suggestions).
+  if (subPath === "/reports/pipedrive-cleanup" && req.method === "GET") {
+    if (!(await hasReportAccess("pipedrive-cleanup"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const market = normalizeString(url.searchParams.get("market"));
+    const items = await listCleanupItems({ market, includeSuggested: isAdmin });
+    const summary = await getCleanupSummary(market);
+    sendJson(res, 200, { items, summary, canVerify: isAdmin });
+    return true;
+  }
+
+  // POST /api/admin/reports/pipedrive-cleanup/import — external scanner pushes
+  // suggestions here (admin only). Idempotent by itemKey; never disturbs an item
+  // an admin has already verified or a VA has completed.
+  if (subPath === "/reports/pipedrive-cleanup/import" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const market = normalizeString(data.market);
+    if (!market) {
+      sendBadRequest(res, "market required");
+      return true;
+    }
+    if (!Array.isArray(data.items)) {
+      sendBadRequest(res, "items must be an array");
+      return true;
+    }
+    const validKinds = new Set(["merge", "fill", "exclude", "review"]);
+    const items: CleanupImportItem[] = [];
+    for (const raw of data.items as unknown[]) {
+      const rec = raw as Record<string, unknown>;
+      const itemKey = normalizeString(rec.itemKey);
+      const kind = normalizeString(rec.kind);
+      const title = normalizeString(rec.title);
+      const detail = normalizeString(rec.detail);
+      if (!itemKey || !kind || !validKinds.has(kind) || !title || !detail) {
+        sendBadRequest(res, "each item needs itemKey, kind, title, detail");
+        return true;
+      }
+      items.push({
+        itemKey,
+        kind: kind as CleanupImportItem["kind"],
+        title,
+        detail,
+        office: normalizeString(rec.office),
+        verify: rec.verify === true,
+        payload: rec.payload ?? {},
+      });
+    }
+    const result = await importCleanupItems(market, items);
+    sendJson(res, 200, { ok: true, ...result });
+    return true;
+  }
+
+  // PUT /api/admin/reports/pipedrive-cleanup/items/:id/(approve|reject) — the
+  // admin verify step. Only a suggested item can be decided.
+  const cleanupDecideMatch = subPath.match(
+    /^\/reports\/pipedrive-cleanup\/items\/([^/]+)\/(approve|reject)$/,
+  );
+  if (cleanupDecideMatch && req.method === "PUT") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const id = cleanupDecideMatch[1];
+    const decision = cleanupDecideMatch[2] === "approve" ? "approved" : "rejected";
+    const item = await decideCleanupItem(id, decision, sessionUser.id);
+    if (!item) {
+      sendJson(res, 409, { error: "item not found or not awaiting verification" });
+      return true;
+    }
+    sendJson(res, 200, { item });
+    return true;
+  }
+
+  // PUT /api/admin/reports/pipedrive-cleanup/items/:id/done — the VA completion
+  // step. Report-access gated; the store refuses any transition other than
+  // approved↔done, so a VA can never approve their own work.
+  const cleanupDoneMatch = subPath.match(/^\/reports\/pipedrive-cleanup\/items\/([^/]+)\/done$/);
+  if (cleanupDoneMatch && req.method === "PUT") {
+    if (!(await hasReportAccess("pipedrive-cleanup"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const done = (body.value as Record<string, unknown>).done === true;
+    const item = await setCleanupItemDone(cleanupDoneMatch[1], done, sessionUser.id);
+    if (!item) {
+      sendJson(res, 409, { error: "item not found or not in an approvable state" });
+      return true;
+    }
+    sendJson(res, 200, { item });
+    return true;
+  }
+
+  // PUT /api/admin/reports/pipedrive-cleanup/items/:id/note — VA note on an item
+  // they're working (approved or done).
+  const cleanupNoteMatch = subPath.match(/^\/reports\/pipedrive-cleanup\/items\/([^/]+)\/note$/);
+  if (cleanupNoteMatch && req.method === "PUT") {
+    if (!(await hasReportAccess("pipedrive-cleanup"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const note = normalizeString((body.value as Record<string, unknown>).note) ?? "";
+    const item = await setCleanupItemNote(cleanupNoteMatch[1], note);
+    if (!item) {
+      sendJson(res, 409, { error: "item not found or not in a workable state" });
+      return true;
+    }
+    sendJson(res, 200, { item });
     return true;
   }
 

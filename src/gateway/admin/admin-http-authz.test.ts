@@ -459,3 +459,87 @@ describe("project duplication and board reordering", () => {
     expect((bad.json?.task as { position: number }).position).toBe(3);
   });
 });
+
+describe("pipedrive cleanup report — admin-approve vs VA-done split", () => {
+  const items = [
+    {
+      itemKey: "authz:merge:1",
+      kind: "merge",
+      title: "Merge duplicate",
+      detail: "merge #b into #a",
+    },
+    { itemKey: "authz:fill:2", kind: "fill", title: "Set office", detail: "set Office = Auth" },
+  ];
+
+  it("hides the report from a user without the grant", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, []);
+    const res = await call("GET", "/reports/pipedrive-cleanup", { token: plainToken });
+    expect(res.status).toBe(403);
+  });
+
+  it("lets an admin import and refuses import from a non-admin", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [
+      { permissionType: "report", value: "pipedrive-cleanup" },
+    ]);
+    const imp = await call("POST", "/reports/pipedrive-cleanup/import", {
+      token: adminToken,
+      body: { market: "Authz", items },
+    });
+    expect(imp.status).toBe(200);
+    const denied = await call("POST", "/reports/pipedrive-cleanup/import", {
+      token: plainToken,
+      body: { market: "Authz", items },
+    });
+    expect(denied.status).toBe(403);
+  });
+
+  it("shows a granted VA only released items, never un-verified suggestions", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [
+      { permissionType: "report", value: "pipedrive-cleanup" },
+    ]);
+    const vaList = await call("GET", "/reports/pipedrive-cleanup", { token: plainToken });
+    expect(vaList.status).toBe(200);
+    // Nothing approved yet → the VA sees an empty list even though suggestions exist.
+    expect((vaList.json?.items as unknown[]).length).toBe(0);
+    expect(vaList.json?.canVerify).toBe(false);
+  });
+
+  it("refuses a granted VA approving, but lets the admin approve then the VA complete", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [
+      { permissionType: "report", value: "pipedrive-cleanup" },
+    ]);
+    const adminList = await call("GET", "/reports/pipedrive-cleanup", { token: adminToken });
+    const target = (adminList.json?.items as Array<{ id: string; status: string }>).find(
+      (i) => i.status === "suggested",
+    )!;
+
+    // A report-access user cannot approve.
+    const vaApprove = await call("PUT", `/reports/pipedrive-cleanup/items/${target.id}/approve`, {
+      token: plainToken,
+    });
+    expect(vaApprove.status).toBe(403);
+
+    // Nor can they jump a suggestion straight to done.
+    const early = await call("PUT", `/reports/pipedrive-cleanup/items/${target.id}/done`, {
+      token: plainToken,
+      body: { done: true },
+    });
+    expect(early.status).toBe(409);
+
+    // Admin approves; VA then completes.
+    const approve = await call("PUT", `/reports/pipedrive-cleanup/items/${target.id}/approve`, {
+      token: adminToken,
+    });
+    expect(approve.status).toBe(200);
+    const done = await call("PUT", `/reports/pipedrive-cleanup/items/${target.id}/done`, {
+      token: plainToken,
+      body: { done: true },
+    });
+    expect(done.status).toBe(200);
+    expect((done.json?.item as { status: string }).status).toBe("done");
+  });
+});

@@ -172,6 +172,26 @@ type SpiroPhotographerRefreshLogTable = {
   manual: number;
 };
 
+type PipedriveCleanupItemsTable = {
+  id: string;
+  item_key: string;
+  market: string;
+  kind: string;
+  title: string;
+  detail: string;
+  office: string | null;
+  verify: number;
+  payload: string;
+  status: string;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
+  approved_by: string | null;
+  approved_at: number | null;
+  done_by: string | null;
+  done_at: number | null;
+};
+
 type FinancialNotesTable = {
   id: string;
   account_key: string;
@@ -281,6 +301,7 @@ export type AdminDb = {
   admin_spiro_photographers: SpiroPhotographersTable;
   admin_spiro_photographer_shoots: SpiroPhotographerShootsTable;
   admin_spiro_photographer_refresh_log: SpiroPhotographerRefreshLogTable;
+  admin_pipedrive_cleanup_items: PipedriveCleanupItemsTable;
   admin_financial_notes: FinancialNotesTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
@@ -526,6 +547,26 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       refreshed_at INTEGER NOT NULL,
       manual INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS admin_pipedrive_cleanup_items (
+      id TEXT PRIMARY KEY,
+      item_key TEXT NOT NULL UNIQUE,
+      market TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('merge','fill','exclude','review')),
+      title TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      office TEXT,
+      verify INTEGER NOT NULL DEFAULT 0,
+      payload TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'suggested' CHECK(status IN ('suggested','approved','rejected','done')),
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      approved_by TEXT,
+      approved_at INTEGER,
+      done_by TEXT,
+      done_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS admin_pipedrive_cleanup_status ON admin_pipedrive_cleanup_items(status);
     CREATE TABLE IF NOT EXISTS admin_financial_notes (
       id TEXT PRIMARY KEY,
       account_key TEXT NOT NULL,

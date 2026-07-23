@@ -511,7 +511,8 @@ ${REPORT_TABLE_COMPONENT_JS}
   var PORTAL_REPORTS = [
     { key: 'report-cancellations', title: 'Agent Cancellation Report' },
     { key: 'rankings', title: 'Agent & Company Rankings' },
-    { key: 'photographers', title: 'Photographers' }
+    { key: 'photographers', title: 'Photographers' },
+    { key: 'pipedrive-cleanup', title: 'Pipedrive Cleanup' }
   ];
   function anyReportGranted(){ return PORTAL_REPORTS.some(function(r){ return hasReport(r.key); }); }
 
@@ -582,7 +583,8 @@ ${REPORT_TABLE_COMPONENT_JS}
       area.innerHTML =
         '<div class="report-view" data-view="report-cancellations" style="display:none"><div class="card" style="padding:0" id="prt-cancel"></div></div>' +
         '<div class="report-view" data-view="rankings" style="display:none"><div class="card" style="padding:0;margin-bottom:1rem"><div class="report-subhead">🧑‍💼 Agent Ranking</div><div id="prt-rank-agents"></div></div><div class="card" style="padding:0"><div class="report-subhead">🏢 Company Ranking</div><div id="prt-rank-companies"></div></div></div>' +
-        '<div class="report-view" data-view="photographers" style="display:none"><div class="card" style="padding:0" id="prt-photographers"></div></div>';
+        '<div class="report-view" data-view="photographers" style="display:none"><div class="card" style="padding:0" id="prt-photographers"></div></div>' +
+        '<div class="report-view" data-view="pipedrive-cleanup" style="display:none"><div id="prt-pdc"></div></div>';
       portalReportTables['report-cancellations'] = createReportTable({ containerId:'prt-cancel', reportKey:'p-cancellations', frozenFirst:true, emptyMsg:'No data cached for this range yet.', columns: portalCancelCols() });
       portalReportTables['rankings-agents'] = createReportTable({ containerId:'prt-rank-agents', reportKey:'p-rankings-agents', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Agent') });
       portalReportTables['rankings-companies'] = createReportTable({ containerId:'prt-rank-companies', reportKey:'p-rankings-companies', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Company') });
@@ -605,6 +607,9 @@ ${REPORT_TABLE_COMPONENT_JS}
     portalActiveReport = key;
     document.querySelectorAll('#report-picker .report-tab').forEach(function(b){ b.classList.toggle('active', b.dataset.key === key); });
     document.querySelectorAll('#report-area .report-view').forEach(function(v){ v.style.display = v.dataset.view === key ? '' : 'none'; });
+    // The date/market controls only apply to the Spiro data reports; the cleanup
+    // worklist is a live checklist, so hide them for it.
+    document.getElementById('report-controls').classList.toggle('hidden', key === 'pipedrive-cleanup');
     renderPortalReport(key);
   }
   async function renderPortalReport(key){
@@ -623,7 +628,51 @@ ${REPORT_TABLE_COMPONENT_JS}
       var r3 = await api('GET', '/reports/photographers?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
       if (!r3.ok){ portalReportTables['photographers'].setError(); return; }
       portalReportTables['photographers'].setData(r3.data.report.rows);
+    } else if (key === 'pipedrive-cleanup'){
+      await renderPortalCleanup();
     }
+  }
+
+  // ── Pipedrive Cleanup worklist (the one writable report) ────────────────────
+  function pdcKindLabel(kind){
+    var map = { merge:'Merge', fill:'Set office', exclude:'Not a brokerage', review:'Review' };
+    return map[kind] || kind;
+  }
+  async function renderPortalCleanup(){
+    var host = document.getElementById('prt-pdc');
+    host.innerHTML = '<div class="text-muted" style="padding:1rem">Loading…</div>';
+    var r = await api('GET', '/reports/pipedrive-cleanup');
+    if (!r.ok){ host.innerHTML = '<div class="empty-state"><p>Could not load your worklist.</p></div>'; return; }
+    var items = (r.data.items || []).filter(function(i){ return i.status === 'approved' || i.status === 'done'; });
+    if (!items.length){ host.innerHTML = '<div class="empty-state"><p>Nothing to do yet — approved tasks show up here.</p></div>'; return; }
+    var done = items.filter(function(i){ return i.status === 'done'; }).length;
+    var head = '<div class="card" style="margin-bottom:0.75rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap"><div style="font-weight:700">Your worklist</div><div class="text-muted" style="font-size:0.85rem">' + done + ' of ' + items.length + ' done</div></div>';
+    var rows = items.map(function(it){
+      var checked = it.status === 'done' ? ' checked' : '';
+      var office = it.office ? '<span style="font-family:monospace;font-size:0.8rem;background:var(--border);border-radius:5px;padding:1px 6px;margin-left:0.4rem">Office: ' + esc(it.office) + '</span>' : '';
+      var verify = it.verify ? '<span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#fbf1dd;color:#b7791f;margin-left:0.4rem">⚠ Verify first</span>' : '';
+      return '<div class="card" style="margin-bottom:0.5rem' + (it.status === 'done' ? ';opacity:0.65' : '') + '">' +
+        '<label style="display:flex;gap:0.6rem;align-items:flex-start;cursor:pointer">' +
+        '<input type="checkbox" data-pdc-done="' + esc(it.id) + '"' + checked + ' style="margin-top:0.2rem">' +
+        '<span><span style="font-weight:600">' + esc(it.title) + '</span> <span class="text-muted" style="font-size:0.75rem">(' + esc(pdcKindLabel(it.kind)) + ')</span>' + verify + office +
+        '<div class="text-muted" style="font-size:0.85rem;margin-top:0.2rem">' + esc(it.detail) + '</div></span>' +
+        '</label>' +
+        '<div style="margin-top:0.4rem;padding-left:1.6rem"><input type="text" placeholder="Add a note (optional)" data-pdc-note="' + esc(it.id) + '" value="' + esc(it.note || '') + '" style="width:100%;max-width:32rem;font-size:0.8rem;padding:0.3rem 0.5rem"></div>' +
+        '</div>';
+    }).join('');
+    host.innerHTML = head + rows;
+    host.querySelectorAll('[data-pdc-done]').forEach(function(cb){
+      cb.addEventListener('change', async function(){
+        var r2 = await api('PUT', '/reports/pipedrive-cleanup/items/' + cb.dataset.pdcDone + '/done', { done: cb.checked });
+        if (!r2.ok){ alert((r2.data && r2.data.error) || 'Could not update.'); }
+        await renderPortalCleanup();
+      });
+    });
+    host.querySelectorAll('[data-pdc-note]').forEach(function(inp){
+      inp.addEventListener('change', async function(){
+        await api('PUT', '/reports/pipedrive-cleanup/items/' + inp.dataset.pdcNote + '/note', { note: inp.value });
+      });
+    });
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
