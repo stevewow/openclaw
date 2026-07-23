@@ -118,4 +118,44 @@ describe("pipedrive cleanup store", () => {
     expect(summary.total).toBe(2);
     expect(summary.approved + summary.suggested + summary.done + summary.rejected).toBe(2);
   });
+
+  it("round-trips the structured payload the report UI renders (category + record deep links)", async () => {
+    const payload = {
+      category: "duplicate-person",
+      records: [
+        {
+          role: "Keep",
+          label: "Amy Balo",
+          entity: "person",
+          id: 31216,
+          url: "https://wowvideotours.pipedrive.com/person/31216",
+          meta: "amybalosells@gmail.com · at BHHS Lima",
+        },
+        {
+          role: "Merge in",
+          label: "Amy Place",
+          entity: "person",
+          id: 47074,
+          url: "https://wowvideotours.pipedrive.com/person/47074",
+          meta: "amybalosells@gmail.com",
+        },
+      ],
+    };
+    await store.importCleanupItems("Lima", [
+      {
+        itemKey: "lima:pmerge:31216-47074",
+        kind: "merge",
+        title: "Amy Balo",
+        detail: "2 people share amybalosells@gmail.com. Merge into one contact.",
+        verify: true,
+        payload,
+      },
+    ]);
+    const item = (await store.listCleanupItems({ includeSuggested: true })).find(
+      (i) => i.itemKey === "lima:pmerge:31216-47074",
+    )!;
+    // The opaque payload survives the JSON round-trip intact — this is the exact
+    // shape both the admin and portal renderers read for badges + deep links.
+    expect(item.payload).toEqual(payload);
+  });
 });

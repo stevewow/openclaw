@@ -4,6 +4,10 @@ Docs: https://docs.openclaw.ai
 
 ## Unreleased
 
+### Changes
+
+- Admin: Pipedrive Cleanup report now shows full record detail with clickable Pipedrive deep links and finer category badges, and the scanner adds duplicate-person, uncontactable-contact, missing-field, and dead/no-deal record checks.
+
 ### Fixes
 
 - Limit hook CLI tool authority [AI]. (#81065) Thanks @pgondhi987.

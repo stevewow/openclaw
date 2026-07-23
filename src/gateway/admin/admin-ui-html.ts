@@ -2790,10 +2790,34 @@ ${REPORT_TABLE_COMPONENT_JS}
   });
 
   // ── Pipedrive Cleanup checklist ────────────────────────────────────────────
-  function pdcKindBadge(kind) {
-    var map = { merge:['Merge','#7c3aed'], fill:['Set office','#2563eb'], exclude:['Not a brokerage','#b5473b'], review:['Review','#b7791f'] };
-    var m = map[kind] || [kind,'#666666'];
+  // Badge prefers the finer payload.category, falling back to the DB kind.
+  var PDC_CAT = {
+    'duplicate-org':['Duplicate org','#7c3aed'], 'duplicate-person':['Duplicate person','#7c3aed'],
+    'fields':['Missing fields','#2563eb'], 'dead-record':['Dead record','#b5473b'],
+    'no-contacts':['No contacts','#b7791f'], 'no-deals':['No deals','#b7791f'],
+    'orphan-deal':['Orphan deal','#b7791f'], 'uncontactable':['No contact info','#b7791f'],
+    'not-brokerage':['Not a brokerage','#b5473b'], 'ambiguous':['Review','#b7791f']
+  };
+  var PDC_KIND = { merge:['Merge','#7c3aed'], fill:['Set office','#2563eb'], exclude:['Not a brokerage','#b5473b'], review:['Review','#b7791f'] };
+  function pdcBadge(it) {
+    var cat = it.payload && it.payload.category;
+    var m = PDC_CAT[cat] || PDC_KIND[it.kind] || [it.kind, '#666666'];
     return '<span style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;padding:2px 7px;border-radius:5px;background:'+m[1]+'1a;color:'+m[1]+'">'+esc(m[0])+'</span>';
+  }
+  // Render payload.records[] as linked cards with "Open in Pipedrive" deep links.
+  function pdcRecords(payload) {
+    var recs = payload && payload.records;
+    if (!recs || !recs.length) return '';
+    var cards = recs.map(function(r) {
+      var role = r.role ? '<span style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:'+(r.role==='Keep'?'#16855c':'#b5473b')+'">'+esc(r.role)+'</span> ' : '';
+      var href = (r.url && (r.url.indexOf('https://')===0 || r.url.indexOf('http://')===0)) ? r.url : null;
+      var name = href
+        ? '<a href="'+esc(href)+'" target="_blank" rel="noopener" style="font-weight:600;color:var(--accent,#2563eb);text-decoration:none">'+esc(r.label)+' ↗</a>'
+        : '<span style="font-weight:600">'+esc(r.label)+'</span>';
+      var meta = r.meta ? '<div class="text-muted" style="font-size:0.72rem">'+esc(r.meta)+'</div>' : '';
+      return '<div style="padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:7px">'+role+name+meta+'</div>';
+    }).join('');
+    return '<div style="display:grid;gap:0.3rem;margin-top:0.5rem">'+cards+'</div>';
   }
   function pdcItemCard(it, mode) {
     var verify = it.verify ? '<span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#fbf1dd;color:#b7791f">⚠ Verify first</span>' : '';
@@ -2811,8 +2835,9 @@ ${REPORT_TABLE_COMPONENT_JS}
       actions = '<div style="margin-top:0.4rem">'+statusPill+noteHtml+'</div>';
     }
     return '<div class="card" style="margin-bottom:0.6rem'+(it.status==='done'?';opacity:0.7':'')+'">'+
-      '<div class="flex items-center gap-2" style="flex-wrap:wrap;margin-bottom:0.35rem">'+pdcKindBadge(it.kind)+'<span style="font-weight:600">'+esc(it.title)+'</span>'+verify+'<span style="margin-left:auto">'+office+'</span></div>'+
+      '<div class="flex items-center gap-2" style="flex-wrap:wrap;margin-bottom:0.35rem">'+pdcBadge(it)+'<span style="font-weight:600">'+esc(it.title)+'</span>'+verify+'<span style="margin-left:auto">'+office+'</span></div>'+
       '<div class="text-muted" style="font-size:0.85rem">'+esc(it.detail)+'</div>'+
+      pdcRecords(it.payload)+
       actions+'</div>';
   }
   async function loadPipedriveCleanup() {
