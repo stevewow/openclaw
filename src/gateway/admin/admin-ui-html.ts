@@ -783,6 +783,27 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <div id="pdc-worklist"></div>
       </div>
 
+      <!-- Reports: Churn & Retention -->
+      <div id="page-churn" class="page hidden">
+        <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
+        <div id="churn-header" class="card" style="margin-bottom:1rem"></div>
+        <div id="churn-tiles" class="stats-grid"></div>
+        <div id="churn-meta" class="card" style="margin-bottom:1.5rem"></div>
+        <div style="margin-bottom:0.25rem;font-weight:700">Outreach Queue — recoverable agents by priority</div>
+        <div class="text-muted" style="font-size:0.85rem;margin-bottom:0.5rem">Annualised revenue at risk, decayed by how cold the lead is. The top of the list is the most important call of the day.</div>
+        <div id="churn-queue-table" style="margin-bottom:1.5rem"></div>
+        <div style="margin-bottom:0.5rem;font-weight:700">Revenue Retention — rolling 12-month</div>
+        <div id="churn-retention" class="card" style="margin-bottom:1.5rem"></div>
+        <div style="margin-bottom:0.5rem;font-weight:700">Agent Scores — every agent</div>
+        <div id="churn-scores-table" style="margin-bottom:1.5rem"></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem">
+          <div><div style="margin-bottom:0.5rem;font-weight:700">2nd Order Conversion</div><div id="churn-conversion" class="card"></div></div>
+          <div><div style="margin-bottom:0.5rem;font-weight:700">Seasonality Index</div><div id="churn-seasonality" class="card"></div></div>
+        </div>
+        <div style="margin:1.25rem 0 0.5rem;font-weight:700">Data Quality</div>
+        <div id="churn-dq" class="card"></div>
+      </div>
+
       <!-- Support: Tickets page -->
       <div id="page-tickets" class="page hidden">
         <div class="stats-grid" id="ticket-stats-grid" style="margin-bottom:1rem"></div>
@@ -1584,6 +1605,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: false, superAdminOnly: false, report: 'rankings' },
     photographers: { el: 'page-photographers', title: 'Photographers', adminOnly: false, superAdminOnly: false, report: 'photographers' },
     'pipedrive-cleanup': { el: 'page-pipedrive-cleanup', title: 'Pipedrive Cleanup', adminOnly: false, superAdminOnly: false, report: 'pipedrive-cleanup' },
+    churn: { el: 'page-churn', title: 'Churn & Retention', adminOnly: false, superAdminOnly: false, report: 'churn' },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: false, superAdminOnly: false, feature: 'tickets' },
     departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
@@ -1649,7 +1671,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('page-title').textContent = def.title;
     // Report sub-pages are reached from the Reports landing, not their own nav
     // item, so keep the Reports nav entry highlighted while viewing one.
-    const navKey = (page === 'report-cancellations' || page === 'rankings' || page === 'photographers' || page === 'pipedrive-cleanup') ? 'reports' : page;
+    const navKey = (page === 'report-cancellations' || page === 'rankings' || page === 'photographers' || page === 'pipedrive-cleanup' || page === 'churn') ? 'reports' : page;
     document.querySelectorAll('.nav-link').forEach(a => {
       a.classList.toggle('active', a.dataset.page === navKey);
     });
@@ -1665,6 +1687,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'rankings') loadRankings();
     if (page === 'photographers') loadPhotographers();
     if (page === 'pipedrive-cleanup') loadPipedriveCleanup();
+    if (page === 'churn') loadChurn();
     if (page === 'tickets') loadTickets();
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();
@@ -2599,7 +2622,8 @@ ${REPORT_TABLE_COMPONENT_JS}
     { key: 'report-cancellations', icon: '📉', title: 'Agent Cancellation Report', desc: 'Cancellations and reschedules per client over a chosen date range and market.' },
     { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' },
     { key: 'photographers', icon: '📸', title: 'Photographers', desc: 'Roster with the markets each serves and how many shoots they completed in a selectable range.' },
-    { key: 'pipedrive-cleanup', icon: '🧹', title: 'Pipedrive Cleanup', desc: 'Suggested CRM fixes to verify. Approved items become a worklist for whoever you grant access.' }
+    { key: 'pipedrive-cleanup', icon: '🧹', title: 'Pipedrive Cleanup', desc: 'Suggested CRM fixes to verify. Approved items become a worklist for whoever you grant access.' },
+    { key: 'churn', icon: '📊', title: 'Churn & Retention', desc: 'Revenue retention, Pareto/NBD health, and a priority-ranked outreach queue of recoverable agents.' }
   ];
   function loadReportsHome() {
     var grid = document.getElementById('reports-home-grid');
@@ -2614,6 +2638,155 @@ ${REPORT_TABLE_COMPONENT_JS}
       btn.addEventListener('click', function(){ navigate(btn.dataset.report); });
     });
     if (!REPORTS.length) grid.innerHTML = '<div class="empty-state">No reports are available to you.</div>';
+  }
+
+  // ── Churn & Retention report ────────────────────────────────────────────────
+  // Renders the JSON snapshot the Python retention engine writes to the
+  // workspace. No compute here; refresh = re-run the engine.
+  var churnQueueTable = null, churnScoresTable = null;
+  var CHURN_HEALTH_COLOR = { 'Healthy':'#2f855a', 'Watch':'#b7791f', 'At risk':'#c05621', 'Likely churned':'#b5473b' };
+  function churnPct(v){ return (v == null) ? '—' : (Number(v) * 100).toFixed(1) + '%'; }
+  function churnMoney(v){ return (v == null) ? '—' : '$' + Math.round(Number(v)).toLocaleString(); }
+  function churnNum(v){ return (v == null) ? '—' : Number(v).toLocaleString(); }
+  function churnHealthChip(label, count){
+    var c = CHURN_HEALTH_COLOR[label] || '#666666';
+    var txt = (count === undefined || count === '') ? esc(label) : esc(label) + ': ' + count;
+    return '<span style="font-size:0.75rem;font-weight:700;padding:3px 9px;border-radius:6px;background:'+c+'1a;color:'+c+'">'+txt+'</span>';
+  }
+  function churnQueueCols(){
+    return [
+      { key:'agent', label:'Agent', value:function(r){ return r.agent_name; } },
+      { key:'company', label:'Brokerage', value:function(r){ return r.company_name; } },
+      { key:'health', label:'Health', value:function(r){ return r.health; }, render:function(r){ return churnHealthChip(r.health); } },
+      { key:'urgency', label:'Urgency', value:function(r){ return r.urgency; } },
+      { key:'days', label:'Days silent', type:'num', value:function(r){ return r.days_silent; } },
+      { key:'palive', label:'P(alive)', type:'num', value:function(r){ return r.p_alive; }, render:function(r){ return Number(r.p_alive).toFixed(2); } },
+      { key:'cadence', label:'Orders/yr', type:'num', value:function(r){ return r.cadence_per_year; }, render:function(r){ return Number(r.cadence_per_year).toFixed(1); } },
+      { key:'annual', label:'Annual value', type:'num', value:function(r){ return r.annual_value; }, render:function(r){ return churnMoney(r.annual_value); } },
+      { key:'risk', label:'Rev at risk', type:'num', value:function(r){ return r.revenue_at_risk; }, render:function(r){ return churnMoney(r.revenue_at_risk); } },
+      { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } }
+    ];
+  }
+  function churnScoreCols(){
+    return [
+      { key:'agent', label:'Agent', value:function(r){ return r.agent_name; } },
+      { key:'company', label:'Brokerage', value:function(r){ return r.company_name; } },
+      { key:'orders', label:'Orders', type:'num', value:function(r){ return r.orders; } },
+      { key:'cadence', label:'Orders/yr', type:'num', value:function(r){ return r.cadence_per_year; }, render:function(r){ return Number(r.cadence_per_year).toFixed(1); } },
+      { key:'revenue', label:'Revenue', type:'num', value:function(r){ return r.revenue; }, render:function(r){ return churnMoney(r.revenue); } },
+      { key:'palive', label:'P(alive)', type:'num', value:function(r){ return r.p_alive; }, render:function(r){ return Number(r.p_alive).toFixed(2); } },
+      { key:'health', label:'Health', value:function(r){ return r.health; }, render:function(r){ return churnHealthChip(r.health); } },
+      { key:'urgency', label:'Urgency', value:function(r){ return r.urgency; } },
+      { key:'days', label:'Days silent', type:'num', value:function(r){ return r.days_silent; } },
+      { key:'risk', label:'Rev at risk', type:'num', value:function(r){ return r.revenue_at_risk; }, render:function(r){ return churnMoney(r.revenue_at_risk); } },
+      { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } }
+    ];
+  }
+  function churnSpark(rows, key, color, lo, hi, w, hgt){
+    var n = rows.length;
+    var pts = rows.map(function(row, i){
+      var x = (n === 1) ? w : (i / (n - 1)) * w;
+      var y = hgt - ((Number(row[key]) - lo) / ((hi - lo) || 1)) * hgt;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    return '<polyline fill="none" stroke="'+color+'" stroke-width="2" points="'+pts+'"/>';
+  }
+  function churnRetentionHtml(rows){
+    if (!rows.length) return '<div class="empty-state">Not enough history for a 24-month lookback.</div>';
+    var w = 520, hgt = 90, vals = [];
+    rows.forEach(function(r){ vals.push(Number(r.GRR), Number(r.NRR), Number(r.logo_retention)); });
+    var lo = Math.min(0.7, Math.min.apply(null, vals)), hi = Math.max(1.05, Math.max.apply(null, vals));
+    var y100 = (hgt - ((1 - lo) / (hi - lo)) * hgt).toFixed(1);
+    var svg = '<svg viewBox="0 0 '+w+' '+hgt+'" preserveAspectRatio="none" style="width:100%;height:110px">'
+      + '<line x1="0" x2="'+w+'" y1="'+y100+'" y2="'+y100+'" stroke="var(--border)" stroke-dasharray="3 3"/>'
+      + churnSpark(rows, 'NRR', '#2563eb', lo, hi, w, hgt)
+      + churnSpark(rows, 'GRR', '#b5473b', lo, hi, w, hgt)
+      + '</svg>';
+    var legend = '<div class="text-muted" style="font-size:0.78rem;margin-bottom:0.35rem"><span style="color:#b5473b;font-weight:700">■</span> GRR &nbsp;<span style="color:#2563eb;font-weight:700">■</span> NRR &nbsp; dashed = 100%</div>';
+    var body = rows.slice(-6).map(function(r){
+      return '<tr><td>'+esc(String(r.as_of_month))+'</td><td style="text-align:right">'+churnPct(r.GRR)+'</td><td style="text-align:right">'+churnPct(r.NRR)+'</td><td style="text-align:right">'+churnPct(r.logo_retention)+'</td></tr>';
+    }).join('');
+    return legend + svg + '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-top:0.5rem"><thead><tr><th style="text-align:left">Month</th><th style="text-align:right">GRR</th><th style="text-align:right">NRR</th><th style="text-align:right">Logo</th></tr></thead><tbody>'+body+'</tbody></table>';
+  }
+  function churnConversionHtml(rows){
+    if (!rows.length) return '<div class="empty-state">No cohorts.</div>';
+    var body = rows.slice(-8).map(function(r){
+      var rate = (r.conversion_rate == null) ? '—' : (Number(r.conversion_rate) * 100).toFixed(0) + '%';
+      var open = r.window_complete ? '' : ' <span class="text-muted" style="font-size:0.7rem">(open)</span>';
+      return '<tr><td>'+esc(String(r.cohort_month))+'</td><td style="text-align:right">'+churnNum(r.new_agents)+'</td><td style="text-align:right">'+rate+open+'</td></tr>';
+    }).join('');
+    return '<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.4rem">New agents ordering again within 180 days</div><table style="width:100%;border-collapse:collapse;font-size:0.82rem"><thead><tr><th style="text-align:left">Cohort</th><th style="text-align:right">New</th><th style="text-align:right">2nd &lt;180d</th></tr></thead><tbody>'+body+'</tbody></table>';
+  }
+  function churnSeasonHtml(rows){
+    if (!rows.length) return '<div class="empty-state">No seasonality.</div>';
+    var max = Math.max.apply(null, rows.map(function(r){ return Number(r.activity_index); }));
+    var bars = rows.map(function(r){
+      var hpct = Math.round((Number(r.activity_index) / (max || 1)) * 100);
+      return '<div title="'+esc(String(r.month))+': '+Number(r.activity_index).toFixed(2)+'" style="flex:1;min-width:2px;height:'+hpct+'%;background:var(--accent);opacity:0.75;border-radius:2px 2px 0 0"></div>';
+    }).join('');
+    return '<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.4rem">Monthly market activity (mean = 1); drives the operational-time rescale</div><div style="display:flex;align-items:flex-end;gap:2px;height:90px">'+bars+'</div>';
+  }
+  function churnDqHtml(rows){
+    if (!rows.length) return '<div class="text-muted" style="font-size:0.85rem">No duplicate-brokerage records detected.</div>';
+    var body = rows.map(function(r){
+      return '<tr><td>'+esc(String(r.brokerage))+'</td><td style="text-align:center">'+churnNum(r.distinct_company_ids)+'</td><td class="text-muted" style="font-size:0.8rem">'+esc(String(r.detail || ''))+'</td></tr>';
+    }).join('');
+    return '<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.4rem">Brokerage names held under more than one company ID (company rollups split; agent-level analysis is unaffected)</div><table style="width:100%;border-collapse:collapse;font-size:0.82rem"><thead><tr><th style="text-align:left">Brokerage</th><th>IDs</th><th style="text-align:left">Detail</th></tr></thead><tbody>'+body+'</tbody></table>';
+  }
+  function churnClearBody(){
+    ['churn-tiles','churn-meta','churn-queue-table','churn-retention','churn-scores-table','churn-conversion','churn-seasonality','churn-dq'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.innerHTML = '';
+    });
+  }
+  async function loadChurn(){
+    var header = document.getElementById('churn-header');
+    header.innerHTML = '<div class="text-muted">Loading…</div>';
+    var r = await api('GET', '/reports/churn');
+    if (!r.ok) { header.innerHTML = '<div class="empty-state">Could not load the churn report.</div>'; churnClearBody(); return; }
+    var rep = r.data.report;
+    if (!rep) {
+      var msg = (r.data.status === 'not_generated')
+        ? 'No churn snapshot yet. Run the retention engine (reports/wow_retention/wow_retention.py) to generate it.'
+        : 'The churn snapshot could not be read.';
+      header.innerHTML = '<div class="empty-state">'+esc(msg)+'</div>';
+      churnClearBody();
+      return;
+    }
+    header.innerHTML = '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;align-items:center">'
+      + '<div><div style="font-weight:700;font-size:1.05rem">Churn &amp; Retention</div>'
+      + '<div class="text-muted" style="font-size:0.85rem">Observation window ends '+esc(String(rep.observation_end))+' · '+churnNum(rep.orders_kept)+' clean orders · '+churnNum(rep.agents_total)+' agents · seasonal adjust '+(rep.seasonal_adjust ? 'on' : 'off')+'</div></div>'
+      + '<div class="text-muted" style="font-size:0.8rem">Generated '+esc(String(rep.generated_at).replace('T', ' ').slice(0, 16))+'</div>'
+      + '</div>';
+    var h = rep.headline || {};
+    var tiles = [
+      ['GRR (gross)', churnPct(h.grr)],
+      ['NRR (net)', churnPct(h.nrr)],
+      ['Logo retention', churnPct(h.logo_retention)],
+      ['Revenue at risk', churnMoney(h.revenue_at_risk)],
+      ['Outreach queue', churnNum(h.outreach_queue_size)]
+    ];
+    document.getElementById('churn-tiles').innerHTML = tiles.map(function(t){
+      return '<div class="stat-card"><div class="stat-label">'+esc(t[0])+'</div><div class="stat-value">'+t[1]+'</div></div>';
+    }).join('');
+    var tiers = rep.health_tiers || {};
+    var chips = ['Healthy','Watch','At risk','Likely churned'].filter(function(k){ return k in tiers; })
+      .map(function(k){ return churnHealthChip(k, tiers[k]); }).join(' ');
+    var m = rep.model || {}, ia = rep.identity_audit || {};
+    var iaLine = ia.guid_stable
+      ? 'Agent GUID stable across brokerage moves: YES ('+churnNum(ia.movers)+' of '+churnNum(ia.agents_total)+' agents moved on one GUID'+(ia.example ? ', e.g. '+esc(ia.example.agent_name)+' — '+esc(ia.example.companies) : '')+')'
+      : 'No brokerage moves observed this run.';
+    document.getElementById('churn-meta').innerHTML =
+      '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.75rem">'+chips+'</div>'
+      + '<div class="text-muted" style="font-size:0.82rem">Pareto/NBD (operational-month unit): r='+Number(m.r).toFixed(3)+' α='+Number(m.alpha).toFixed(3)+' s='+Number(m.s).toFixed(3)+' β='+Number(m.beta).toFixed(3)+' · mean purchase '+Number(m.mean_purchase_rate).toFixed(3)+'/mo · mean dropout '+Number(m.mean_dropout_rate).toFixed(3)+'/mo</div>'
+      + '<div class="text-muted" style="font-size:0.82rem;margin-top:0.35rem">'+esc(iaLine)+'</div>';
+    if (!churnQueueTable) churnQueueTable = createReportTable({ containerId:'churn-queue-table', reportKey:'churn-queue', emptyMsg:'No recoverable agents at risk — nothing to call.', columns: churnQueueCols() });
+    churnQueueTable.setData(rep.outreach_queue || []);
+    document.getElementById('churn-retention').innerHTML = churnRetentionHtml(rep.revenue_retention || []);
+    if (!churnScoresTable) churnScoresTable = createReportTable({ containerId:'churn-scores-table', reportKey:'churn-scores', emptyMsg:'No agent scores.', columns: churnScoreCols() });
+    churnScoresTable.setData(rep.agent_scores || []);
+    document.getElementById('churn-conversion').innerHTML = churnConversionHtml(rep.second_order_conversion || []);
+    document.getElementById('churn-seasonality').innerHTML = churnSeasonHtml(rep.seasonality || []);
+    document.getElementById('churn-dq').innerHTML = churnDqHtml(rep.data_quality || []);
   }
 
   async function loadReports() {

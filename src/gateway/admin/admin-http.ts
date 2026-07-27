@@ -28,6 +28,7 @@ import {
   beginAuth as beginSpiroAuth,
   getConnection as getSpiroConnection,
 } from "../../../extensions/spiro/api.js";
+import { getChurnReport } from "./churn-store.js";
 import {
   DEFAULT_TREND_WINDOW,
   ensureClevelandScheduler,
@@ -1991,6 +1992,26 @@ export async function handleAdminHttpRequest(
     } catch (err) {
       sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
     }
+    return true;
+  }
+
+  // GET /api/admin/reports/churn — churn & retention snapshot. Read-only render
+  // of the JSON the Python retention engine writes into the workspace; there is
+  // no inline compute or refresh route (re-run the engine to refresh).
+  if (subPath === "/reports/churn" && req.method === "GET") {
+    if (!(await hasReportAccess("churn"))) {
+      sendForbidden(res);
+      return true;
+    }
+    // Global business report living under the base workspace (bind-mounted), not
+    // a per-agent workspace; getChurnReport resolves it from OPENCLAW_WORKSPACE_DIR
+    // (or OPENCLAW_CHURN_REPORT_PATH).
+    const result = await getChurnReport();
+    if (!result.ok) {
+      sendJson(res, 200, { report: null, status: result.status });
+      return true;
+    }
+    sendJson(res, 200, { report: result.report });
     return true;
   }
 

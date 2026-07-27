@@ -543,3 +543,39 @@ describe("pipedrive cleanup report — admin-approve vs VA-done split", () => {
     expect((done.json?.item as { status: string }).status).toBe("done");
   });
 });
+
+describe("churn report — read gated by the report grant", () => {
+  // Pin the snapshot path to a missing file so resolution is deterministic
+  // regardless of the host's real workspace.
+  const savedChurnPath = process.env.OPENCLAW_CHURN_REPORT_PATH;
+  beforeAll(() => {
+    process.env.OPENCLAW_CHURN_REPORT_PATH = "/nonexistent/churn-authz-test.json";
+  });
+  afterAll(() => {
+    if (savedChurnPath === undefined) {
+      delete process.env.OPENCLAW_CHURN_REPORT_PATH;
+    } else {
+      process.env.OPENCLAW_CHURN_REPORT_PATH = savedChurnPath;
+    }
+  });
+
+  it("hides the report from a user without the grant", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, []);
+    const res = await call("GET", "/reports/churn", { token: plainToken });
+    expect(res.status).toBe(403);
+  });
+
+  it("serves a granted user and an admin (null snapshot when the engine has not run)", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [{ permissionType: "report", value: "churn" }]);
+    const granted = await call("GET", "/reports/churn", { token: plainToken });
+    expect(granted.status).toBe(200);
+    // No snapshot file in the test workspace → report is null with a status.
+    expect(granted.json?.report ?? null).toBeNull();
+    expect(granted.json?.status).toBe("not_generated");
+
+    const adminRes = await call("GET", "/reports/churn", { token: adminToken });
+    expect(adminRes.status).toBe(200);
+  });
+});
