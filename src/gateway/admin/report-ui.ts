@@ -10,7 +10,8 @@ export const REPORT_TABLE_COMPONENT_JS = `
   // (order, hidden, sort) is saved per user in localStorage so each person's
   // arrangement is private to them. Column config: { key, label, value(row),
   // render(row)?, type:'num'|'text' }. value() feeds sort + CSV; render()
-  // returns display HTML (defaults to the escaped value).
+  // returns display HTML (defaults to the escaped value). Optional
+  // cfg.rowClass(row) returns a class for the <tr>.
   function reportTableStorageKey(reportKey){
     return 'oc_rtbl_' + (currentUser && currentUser.id ? currentUser.id : 'anon') + '_' + reportKey;
   }
@@ -112,7 +113,10 @@ export const REPORT_TABLE_COMPONENT_JS = `
       if (errored) { tbody.innerHTML = '<tr><td colspan="' + vc.length + '" class="empty-state">Failed to load.</td></tr>'; return; }
       if (!rows.length) { tbody.innerHTML = '<tr><td colspan="' + vc.length + '" class="empty-state">' + esc(emptyMsg) + '</td></tr>'; return; }
       tbody.innerHTML = sortedRows().map(function(row){
-        return '<tr>' + vc.map(function(c, i){
+        // Optional per-row class, e.g. to mute a row the viewer has hidden.
+        var rowCls = '';
+        if (cfg.rowClass) { try { rowCls = cfg.rowClass(row) || ''; } catch (e) { rowCls = ''; } }
+        return '<tr' + (rowCls ? ' class="' + esc(rowCls) + '"' : '') + '>' + vc.map(function(c, i){
           var frozen = frozenFirst && i === 0 ? ' class="rt-frozen"' : '';
           return '<td' + frozen + '>' + cellHtml(c, row) + '</td>';
         }).join('') + '</tr>';

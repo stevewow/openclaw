@@ -28,7 +28,12 @@ import {
   beginAuth as beginSpiroAuth,
   getConnection as getSpiroConnection,
 } from "../../../extensions/spiro/api.js";
-import { getChurnReport } from "./churn-store.js";
+import {
+  dismissChurnAgent,
+  listChurnDismissals,
+  restoreChurnAgent,
+} from "./churn-dismissals-store.js";
+import { findChurnAgent, getChurnReport } from "./churn-store.js";
 import {
   DEFAULT_TREND_WINDOW,
   ensureClevelandScheduler,
@@ -2007,11 +2012,74 @@ export async function handleAdminHttpRequest(
     // a per-agent workspace; getChurnReport resolves it from OPENCLAW_WORKSPACE_DIR
     // (or OPENCLAW_CHURN_REPORT_PATH).
     const result = await getChurnReport();
+    // Dismissals are stored outside the snapshot and re-applied on every read,
+    // so hiding an agent survives the engine regenerating the file.
+    const dismissals = await listChurnDismissals();
     if (!result.ok) {
-      sendJson(res, 200, { report: null, status: result.status });
+      sendJson(res, 200, { report: null, status: result.status, dismissals });
       return true;
     }
-    sendJson(res, 200, { report: result.report });
+    sendJson(res, 200, { report: result.report, dismissals });
+    return true;
+  }
+
+  // POST /api/admin/reports/churn/dismissals — hide an agent from the report.
+  // Report-access gated, not admin-only: the people working the outreach queue
+  // are the ones who know an agent has retired. The name/company are read from
+  // the snapshot rather than the request, so the stored record cannot be spoofed
+  // and an unknown key is rejected.
+  if (subPath === "/reports/churn/dismissals" && req.method === "POST") {
+    if (!(await hasReportAccess("churn"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const agentKey = normalizeString(data.agentKey);
+    if (!agentKey) {
+      sendBadRequest(res, "agentKey required");
+      return true;
+    }
+    const snapshot = await getChurnReport();
+    if (!snapshot.ok) {
+      sendJson(res, 409, { error: "no churn snapshot to dismiss from" });
+      return true;
+    }
+    const agent = findChurnAgent(snapshot.report, agentKey);
+    if (!agent) {
+      sendJson(res, 404, { error: "agent not in the current snapshot" });
+      return true;
+    }
+    const dismissal = await dismissChurnAgent({
+      agentKey,
+      agentName: normalizeString(agent.agent_name) ?? agentKey,
+      companyName: normalizeString(agent.company_name),
+      reason: normalizeString(data.reason),
+      byUserId: sessionUser.id,
+      byUserName: sessionUser.username,
+    });
+    sendJson(res, 200, { dismissal });
+    return true;
+  }
+
+  // DELETE /api/admin/reports/churn/dismissals/:agentKey — un-hide an agent.
+  const churnRestoreMatch = subPath.match(/^\/reports\/churn\/dismissals\/([^/]+)$/);
+  if (churnRestoreMatch && req.method === "DELETE") {
+    if (!(await hasReportAccess("churn"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const agentKey = decodeURIComponent(churnRestoreMatch[1]);
+    const removed = await restoreChurnAgent(agentKey);
+    if (!removed) {
+      sendJson(res, 404, { error: "agent was not hidden" });
+      return true;
+    }
+    sendJson(res, 200, { ok: true });
     return true;
   }
 

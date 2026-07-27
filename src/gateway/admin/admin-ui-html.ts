@@ -106,6 +106,23 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .report-card-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
   .report-back { font-size: 0.82rem; color: var(--text-muted); text-decoration: none; font-weight: 600; }
   .report-back:hover { color: var(--accent); }
+  /* Churn report: plain-English explainer with an expandable technical version */
+  .churn-explain { font-size: 0.88rem; line-height: 1.6; }
+  .churn-explain p { margin-bottom: 0.6rem; }
+  .churn-explain p:last-child { margin-bottom: 0; }
+  .churn-explain .churn-q { font-weight: 700; }
+  .churn-tech { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .churn-tech > summary { cursor: pointer; font-size: 0.82rem; font-weight: 700; color: var(--accent); list-style: none; }
+  .churn-tech > summary::-webkit-details-marker { display: none; }
+  .churn-tech > summary::before { content: '\\25b8  '; }
+  .churn-tech[open] > summary::before { content: '\\25be  '; }
+  .churn-tech-body { font-size: 0.83rem; line-height: 1.6; margin-top: 0.7rem; color: var(--text-muted); }
+  .churn-tech-body h4 { font-size: 0.83rem; color: var(--text); margin: 0.9rem 0 0.3rem; }
+  .churn-tech-body h4:first-child { margin-top: 0; }
+  .churn-tech-body ul { margin: 0 0 0.2rem 1.1rem; }
+  .churn-tech-body code { background: var(--surface2); border-radius: 4px; padding: 0.05rem 0.3rem; font-size: 0.78rem; }
+  .churn-hidden-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; font-size: 0.82rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; margin-bottom: 0.6rem; }
+  tr.churn-row-hidden td { opacity: 0.55; }
   .rt-toolbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); }
   .rt-cols-wrap { position: relative; }
   .rt-cols-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 20px rgba(0,0,0,0.12); padding: 0.35rem; min-width: 200px; max-height: 320px; overflow-y: auto; }
@@ -787,10 +804,63 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <div id="page-churn" class="page hidden">
         <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
         <div id="churn-header" class="card" style="margin-bottom:1rem"></div>
+
+        <!-- Plain-English explainer. Static content: it must read the same
+             whether or not a snapshot exists, so nothing here is data-driven.
+             The technical version lives in the collapsed disclosure block. -->
+        <div class="card" style="margin-bottom:1rem">
+          <div class="card-title">How to read this report</div>
+          <div class="churn-explain">
+            <p>Agents never tell us they have left — they just stop booking. This report reads every order we have taken over the last three years and answers three questions.</p>
+            <p><span class="churn-q">1. Are we keeping the money we had a year ago?</span><br />
+              Take what our agents spent with us in the year before last, then look at what those same agents spent in the last twelve months. <b>GRR</b> is how much of that money came back — 83% means we kept 83 cents of every dollar. <b>NRR</b> counts growth as well, so it can go above 100% when the agents who stayed spent more than the ones who left took away. <b>Logo retention</b> is the same idea by headcount instead of dollars.</p>
+            <p><span class="churn-q">2. Which agents have quietly stopped ordering?</span><br />
+              Everyone's normal is different. An agent who books twice a year going quiet for three months is completely normal; an agent who books every week going quiet for three months has almost certainly gone elsewhere. So instead of one "90 days = churned" rule, the report learns each agent's own rhythm and gives them a score: <b>P(alive)</b>, where 1.00 means still with us and 0.00 means as good as gone.</p>
+            <p><span class="churn-q">3. Who should we call first?</span><br />
+              That is the <b>Outreach Queue</b>. It ranks agents by how much money a year we stand to lose, how likely they are to be gone, and how recently they went quiet. A big agent who went quiet last month sits at the top; an equally big agent who left two years ago sinks, because one call can still save the first and probably not the second.</p>
+            <p><span class="churn-q">Health and Urgency are two different things.</span><br />
+              <b>Health</b> is how likely the agent is gone. <b>Urgency</b> is how recently they went quiet. They are kept apart on purpose: an agent silent for five weeks and an agent silent for three years can score the same on health, but only one of them is worth a phone call today.</p>
+            <p><span class="churn-q">Where the numbers come from.</span><br />
+              Completed, paid orders in Spiro. Cancelled orders, zero-dollar orders, test records and orders with nobody attached are thrown out before anything is calculated, so a cancelled shoot never counts as either revenue or churn. This page is a snapshot, not a live feed — the figures change when the report is re-run.</p>
+            <p><span class="churn-q">Tidying the list.</span><br />
+              Every row has a <b>Hide</b> button. Use it for agents who have retired, moved out of the area, or who you have already dealt with. Hiding is shared — the list gets cleaner for the whole team, it stays clean the next time the report is re-run, and <b>Show hidden</b> brings anyone back.</p>
+          </div>
+          <details class="churn-tech">
+            <summary>Full technical description</summary>
+            <div class="churn-tech-body">
+              <h4>Layer 1 — rolling 12-month revenue retention</h4>
+              <p>For each month end <code>asof</code>: base window is <code>[asof-24m, asof-12m)</code>, current window is <code>[asof-12m, asof)</code>, over agents with revenue in the base window. <code>GRR = sum(min(current, base)) / sum(base)</code>, capped per agent so one agent's growth cannot mask another's loss. <code>NRR = sum(current) / sum(base)</code>, uncapped. Logo retention is the share of base agents with any revenue in the current window. A full 24-month lookback is required, so the earliest months are dropped rather than reported on partial data.</p>
+              <h4>Layer 2 — Pareto/NBD P(alive)</h4>
+              <p>This is a non-contractual, continuous-time business: nobody cancels, they lapse. Pareto/NBD (Schmittlein, Morrison &amp; Colombo 1987; Fader &amp; Hardie 2005 likelihood) takes three numbers per agent — repeat order count <code>x</code>, recency <code>t_x</code>, and observed lifetime <code>T</code> — and models purchase rates as Gamma(r, alpha) and dropout rates as Gamma(s, beta) across the whole customer base. Parameters are fitted by maximum likelihood over every agent at once (values in the model line under the tiles), then each agent gets their individual posterior P(still active). Ordering volume varies by more than an order of magnitude here; that heterogeneity is a fitted parameter of the model rather than something to segment around by hand. Pareto/NBD is used rather than BG/NBD because BG/NBD only lets a customer drop out immediately after a purchase, whereas agents leave the business or switch vendors between listings.</p>
+              <h4>Seasonality — operational time</h4>
+              <p>Order volume swings roughly three times peak to trough, and the model assumes a stationary purchase rate. So calendar time is rescaled by a monthly market-activity index (mean = 1, charted in Seasonality Index): a slow December contributes less elapsed opportunity than a peak May, and silence in a quiet month is penalised less. Without it, a wave of false churn fires every January. The engine can be run with <code>--no-seasonal-adjust</code> to see the difference; the header line states whether the current snapshot used it.</p>
+              <h4>Bands and formulas</h4>
+              <ul>
+                <li><b>health</b> from P(alive): &ge; 0.65 Healthy, &ge; 0.35 Watch, &ge; 0.10 At risk, below that Likely churned.</li>
+                <li><b>urgency</b> from calendar days silent: under 90 Act now, 90–365 Re-engage, over 365 Dormant.</li>
+                <li><code>annual_value = 12 * revenue / months_observed</code>; <code>cadence_per_year = 12 * orders / months_observed</code>.</li>
+                <li><code>revenue_at_risk = annual_value * (1 - P(alive))</code>.</li>
+                <li><code>priority_score = revenue_at_risk * exp(-days_silent / 365)</code> — the annualised loss, decayed by how cold the lead is. This is the Outreach Queue ranking.</li>
+                <li>Outreach Queue = agents who are not Healthy and have a positive priority score, top 300.</li>
+                <li>The <b>Revenue at risk</b> tile sums <code>revenue_at_risk</code> over Watch and At risk agents only — the recoverable band, excluding anyone already written off and anyone hidden.</li>
+              </ul>
+              <h4>Data cleaning and identity</h4>
+              <p>Excluded from both numerator and denominator: unparseable dates, non-completed statuses, zero-value orders, rows with no agent GUID, and test/internal records. The header line reports kept versus total rows. Agents are keyed on the Spiro agent GUID, which survives a move between brokerages — the identity audit under the tiles states how many agents moved on one GUID this run. Company-level rollups can still split when one brokerage name is held under several company IDs; those are listed under Data Quality and do not affect any agent-level figure.</p>
+              <h4>Hidden agents</h4>
+              <p>Dismissals are stored in the dashboard database keyed by agent GUID, not in the report file, and are re-applied every time the snapshot is read — so hiding survives the engine regenerating the report. They are shared across everyone with access to this report, recorded with who hid the agent and why. A hidden agent drops out of the Outreach Queue, the Agent Scores table, the health-tier counts, and the revenue-at-risk and queue-size tiles. The board metrics — GRR, NRR and logo retention — deliberately ignore dismissals and always cover every agent.</p>
+              <h4>Not yet wired — MLS capture rate</h4>
+              <p>The definitive measure would be capture rate: our orders divided by the listings that agent actually took, per period. It removes the remaining ambiguity — zero orders against zero listings is dormancy, zero orders against four listings is defection, visible the week it happens — and yields a true per-agent share of wallet. It needs listing counts joined to <code>agent_id</code> from an MLS feed.</p>
+              <h4>Refreshing</h4>
+              <p>Nothing is computed in the dashboard. The Python engine at <code>reports/wow_retention/wow_retention.py</code> writes the snapshot this page renders; re-run it (or its schedule) to refresh, and the header line shows when it last ran.</p>
+            </div>
+          </details>
+        </div>
+
         <div id="churn-tiles" class="stats-grid"></div>
         <div id="churn-meta" class="card" style="margin-bottom:1.5rem"></div>
         <div style="margin-bottom:0.25rem;font-weight:700">Outreach Queue — recoverable agents by priority</div>
         <div class="text-muted" style="font-size:0.85rem;margin-bottom:0.5rem">Annualised revenue at risk, decayed by how cold the lead is. The top of the list is the most important call of the day.</div>
+        <div id="churn-hidden-bar"></div>
         <div id="churn-queue-table" style="margin-bottom:1.5rem"></div>
         <div style="margin-bottom:0.5rem;font-weight:700">Revenue Retention — rolling 12-month</div>
         <div id="churn-retention" class="card" style="margin-bottom:1.5rem"></div>
@@ -2644,7 +2714,24 @@ ${REPORT_TABLE_COMPONENT_JS}
   // Renders the JSON snapshot the Python retention engine writes to the
   // workspace. No compute here; refresh = re-run the engine.
   var churnQueueTable = null, churnScoresTable = null;
+  // report: last snapshot; dismissed: agentKey -> dismissal record (shared across
+  // the team, stored server-side); showHidden: viewing mode only — the tiles and
+  // tier counts always describe the cleaned list.
+  var churnState = { report: null, dismissed: {}, showHidden: false };
   var CHURN_HEALTH_COLOR = { 'Healthy':'#2f855a', 'Watch':'#b7791f', 'At risk':'#c05621', 'Likely churned':'#b5473b' };
+  // Mirror of churnAgentKey() in churn-store.ts — change both together.
+  function churnKey(row){
+    var id = row.agent_id == null ? '' : String(row.agent_id).trim();
+    if (id) return id;
+    var name = row.agent_name == null ? '' : String(row.agent_name).trim();
+    var company = row.company_name == null ? '' : String(row.company_name).trim();
+    return name + '|' + company;
+  }
+  function churnIsHidden(row){ return !!churnState.dismissed[churnKey(row)]; }
+  function churnKept(rows){ return (rows || []).filter(function(r){ return !churnIsHidden(r); }); }
+  // What a table shows: the cleaned list, plus the hidden rows while the viewer
+  // has "Show hidden" on so they can restore them in place.
+  function churnRowsFor(rows){ return churnState.showHidden ? (rows || []) : churnKept(rows); }
   function churnPct(v){ return (v == null) ? '—' : (Number(v) * 100).toFixed(1) + '%'; }
   function churnMoney(v){ return (v == null) ? '—' : '$' + Math.round(Number(v)).toLocaleString(); }
   function churnNum(v){ return (v == null) ? '—' : Number(v).toLocaleString(); }
@@ -2653,9 +2740,30 @@ ${REPORT_TABLE_COMPONENT_JS}
     var txt = (count === undefined || count === '') ? esc(label) : esc(label) + ': ' + count;
     return '<span style="font-size:0.75rem;font-weight:700;padding:3px 9px;border-radius:6px;background:'+c+'1a;color:'+c+'">'+txt+'</span>';
   }
+  // Agent name, annotated when the row is one of the hidden ones on show.
+  function churnAgentCell(r){
+    var name = esc(r.agent_name == null ? '' : String(r.agent_name));
+    var d = churnState.dismissed[churnKey(r)];
+    if (!d) return name;
+    var who = d.dismissedByName ? ' by ' + d.dismissedByName : '';
+    var when = d.dismissedAt ? ' on ' + new Date(d.dismissedAt).toISOString().slice(0, 10) : '';
+    var why = d.reason ? ' — ' + d.reason : '';
+    return name + ' <span class="text-muted" style="font-size:0.72rem" title="' + esc('Hidden' + who + when + why) + '">(hidden)</span>';
+  }
+  function churnActionCell(r){
+    var k = esc(churnKey(r));
+    return churnIsHidden(r)
+      ? '<button type="button" class="btn btn-sm churn-restore-btn" data-key="' + k + '">Restore</button>'
+      : '<button type="button" class="btn btn-sm churn-hide-btn" data-key="' + k + '">Hide</button>';
+  }
+  // Buttons live inside a table body that re-renders on every sort/filter, so
+  // the handlers are delegated from the document once.
+  // value() feeds sort + CSV, so the export says whether a row is hidden rather
+  // than carrying an empty column.
+  var CHURN_ACTION_COL = { key:'actions', label:'Actions', value:function(r){ return churnIsHidden(r) ? 'hidden' : ''; }, render:churnActionCell };
   function churnQueueCols(){
     return [
-      { key:'agent', label:'Agent', value:function(r){ return r.agent_name; } },
+      { key:'agent', label:'Agent', value:function(r){ return r.agent_name; }, render:churnAgentCell },
       { key:'company', label:'Brokerage', value:function(r){ return r.company_name; } },
       { key:'health', label:'Health', value:function(r){ return r.health; }, render:function(r){ return churnHealthChip(r.health); } },
       { key:'urgency', label:'Urgency', value:function(r){ return r.urgency; } },
@@ -2664,12 +2772,13 @@ ${REPORT_TABLE_COMPONENT_JS}
       { key:'cadence', label:'Orders/yr', type:'num', value:function(r){ return r.cadence_per_year; }, render:function(r){ return Number(r.cadence_per_year).toFixed(1); } },
       { key:'annual', label:'Annual value', type:'num', value:function(r){ return r.annual_value; }, render:function(r){ return churnMoney(r.annual_value); } },
       { key:'risk', label:'Rev at risk', type:'num', value:function(r){ return r.revenue_at_risk; }, render:function(r){ return churnMoney(r.revenue_at_risk); } },
-      { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } }
+      { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } },
+      CHURN_ACTION_COL
     ];
   }
   function churnScoreCols(){
     return [
-      { key:'agent', label:'Agent', value:function(r){ return r.agent_name; } },
+      { key:'agent', label:'Agent', value:function(r){ return r.agent_name; }, render:churnAgentCell },
       { key:'company', label:'Brokerage', value:function(r){ return r.company_name; } },
       { key:'orders', label:'Orders', type:'num', value:function(r){ return r.orders; } },
       { key:'cadence', label:'Orders/yr', type:'num', value:function(r){ return r.cadence_per_year; }, render:function(r){ return Number(r.cadence_per_year).toFixed(1); } },
@@ -2679,7 +2788,8 @@ ${REPORT_TABLE_COMPONENT_JS}
       { key:'urgency', label:'Urgency', value:function(r){ return r.urgency; } },
       { key:'days', label:'Days silent', type:'num', value:function(r){ return r.days_silent; } },
       { key:'risk', label:'Rev at risk', type:'num', value:function(r){ return r.revenue_at_risk; }, render:function(r){ return churnMoney(r.revenue_at_risk); } },
-      { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } }
+      { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } },
+      CHURN_ACTION_COL
     ];
   }
   function churnSpark(rows, key, color, lo, hi, w, hgt){
@@ -2734,17 +2844,149 @@ ${REPORT_TABLE_COMPONENT_JS}
     return '<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.4rem">Brokerage names held under more than one company ID (company rollups split; agent-level analysis is unaffected)</div><table style="width:100%;border-collapse:collapse;font-size:0.82rem"><thead><tr><th style="text-align:left">Brokerage</th><th>IDs</th><th style="text-align:left">Detail</th></tr></thead><tbody>'+body+'</tbody></table>';
   }
   function churnClearBody(){
-    ['churn-tiles','churn-meta','churn-queue-table','churn-retention','churn-scores-table','churn-conversion','churn-seasonality','churn-dq'].forEach(function(id){
+    ['churn-tiles','churn-meta','churn-hidden-bar','churn-queue-table','churn-retention','churn-scores-table','churn-conversion','churn-seasonality','churn-dq'].forEach(function(id){
       var el = document.getElementById(id); if (el) el.innerHTML = '';
     });
   }
+
+  // Hidden agents whose key is no longer anywhere in the snapshot (the agent
+  // stopped appearing in the source data). They can never surface in a table, so
+  // the bar carries their restore buttons.
+  function churnOrphanDismissals(){
+    var rep = churnState.report;
+    var present = {};
+    if (rep) {
+      (rep.agent_scores || []).concat(rep.outreach_queue || []).forEach(function(r){ present[churnKey(r)] = true; });
+    }
+    return Object.keys(churnState.dismissed)
+      .filter(function(k){ return !present[k]; })
+      .map(function(k){ return churnState.dismissed[k]; });
+  }
+  function churnRenderHiddenBar(){
+    var el = document.getElementById('churn-hidden-bar');
+    if (!el) return;
+    var n = Object.keys(churnState.dismissed).length;
+    if (!n) { el.innerHTML = ''; return; }
+    var label = n === 1 ? '1 agent hidden' : churnNum(n) + ' agents hidden';
+    var html = '<div class="churn-hidden-bar"><span>🙈 ' + label + ' — left out of the queue, the scores table and the tiles above.</span>'
+      + '<button type="button" class="btn btn-sm" id="churn-toggle-hidden">' + (churnState.showHidden ? 'Hide them again' : 'Show hidden') + '</button>';
+    if (churnState.showHidden) {
+      var orphans = churnOrphanDismissals();
+      if (orphans.length) {
+        html += '<div style="flex-basis:100%;margin-top:0.35rem" class="text-muted">No longer in the report data, so only restorable here:</div>';
+        html += orphans.map(function(d){
+          return '<span style="flex-basis:100%;display:flex;gap:0.5rem;align-items:center">'
+            + '<span>' + esc(d.agentName) + (d.companyName ? ' <span class="text-muted">— ' + esc(d.companyName) + '</span>' : '') + '</span>'
+            + '<button type="button" class="btn btn-sm churn-restore-btn" data-key="' + esc(d.agentKey) + '">Restore</button></span>';
+        }).join('');
+      }
+    }
+    el.innerHTML = html + '</div>';
+    var toggle = document.getElementById('churn-toggle-hidden');
+    if (toggle) toggle.addEventListener('click', function(){ churnState.showHidden = !churnState.showHidden; churnApply(); });
+  }
+
+  // Re-render everything a dismissal can move. Board metrics (GRR/NRR/logo) and
+  // the snapshot provenance line stay whole — hiding an agent is a worklist
+  // decision, not a restatement of the retention numbers.
+  function churnApply(){
+    var rep = churnState.report;
+    if (!rep) return;
+    var hiddenCount = Object.keys(churnState.dismissed).length;
+    var keptScores = churnKept(rep.agent_scores || []);
+    var keptQueue = churnKept(rep.outreach_queue || []);
+    var h = rep.headline || {};
+    var atRisk = keptScores.reduce(function(sum, r){
+      return (r.health === 'Watch' || r.health === 'At risk') ? sum + Number(r.revenue_at_risk || 0) : sum;
+    }, 0);
+
+    document.getElementById('churn-header').innerHTML = '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;align-items:center">'
+      + '<div><div style="font-weight:700;font-size:1.05rem">Churn &amp; Retention</div>'
+      + '<div class="text-muted" style="font-size:0.85rem">Observation window ends '+esc(String(rep.observation_end))+' · '+churnNum(rep.orders_kept)+' clean orders · '+churnNum(rep.agents_total)+' agents · seasonal adjust '+(rep.seasonal_adjust ? 'on' : 'off')+(hiddenCount ? ' · '+churnNum(hiddenCount)+' hidden' : '')+'</div></div>'
+      + '<div class="text-muted" style="font-size:0.8rem">Generated '+esc(String(rep.generated_at).replace('T', ' ').slice(0, 16))+'</div>'
+      + '</div>';
+
+    var tiles = [
+      ['GRR (gross)', churnPct(h.grr)],
+      ['NRR (net)', churnPct(h.nrr)],
+      ['Logo retention', churnPct(h.logo_retention)],
+      ['Revenue at risk', churnMoney(atRisk)],
+      ['Outreach queue', churnNum(keptQueue.length)]
+    ];
+    document.getElementById('churn-tiles').innerHTML = tiles.map(function(t){
+      return '<div class="stat-card"><div class="stat-label">'+esc(t[0])+'</div><div class="stat-value">'+t[1]+'</div></div>';
+    }).join('');
+
+    // Tier counts follow the cleaned list too, so the chips add up to what the
+    // tables actually show.
+    var tierCounts = {};
+    keptScores.forEach(function(r){ tierCounts[r.health] = (tierCounts[r.health] || 0) + 1; });
+    var chips = ['Healthy','Watch','At risk','Likely churned'].filter(function(k){ return k in (rep.health_tiers || {}); })
+      .map(function(k){ return churnHealthChip(k, tierCounts[k] || 0); }).join(' ');
+    var m = rep.model || {}, ia = rep.identity_audit || {};
+    var iaLine = ia.guid_stable
+      ? 'Agent GUID stable across brokerage moves: YES ('+churnNum(ia.movers)+' of '+churnNum(ia.agents_total)+' agents moved on one GUID'+(ia.example ? ', e.g. '+ia.example.agent_name+' — '+ia.example.companies : '')+')'
+      : 'No brokerage moves observed this run.';
+    document.getElementById('churn-meta').innerHTML =
+      '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.75rem">'+chips+'</div>'
+      + '<div class="text-muted" style="font-size:0.82rem">Pareto/NBD (operational-month unit): r='+Number(m.r).toFixed(3)+' α='+Number(m.alpha).toFixed(3)+' s='+Number(m.s).toFixed(3)+' β='+Number(m.beta).toFixed(3)+' · mean purchase '+Number(m.mean_purchase_rate).toFixed(3)+'/mo · mean dropout '+Number(m.mean_dropout_rate).toFixed(3)+'/mo</div>'
+      + '<div class="text-muted" style="font-size:0.82rem;margin-top:0.35rem">'+esc(iaLine)+'</div>';
+
+    churnRenderHiddenBar();
+    churnQueueTable.setData(churnRowsFor(rep.outreach_queue || []));
+    churnScoresTable.setData(churnRowsFor(rep.agent_scores || []));
+    document.getElementById('churn-retention').innerHTML = churnRetentionHtml(rep.revenue_retention || []);
+    document.getElementById('churn-conversion').innerHTML = churnConversionHtml(rep.second_order_conversion || []);
+    document.getElementById('churn-seasonality').innerHTML = churnSeasonHtml(rep.seasonality || []);
+    document.getElementById('churn-dq').innerHTML = churnDqHtml(rep.data_quality || []);
+  }
+
+  function churnFindAgent(agentKey){
+    var rep = churnState.report;
+    if (!rep) return null;
+    var all = (rep.outreach_queue || []).concat(rep.agent_scores || []);
+    for (var i = 0; i < all.length; i++) {
+      if (churnKey(all[i]) === agentKey) return all[i];
+    }
+    return null;
+  }
+  async function churnHideAgent(agentKey){
+    var row = churnFindAgent(agentKey);
+    var name = row && row.agent_name ? String(row.agent_name) : 'this agent';
+    var reason = prompt('Hide ' + name + ' from this report for everyone?\\n\\nOptional note — why (retired, moved away, already called):', '');
+    if (reason === null) return;
+    var r = await api('POST', '/reports/churn/dismissals', { agentKey: agentKey, reason: reason });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not hide that agent.'); return; }
+    churnState.dismissed[agentKey] = r.data.dismissal;
+    churnApply();
+  }
+  async function churnRestoreAgent(agentKey){
+    var r = await api('DELETE', '/reports/churn/dismissals/' + encodeURIComponent(agentKey));
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not restore that agent.'); return; }
+    delete churnState.dismissed[agentKey];
+    churnApply();
+  }
+  // Delegated: both tables rebuild their rows on every sort, filter and reload.
+  document.addEventListener('click', function(e){
+    if (!e.target || !e.target.closest) return;
+    var hide = e.target.closest('.churn-hide-btn');
+    if (hide) { churnHideAgent(hide.dataset.key); return; }
+    var restore = e.target.closest('.churn-restore-btn');
+    if (restore) churnRestoreAgent(restore.dataset.key);
+  });
+
   async function loadChurn(){
     var header = document.getElementById('churn-header');
     header.innerHTML = '<div class="text-muted">Loading…</div>';
     var r = await api('GET', '/reports/churn');
     if (!r.ok) { header.innerHTML = '<div class="empty-state">Could not load the churn report.</div>'; churnClearBody(); return; }
+    // Dismissals come back alongside the snapshot and are applied client-side, so
+    // the tables, tiles and tier counts all describe the same cleaned list.
+    churnState.dismissed = {};
+    (r.data.dismissals || []).forEach(function(d){ churnState.dismissed[d.agentKey] = d; });
     var rep = r.data.report;
     if (!rep) {
+      churnState.report = null;
       var msg = (r.data.status === 'not_generated')
         ? 'No churn snapshot yet. Run the retention engine (reports/wow_retention/wow_retention.py) to generate it.'
         : 'The churn snapshot could not be read.';
@@ -2752,41 +2994,11 @@ ${REPORT_TABLE_COMPONENT_JS}
       churnClearBody();
       return;
     }
-    header.innerHTML = '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;align-items:center">'
-      + '<div><div style="font-weight:700;font-size:1.05rem">Churn &amp; Retention</div>'
-      + '<div class="text-muted" style="font-size:0.85rem">Observation window ends '+esc(String(rep.observation_end))+' · '+churnNum(rep.orders_kept)+' clean orders · '+churnNum(rep.agents_total)+' agents · seasonal adjust '+(rep.seasonal_adjust ? 'on' : 'off')+'</div></div>'
-      + '<div class="text-muted" style="font-size:0.8rem">Generated '+esc(String(rep.generated_at).replace('T', ' ').slice(0, 16))+'</div>'
-      + '</div>';
-    var h = rep.headline || {};
-    var tiles = [
-      ['GRR (gross)', churnPct(h.grr)],
-      ['NRR (net)', churnPct(h.nrr)],
-      ['Logo retention', churnPct(h.logo_retention)],
-      ['Revenue at risk', churnMoney(h.revenue_at_risk)],
-      ['Outreach queue', churnNum(h.outreach_queue_size)]
-    ];
-    document.getElementById('churn-tiles').innerHTML = tiles.map(function(t){
-      return '<div class="stat-card"><div class="stat-label">'+esc(t[0])+'</div><div class="stat-value">'+t[1]+'</div></div>';
-    }).join('');
-    var tiers = rep.health_tiers || {};
-    var chips = ['Healthy','Watch','At risk','Likely churned'].filter(function(k){ return k in tiers; })
-      .map(function(k){ return churnHealthChip(k, tiers[k]); }).join(' ');
-    var m = rep.model || {}, ia = rep.identity_audit || {};
-    var iaLine = ia.guid_stable
-      ? 'Agent GUID stable across brokerage moves: YES ('+churnNum(ia.movers)+' of '+churnNum(ia.agents_total)+' agents moved on one GUID'+(ia.example ? ', e.g. '+esc(ia.example.agent_name)+' — '+esc(ia.example.companies) : '')+')'
-      : 'No brokerage moves observed this run.';
-    document.getElementById('churn-meta').innerHTML =
-      '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.75rem">'+chips+'</div>'
-      + '<div class="text-muted" style="font-size:0.82rem">Pareto/NBD (operational-month unit): r='+Number(m.r).toFixed(3)+' α='+Number(m.alpha).toFixed(3)+' s='+Number(m.s).toFixed(3)+' β='+Number(m.beta).toFixed(3)+' · mean purchase '+Number(m.mean_purchase_rate).toFixed(3)+'/mo · mean dropout '+Number(m.mean_dropout_rate).toFixed(3)+'/mo</div>'
-      + '<div class="text-muted" style="font-size:0.82rem;margin-top:0.35rem">'+esc(iaLine)+'</div>';
-    if (!churnQueueTable) churnQueueTable = createReportTable({ containerId:'churn-queue-table', reportKey:'churn-queue', emptyMsg:'No recoverable agents at risk — nothing to call.', columns: churnQueueCols() });
-    churnQueueTable.setData(rep.outreach_queue || []);
-    document.getElementById('churn-retention').innerHTML = churnRetentionHtml(rep.revenue_retention || []);
-    if (!churnScoresTable) churnScoresTable = createReportTable({ containerId:'churn-scores-table', reportKey:'churn-scores', emptyMsg:'No agent scores.', columns: churnScoreCols() });
-    churnScoresTable.setData(rep.agent_scores || []);
-    document.getElementById('churn-conversion').innerHTML = churnConversionHtml(rep.second_order_conversion || []);
-    document.getElementById('churn-seasonality').innerHTML = churnSeasonHtml(rep.seasonality || []);
-    document.getElementById('churn-dq').innerHTML = churnDqHtml(rep.data_quality || []);
+    churnState.report = rep;
+    var rowClass = function(row){ return churnIsHidden(row) ? 'churn-row-hidden' : ''; };
+    if (!churnQueueTable) churnQueueTable = createReportTable({ containerId:'churn-queue-table', reportKey:'churn-queue', emptyMsg:'No recoverable agents at risk — nothing to call.', columns: churnQueueCols(), rowClass: rowClass });
+    if (!churnScoresTable) churnScoresTable = createReportTable({ containerId:'churn-scores-table', reportKey:'churn-scores', emptyMsg:'No agent scores.', columns: churnScoreCols(), rowClass: rowClass });
+    churnApply();
   }
 
   async function loadReports() {

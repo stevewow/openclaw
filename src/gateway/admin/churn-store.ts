@@ -34,6 +34,39 @@ export interface ChurnReportSnapshot {
   outreach_queue: Array<Record<string, unknown>>;
 }
 
+/**
+ * Stable identity for one agent row, used as the dismissal key.
+ *
+ * Snapshots from schema_version 2 carry the Spiro agent GUID, which survives a
+ * brokerage move; older snapshots do not, so fall back to name|company. The
+ * dashboard JS mirrors this rule exactly — change both together.
+ */
+export function churnAgentKey(row: Record<string, unknown>): string {
+  const id = typeof row.agent_id === "string" ? row.agent_id.trim() : "";
+  if (id) {
+    return id;
+  }
+  const name = typeof row.agent_name === "string" ? row.agent_name.trim() : "";
+  const company = typeof row.company_name === "string" ? row.company_name.trim() : "";
+  return `${name}|${company}`;
+}
+
+/**
+ * Find an agent in the snapshot by dismissal key. Agent Scores holds every
+ * agent, so it is searched first; the outreach queue is a subset of it.
+ */
+export function findChurnAgent(
+  report: ChurnReportSnapshot,
+  agentKey: string,
+): Record<string, unknown> | null {
+  for (const row of [...(report.agent_scores ?? []), ...(report.outreach_queue ?? [])]) {
+    if (churnAgentKey(row) === agentKey) {
+      return row;
+    }
+  }
+  return null;
+}
+
 export type ChurnReportResult =
   | { ok: true; report: ChurnReportSnapshot }
   | { ok: false; status: "not_generated" | "unreadable" };

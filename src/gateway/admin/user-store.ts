@@ -192,6 +192,18 @@ type PipedriveCleanupItemsTable = {
   done_at: number | null;
 };
 
+// Agents hidden from the Churn & Retention report. Shared across the team: one
+// person cleans the outreach queue and everyone sees the cleaned list.
+type ChurnDismissalsTable = {
+  agent_key: string;
+  agent_name: string;
+  company_name: string | null;
+  reason: string | null;
+  dismissed_by: string | null;
+  dismissed_by_name: string | null;
+  dismissed_at: number;
+};
+
 type FinancialNotesTable = {
   id: string;
   account_key: string;
@@ -302,6 +314,7 @@ export type AdminDb = {
   admin_spiro_photographer_shoots: SpiroPhotographerShootsTable;
   admin_spiro_photographer_refresh_log: SpiroPhotographerRefreshLogTable;
   admin_pipedrive_cleanup_items: PipedriveCleanupItemsTable;
+  admin_churn_dismissals: ChurnDismissalsTable;
   admin_financial_notes: FinancialNotesTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
@@ -567,6 +580,15 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       done_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS admin_pipedrive_cleanup_status ON admin_pipedrive_cleanup_items(status);
+    CREATE TABLE IF NOT EXISTS admin_churn_dismissals (
+      agent_key TEXT PRIMARY KEY,
+      agent_name TEXT NOT NULL,
+      company_name TEXT,
+      reason TEXT,
+      dismissed_by TEXT,
+      dismissed_by_name TEXT,
+      dismissed_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS admin_financial_notes (
       id TEXT PRIMARY KEY,
       account_key TEXT NOT NULL,

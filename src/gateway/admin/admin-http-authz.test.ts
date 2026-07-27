@@ -578,4 +578,119 @@ describe("churn report — read gated by the report grant", () => {
     const adminRes = await call("GET", "/reports/churn", { token: adminToken });
     expect(adminRes.status).toBe(200);
   });
+
+  it("refuses to dismiss when there is no snapshot to dismiss from", async () => {
+    const res = await call("POST", "/reports/churn/dismissals", {
+      token: adminToken,
+      body: { agentKey: "guid-1" },
+    });
+    expect(res.status).toBe(409);
+  });
+});
+
+describe("churn dismissals — shared hide/restore", () => {
+  const savedChurnPath = process.env.OPENCLAW_CHURN_REPORT_PATH;
+  let snapshotFile: string;
+
+  beforeAll(() => {
+    snapshotFile = path.join(TMP_DIR, "churn-snapshot.json");
+    fs.writeFileSync(
+      snapshotFile,
+      JSON.stringify({
+        schema_version: 2,
+        generated_at: "2026-07-27T12:00:00",
+        observation_end: "2026-07-27",
+        seasonal_adjust: true,
+        orders_kept: 10,
+        orders_total: 12,
+        agents_total: 2,
+        headline: {},
+        health_tiers: {},
+        model: {},
+        identity_audit: {},
+        revenue_retention: [],
+        second_order_conversion: [],
+        seasonality: [],
+        data_quality: [],
+        agent_scores: [
+          { agent_id: "guid-1", agent_name: "Dana Reyes", company_name: "CB Heritage" },
+          { agent_id: "guid-2", agent_name: "Sam Okafor", company_name: "Sibcy Cline" },
+        ],
+        outreach_queue: [
+          { agent_id: "guid-1", agent_name: "Dana Reyes", company_name: "CB Heritage" },
+        ],
+      }),
+    );
+    process.env.OPENCLAW_CHURN_REPORT_PATH = snapshotFile;
+  });
+  afterAll(() => {
+    if (savedChurnPath === undefined) {
+      delete process.env.OPENCLAW_CHURN_REPORT_PATH;
+    } else {
+      process.env.OPENCLAW_CHURN_REPORT_PATH = savedChurnPath;
+    }
+  });
+
+  it("refuses hide and restore without the report grant", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, []);
+    const hide = await call("POST", "/reports/churn/dismissals", {
+      token: plainToken,
+      body: { agentKey: "guid-1" },
+    });
+    expect(hide.status).toBe(403);
+    const restore = await call("DELETE", "/reports/churn/dismissals/guid-1", {
+      token: plainToken,
+    });
+    expect(restore.status).toBe(403);
+  });
+
+  it("lets a granted user hide an agent, sees it on the report, then restores it", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [{ permissionType: "report", value: "churn" }]);
+
+    const hide = await call("POST", "/reports/churn/dismissals", {
+      token: plainToken,
+      body: { agentKey: "guid-1", reason: "Retired in June" },
+    });
+    expect(hide.status).toBe(200);
+    // Name and brokerage come from the snapshot, not the request body.
+    expect(hide.json?.dismissal).toMatchObject({
+      agentKey: "guid-1",
+      agentName: "Dana Reyes",
+      companyName: "CB Heritage",
+      reason: "Retired in June",
+      dismissedByName: "other",
+    });
+
+    // Any other viewer of the report sees the same dismissal.
+    const read = await call("GET", "/reports/churn", { token: adminToken });
+    expect(read.status).toBe(200);
+    expect(read.json?.dismissals).toHaveLength(1);
+
+    const restore = await call("DELETE", "/reports/churn/dismissals/guid-1", {
+      token: plainToken,
+    });
+    expect(restore.status).toBe(200);
+    const after = await call("GET", "/reports/churn", { token: adminToken });
+    expect(after.json?.dismissals).toEqual([]);
+  });
+
+  it("rejects an agent key that is not in the snapshot, and a missing key", async () => {
+    const unknown = await call("POST", "/reports/churn/dismissals", {
+      token: adminToken,
+      body: { agentKey: "guid-nope" },
+    });
+    expect(unknown.status).toBe(404);
+    const missing = await call("POST", "/reports/churn/dismissals", {
+      token: adminToken,
+      body: {},
+    });
+    expect(missing.status).toBe(400);
+  });
+
+  it("reports 404 when restoring an agent that was not hidden", async () => {
+    const res = await call("DELETE", "/reports/churn/dismissals/guid-2", { token: adminToken });
+    expect(res.status).toBe(404);
+  });
 });

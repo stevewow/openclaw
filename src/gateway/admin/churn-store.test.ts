@@ -2,7 +2,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getChurnReport, resolveChurnReportPath } from "./churn-store.js";
+import {
+  type ChurnReportSnapshot,
+  churnAgentKey,
+  findChurnAgent,
+  getChurnReport,
+  resolveChurnReportPath,
+} from "./churn-store.js";
 
 const ENV_KEYS = ["OPENCLAW_CHURN_REPORT_PATH", "OPENCLAW_WORKSPACE_DIR"] as const;
 
@@ -90,5 +96,34 @@ describe("churn-store", () => {
       expect(result.report.schema_version).toBe(1);
       expect(result.report.health_tiers["Likely churned"]).toBe(1);
     }
+  });
+});
+
+describe("churn agent identity", () => {
+  it("keys on the agent GUID when the snapshot carries one", () => {
+    expect(churnAgentKey({ agent_id: " guid-1 ", agent_name: "Dana", company_name: "CB" })).toBe(
+      "guid-1",
+    );
+  });
+
+  it("falls back to name|company on a pre-GUID snapshot", () => {
+    expect(churnAgentKey({ agent_name: " Dana Reyes ", company_name: "CB Heritage" })).toBe(
+      "Dana Reyes|CB Heritage",
+    );
+    expect(churnAgentKey({ agent_id: "  ", agent_name: "Dana" })).toBe("Dana|");
+  });
+
+  it("finds an agent that is only in the outreach queue", () => {
+    const report = {
+      agent_scores: [{ agent_id: "guid-1", agent_name: "Dana" }],
+      outreach_queue: [{ agent_id: "guid-2", agent_name: "Sam", company_name: "Sibcy" }],
+    } as unknown as ChurnReportSnapshot;
+    expect(findChurnAgent(report, "guid-2")?.agent_name).toBe("Sam");
+    expect(findChurnAgent(report, "guid-1")?.agent_name).toBe("Dana");
+    expect(findChurnAgent(report, "guid-9")).toBeNull();
+  });
+
+  it("tolerates a snapshot with no agent arrays", () => {
+    expect(findChurnAgent({} as ChurnReportSnapshot, "guid-1")).toBeNull();
   });
 });
