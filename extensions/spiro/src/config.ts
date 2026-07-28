@@ -3,12 +3,20 @@ import path from "node:path";
 
 export const SPIRO_MCP_URL = "https://mcp.spiro.media/mcp";
 export const SPIRO_AUTH_BASE = "https://ai-auth.spiro.media";
-export const SPIRO_SCOPE = "spiro.public_api.read";
+// `offline_access` is what makes the authorization server return a refresh
+// token; without it every connection dies silently when the access token lapses
+// (~24h) and only a hand-run reconnect brings it back. Advertised in the
+// server's `scopes_supported`, and granted on registration.
+export const SPIRO_SCOPE = "spiro.public_api.read offline_access";
 
+// `refresh_token` is optional on purpose: the authorization server only issues
+// one when `offline_access` is granted, and tokens saved before that scope was
+// requested have none. Callers must treat a missing one as "reconnect needed"
+// rather than assume renewal is always possible.
 export type SpiroTokens = {
   client_id: string;
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string;
   expires_at: number;
 };
 

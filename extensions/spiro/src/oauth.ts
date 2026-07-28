@@ -115,7 +115,7 @@ export async function handleCallback(url: URL): Promise<string> {
     if (!res.ok) throw new Error(`Token exchange failed: ${res.status} ${await res.text()}`);
     const data = (await res.json()) as {
       access_token: string;
-      refresh_token: string;
+      refresh_token?: string;
       expires_in: number;
     };
     const tokens: SpiroTokens = {
@@ -134,6 +134,9 @@ export async function handleCallback(url: URL): Promise<string> {
 }
 
 export async function refreshTokens(tokens: SpiroTokens): Promise<SpiroTokens> {
+  if (!tokens.refresh_token) {
+    throw new Error("No Spiro refresh token — reconnect Spiro to grant offline access.");
+  }
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: tokens.refresh_token,

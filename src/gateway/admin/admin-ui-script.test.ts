@@ -44,6 +44,22 @@ describe("admin dashboard inline script", () => {
     }
   });
 
+  it("gives the churn report the shared Spiro reconnect banner", () => {
+    // Churn refreshes pull from Spiro, so an expired connection has to be
+    // recoverable from this page like it is on the Financials reports. The
+    // banner is driven by the shared `.js-spiro-*` hooks, so it must sit inside
+    // the churn page rather than anywhere in the document.
+    const start = ADMIN_UI_HTML.indexOf('id="page-churn"');
+    const end = ADMIN_UI_HTML.indexOf('class="card churn-refresh"', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const churnTop = ADMIN_UI_HTML.slice(start, end);
+    expect(churnTop).toContain("js-spiro-banner");
+    expect(churnTop).toContain("js-spiro-reconnect");
+    expect(churnTop).toContain("js-spiro-title");
+    expect(churnTop).toContain("js-spiro-msg");
+  });
+
   it("keeps the how-to-read explainer collapsed by default", () => {
     // <details> without `open`: expandable, but closed on arrival.
     expect(ADMIN_UI_HTML).toContain('<details class="card churn-howto"');

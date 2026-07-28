@@ -818,6 +818,18 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
         <div id="churn-header" class="card" style="margin-bottom:1rem"></div>
 
+        <!-- Same Spiro banner the Financials reports carry: the refresh below
+             pulls order history over the Spiro connection, so an expired token
+             is the first thing to check when a refresh fails. -->
+        <div class="card hidden js-spiro-banner" style="margin-bottom:1rem;border-left:3px solid #d97706;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <span style="font-size:1.15rem">⚠️</span>
+          <div style="flex:1;min-width:220px">
+            <div style="font-weight:600" class="js-spiro-title">Spiro session expired</div>
+            <div class="text-muted js-spiro-msg" style="font-size:0.8rem">Showing the last snapshot. Reconnect before refreshing from Spiro.</div>
+          </div>
+          <button class="btn btn-primary btn-sm js-spiro-reconnect">Reconnect Spiro</button>
+        </div>
+
         <!-- Refresh controls: window + seasonal adjustment, then re-pull and
              re-run. Progress is polled, so the panel below fills in while the
              engine works. -->
@@ -3182,6 +3194,9 @@ ${REPORT_TABLE_COMPONENT_JS}
       if (r.data.refresh.status !== 'running') {
         churnStopPolling();
         if (r.data.refresh.status === 'ok') loadChurn();
+        // An expired Spiro token is the usual cause of a failed pull, so surface
+        // the reconnect banner instead of leaving the log as the only clue.
+        else updateSpiroBanner();
       }
     }, 3000);
   }
@@ -3193,6 +3208,7 @@ ${REPORT_TABLE_COMPONENT_JS}
       churnState.refresh = { status:'error', step:'Failed', years: years, seasonal: seasonal,
         error: (r.data && r.data.error) || 'Could not start the refresh.', log: [] };
       churnRenderRefresh();
+      updateSpiroBanner();
       return;
     }
     churnState.refresh = r.data.refresh;
@@ -3204,6 +3220,7 @@ ${REPORT_TABLE_COMPONENT_JS}
   async function loadChurn(){
     var header = document.getElementById('churn-header');
     header.innerHTML = '<div class="text-muted">Loading…</div>';
+    updateSpiroBanner();
     var r = await api('GET', '/reports/churn');
     if (!r.ok) { header.innerHTML = '<div class="empty-state">Could not load the churn report.</div>'; churnClearBody(); return; }
     // Dismissals come back alongside the snapshot and are applied client-side, so
@@ -3515,6 +3532,14 @@ ${REPORT_TABLE_COMPONENT_JS}
     const banners = document.querySelectorAll('.js-spiro-banner');
     if (!banners.length) return false;
     const s = await api('GET', '/financials/spiro/status');
+    // The status probe and the reconnect flow are admin-only, and Churn is a
+    // report-granted page. A non-admin gets no banner rather than a misleading
+    // "not connected" plus a button that would 403 — reconnecting is an admin
+    // job, and the refresh panel still reports the failure in words.
+    if (s.status === 403) {
+      banners.forEach(banner => banner.classList.add('hidden'));
+      return true;
+    }
     const connected = !!(s.ok && s.data && s.data.connected);
     const everConnected = !!(s.ok && s.data && s.data.expiresAt);
     banners.forEach(banner => {
@@ -3724,8 +3749,15 @@ ${REPORT_TABLE_COMPONENT_JS}
         if (connected) {
           const fin = document.getElementById('page-financials');
           const cle = document.getElementById('page-cleveland');
+          const chu = document.getElementById('page-churn');
           if (fin && !fin.classList.contains('hidden')) refreshFinancials();
           else if (cle && !cle.classList.contains('hidden')) refreshCleveland();
+          // Churn's refresh is a minutes-long server job rather than a re-read,
+          // so it is started only if one is not already in flight; the status
+          // panel below the button reports its progress from here on.
+          else if (chu && !chu.classList.contains('hidden')) {
+            if (!churnState.refresh || churnState.refresh.status !== 'running') churnStartRefresh();
+          }
         }
       }
     }, 3000);
