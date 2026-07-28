@@ -262,6 +262,29 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
         docker-ce-cli docker-compose-plugin; \
     fi
 
+# Optionally install the Python scientific stack used by workspace report
+# engines (the admin dashboard's Churn & Retention report shells out to
+# reports/wow_retention/wow_retention.py, which needs pandas/numpy/scipy).
+# Build with: docker build --build-arg OPENCLAW_INSTALL_PYTHON_REPORTS=1 ...
+# Adds ~300MB of manylinux wheels, so it is off by default.
+# The venv is on PATH ahead of the system interpreter, so `python3` resolves to
+# it for the gateway and anything it spawns.
+ARG OPENCLAW_INSTALL_PYTHON_REPORTS=""
+ENV OPENCLAW_PYTHON_REPORTS_VENV=/opt/openclaw-python
+RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=openclaw-bookworm-apt-lists,target=/var/lib/apt,sharing=locked \
+    if [ -n "$OPENCLAW_INSTALL_PYTHON_REPORTS" ]; then \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-pip && \
+      python3 -m venv "$OPENCLAW_PYTHON_REPORTS_VENV" && \
+      "$OPENCLAW_PYTHON_REPORTS_VENV/bin/pip" install --no-cache-dir --upgrade pip && \
+      "$OPENCLAW_PYTHON_REPORTS_VENV/bin/pip" install --no-cache-dir \
+        pandas numpy scipy requests openpyxl && \
+      "$OPENCLAW_PYTHON_REPORTS_VENV/bin/python" -c "import pandas, numpy, scipy, openpyxl"; \
+    fi
+ENV PATH="/opt/openclaw-python/bin:${PATH}"
+
 # Expose the CLI binary without requiring npm global writes as non-root.
 RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw \
  && chmod 755 /app/openclaw.mjs

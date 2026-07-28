@@ -1,7 +1,12 @@
 services:
   openclaw-gateway:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
-    build: .
+    build:
+      context: .
+      args:
+        # Python + pandas/numpy/scipy for workspace report engines (the admin
+        # Churn & Retention refresh shells out to one). Empty = not installed.
+        OPENCLAW_INSTALL_PYTHON_REPORTS: ${OPENCLAW_INSTALL_PYTHON_REPORTS:-}
     env_file:
       - path: .env
         required: false
