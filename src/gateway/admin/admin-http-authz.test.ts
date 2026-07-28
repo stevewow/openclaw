@@ -693,4 +693,163 @@ describe("churn dismissals — shared hide/restore", () => {
     const res = await call("DELETE", "/reports/churn/dismissals/guid-2", { token: adminToken });
     expect(res.status).toBe(404);
   });
+
+  it("files the hide reason as a note, so it outlives the dismissal", async () => {
+    const hide = await call("POST", "/reports/churn/dismissals", {
+      token: adminToken,
+      body: { agentKey: "guid-2", reason: "Moved to Florida" },
+    });
+    expect(hide.status).toBe(200);
+    expect(hide.json?.note).toMatchObject({
+      agentKey: "guid-2",
+      body: "Hidden: Moved to Florida",
+    });
+
+    await call("DELETE", "/reports/churn/dismissals/guid-2", { token: adminToken });
+    const read = await call("GET", "/reports/churn", { token: adminToken });
+    expect(read.json?.dismissals).toEqual([]);
+    // Restored, but the record of why they were hidden stays on the report.
+    const notes = (
+      read.json?.notes as Array<{ id: string; agentKey: string; body: string }>
+    ).filter((n) => n.agentKey === "guid-2");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.body).toBe("Hidden: Moved to Florida");
+  });
+});
+
+describe("churn notes — shared agent notes", () => {
+  const savedChurnPath = process.env.OPENCLAW_CHURN_REPORT_PATH;
+  let snapshotFile: string;
+
+  beforeAll(() => {
+    snapshotFile = path.join(TMP_DIR, "churn-notes-snapshot.json");
+    fs.writeFileSync(
+      snapshotFile,
+      JSON.stringify({
+        schema_version: 3,
+        generated_at: "2026-07-27T12:00:00",
+        observation_end: "2026-07-27",
+        observation_start: "2023-07-28",
+        window_years: 3,
+        seasonal_adjust: true,
+        orders_kept: 10,
+        orders_total: 12,
+        agents_total: 1,
+        headline: {},
+        health_tiers: {},
+        model: {},
+        identity_audit: {},
+        revenue_retention: [],
+        second_order_conversion: [],
+        seasonality: [],
+        data_quality: [],
+        agent_scores: [
+          { agent_id: "guid-1", agent_name: "Dana Reyes", company_name: "CB Heritage" },
+        ],
+        outreach_queue: [],
+      }),
+    );
+    process.env.OPENCLAW_CHURN_REPORT_PATH = snapshotFile;
+  });
+  afterAll(() => {
+    if (savedChurnPath === undefined) {
+      delete process.env.OPENCLAW_CHURN_REPORT_PATH;
+    } else {
+      process.env.OPENCLAW_CHURN_REPORT_PATH = savedChurnPath;
+    }
+  });
+
+  it("refuses reading and writing notes without the report grant", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, []);
+    const read = await call("GET", "/reports/churn/notes/guid-1", { token: plainToken });
+    expect(read.status).toBe(403);
+    const write = await call("POST", "/reports/churn/notes/guid-1", {
+      token: plainToken,
+      body: { body: "nope" },
+    });
+    expect(write.status).toBe(403);
+  });
+
+  it("adds a note against an agent in the snapshot and shares it with the team", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [{ permissionType: "report", value: "churn" }]);
+    const added = await call("POST", "/reports/churn/notes/guid-1", {
+      token: plainToken,
+      body: { body: "Called — listing again in spring." },
+    });
+    expect(added.status).toBe(200);
+    // Name and brokerage are read from the snapshot, never from the request.
+    expect(added.json?.note).toMatchObject({
+      agentKey: "guid-1",
+      agentName: "Dana Reyes",
+      companyName: "CB Heritage",
+      body: "Called — listing again in spring.",
+      createdByName: "other",
+    });
+
+    const noteId = (added.json?.note as { id: string }).id;
+    const mine = await call("GET", "/reports/churn/notes/guid-1", { token: adminToken });
+    expect((mine.json?.notes as Array<{ id: string }>).map((n) => n.id)).toContain(noteId);
+    // The snapshot read carries every note, so each row can show its own.
+    const onReport = await call("GET", "/reports/churn", { token: adminToken });
+    expect((onReport.json?.notes as Array<{ id: string }>).map((n) => n.id)).toContain(noteId);
+
+    const del = await call("DELETE", `/reports/churn/notes/guid-1/${noteId}`, {
+      token: adminToken,
+    });
+    expect(del.status).toBe(200);
+    const after = await call("GET", "/reports/churn", { token: adminToken });
+    expect((after.json?.notes as Array<{ id: string }>).map((n) => n.id)).not.toContain(noteId);
+  });
+
+  it("rejects an empty note and an agent that is not in the snapshot", async () => {
+    const empty = await call("POST", "/reports/churn/notes/guid-1", {
+      token: adminToken,
+      body: { body: "   " },
+    });
+    expect(empty.status).toBe(400);
+    const unknown = await call("POST", "/reports/churn/notes/guid-nope", {
+      token: adminToken,
+      body: { body: "hello" },
+    });
+    expect(unknown.status).toBe(404);
+  });
+
+  it("reports 404 when deleting a note that does not exist", async () => {
+    const res = await call("DELETE", "/reports/churn/notes/guid-1/no-such-note", {
+      token: adminToken,
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("churn refresh — gated, validated, one at a time", () => {
+  it("refuses to start or read a refresh without the report grant", async () => {
+    const plainToken = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, []);
+    const start = await call("POST", "/reports/churn/refresh", {
+      token: plainToken,
+      body: { years: 3 },
+    });
+    expect(start.status).toBe(403);
+    const status = await call("GET", "/reports/churn/refresh", { token: plainToken });
+    expect(status.status).toBe(403);
+  });
+
+  it("rejects a window the engine is not offered", async () => {
+    for (const years of [0, 4, 99, "3"]) {
+      const res = await call("POST", "/reports/churn/refresh", {
+        token: adminToken,
+        body: { years },
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("reports an idle state before anything has run", async () => {
+    const res = await call("GET", "/reports/churn/refresh", { token: adminToken });
+    expect(res.status).toBe(200);
+    expect(res.json?.refresh).toMatchObject({ status: "idle" });
+  });
 });

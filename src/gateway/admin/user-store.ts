@@ -204,6 +204,20 @@ type ChurnDismissalsTable = {
   dismissed_at: number;
 };
 
+// Free-text notes against an agent on the Churn & Retention report. Shared, and
+// kept out of the snapshot so they survive the engine regenerating it. Appended
+// rather than overwritten: the note history is the record of who chased whom.
+type ChurnNotesTable = {
+  id: string;
+  agent_key: string;
+  agent_name: string;
+  company_name: string | null;
+  body: string;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: number;
+};
+
 type FinancialNotesTable = {
   id: string;
   account_key: string;
@@ -315,6 +329,7 @@ export type AdminDb = {
   admin_spiro_photographer_refresh_log: SpiroPhotographerRefreshLogTable;
   admin_pipedrive_cleanup_items: PipedriveCleanupItemsTable;
   admin_churn_dismissals: ChurnDismissalsTable;
+  admin_churn_notes: ChurnNotesTable;
   admin_financial_notes: FinancialNotesTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
@@ -589,6 +604,17 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       dismissed_by_name TEXT,
       dismissed_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS admin_churn_notes (
+      id TEXT PRIMARY KEY,
+      agent_key TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      company_name TEXT,
+      body TEXT NOT NULL,
+      created_by TEXT,
+      created_by_name TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_churn_notes_agent ON admin_churn_notes(agent_key);
     CREATE TABLE IF NOT EXISTS admin_financial_notes (
       id TEXT PRIMARY KEY,
       account_key TEXT NOT NULL,

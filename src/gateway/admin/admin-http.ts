@@ -33,6 +33,18 @@ import {
   listChurnDismissals,
   restoreChurnAgent,
 } from "./churn-dismissals-store.js";
+import {
+  addChurnNote,
+  deleteChurnNote,
+  listChurnNotes,
+  listChurnNotesForAgent,
+} from "./churn-notes-store.js";
+import {
+  CHURN_YEAR_CHOICES,
+  getChurnRefreshState,
+  isChurnYears,
+  startChurnRefresh,
+} from "./churn-refresh.js";
 import { findChurnAgent, getChurnReport } from "./churn-store.js";
 import {
   DEFAULT_TREND_WINDOW,
@@ -2001,8 +2013,8 @@ export async function handleAdminHttpRequest(
   }
 
   // GET /api/admin/reports/churn — churn & retention snapshot. Read-only render
-  // of the JSON the Python retention engine writes into the workspace; there is
-  // no inline compute or refresh route (re-run the engine to refresh).
+  // of the JSON the Python retention engine writes into the workspace; nothing
+  // is computed here. /reports/churn/refresh re-runs the engine.
   if (subPath === "/reports/churn" && req.method === "GET") {
     if (!(await hasReportAccess("churn"))) {
       sendForbidden(res);
@@ -2012,14 +2024,65 @@ export async function handleAdminHttpRequest(
     // a per-agent workspace; getChurnReport resolves it from OPENCLAW_WORKSPACE_DIR
     // (or OPENCLAW_CHURN_REPORT_PATH).
     const result = await getChurnReport();
-    // Dismissals are stored outside the snapshot and re-applied on every read,
-    // so hiding an agent survives the engine regenerating the file.
+    // Dismissals and notes are stored outside the snapshot and re-applied on
+    // every read, so both survive the engine regenerating the file.
     const dismissals = await listChurnDismissals();
+    const notes = await listChurnNotes();
+    const refresh = getChurnRefreshState();
     if (!result.ok) {
-      sendJson(res, 200, { report: null, status: result.status, dismissals });
+      sendJson(res, 200, { report: null, status: result.status, dismissals, notes, refresh });
       return true;
     }
-    sendJson(res, 200, { report: result.report, dismissals });
+    sendJson(res, 200, { report: result.report, dismissals, notes, refresh });
+    return true;
+  }
+
+  // POST /api/admin/reports/churn/refresh — re-pull order history from Spiro and
+  // re-run the retention engine over the chosen window. The work takes minutes,
+  // so this starts a background job and answers immediately; the dashboard polls
+  // the status route below. Report-access gated like the dismissals routes: the
+  // people working the queue are the ones who need today's numbers.
+  if (subPath === "/reports/churn/refresh" && req.method === "POST") {
+    if (!(await hasReportAccess("churn"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    // Strict: the window is one of a fixed set, and it decides how much history
+    // gets pulled — a coerced "3" or a stray 30 is worth a 400, not a guess.
+    const years = data.years;
+    if (!isChurnYears(years)) {
+      sendBadRequest(res, `years must be one of ${CHURN_YEAR_CHOICES.join(", ")}`);
+      return true;
+    }
+    // Seasonal adjustment is on unless explicitly turned off.
+    const seasonal = data.seasonal !== false;
+    try {
+      const state = startChurnRefresh({
+        years,
+        seasonal,
+        byUserName: sessionUser.username,
+      });
+      sendJson(res, 202, { refresh: state });
+    } catch (err) {
+      // Only thrown when a run is already in flight — a conflict, not a fault.
+      sendJson(res, 409, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+
+  // GET /api/admin/reports/churn/refresh — progress of the current or last run.
+  if (subPath === "/reports/churn/refresh" && req.method === "GET") {
+    if (!(await hasReportAccess("churn"))) {
+      sendForbidden(res);
+      return true;
+    }
+    sendJson(res, 200, { refresh: getChurnRefreshState() });
     return true;
   }
 
@@ -2054,15 +2117,96 @@ export async function handleAdminHttpRequest(
       sendJson(res, 404, { error: "agent not in the current snapshot" });
       return true;
     }
+    const agentName = normalizeString(agent.agent_name) ?? agentKey;
+    const companyName = normalizeString(agent.company_name);
+    const reason = normalizeString(data.reason);
     const dismissal = await dismissChurnAgent({
       agentKey,
-      agentName: normalizeString(agent.agent_name) ?? agentKey,
-      companyName: normalizeString(agent.company_name),
-      reason: normalizeString(data.reason),
+      agentName,
+      companyName,
+      reason,
       byUserId: sessionUser.id,
       byUserName: sessionUser.username,
     });
-    sendJson(res, 200, { dismissal });
+    // A hide reason is also filed as a note, so "why was this agent hidden?"
+    // is answerable months later from the agent's own history — including after
+    // someone restores them, which clears the dismissal but not the record.
+    let note: Awaited<ReturnType<typeof addChurnNote>> | null = null;
+    if (reason) {
+      note = await addChurnNote({
+        agentKey,
+        agentName,
+        companyName,
+        body: `Hidden: ${reason}`,
+        byUserId: sessionUser.id,
+        byUserName: sessionUser.username,
+      });
+    }
+    sendJson(res, 200, { dismissal, note });
+    return true;
+  }
+
+  // GET /api/admin/reports/churn/notes/:agentKey — one agent's note history.
+  // POST the same path to add one. Notes are independent of hiding: an agent can
+  // carry notes without ever being hidden.
+  const churnNotesMatch = subPath.match(/^\/reports\/churn\/notes\/([^/]+)$/);
+  if (churnNotesMatch && (req.method === "GET" || req.method === "POST")) {
+    if (!(await hasReportAccess("churn"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const agentKey = decodeURIComponent(churnNotesMatch[1]);
+    if (req.method === "GET") {
+      sendJson(res, 200, { notes: await listChurnNotesForAgent(agentKey) });
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const noteBody = normalizeString((body.value as Record<string, unknown>).body);
+    if (!noteBody) {
+      sendBadRequest(res, "body required");
+      return true;
+    }
+    // Same rule as a dismissal: the agent must exist in the current snapshot, and
+    // the stored name/company come from it rather than from the request.
+    const snapshot = await getChurnReport();
+    if (!snapshot.ok) {
+      sendJson(res, 409, { error: "no churn snapshot to note against" });
+      return true;
+    }
+    const agent = findChurnAgent(snapshot.report, agentKey);
+    if (!agent) {
+      sendJson(res, 404, { error: "agent not in the current snapshot" });
+      return true;
+    }
+    const note = await addChurnNote({
+      agentKey,
+      agentName: normalizeString(agent.agent_name) ?? agentKey,
+      companyName: normalizeString(agent.company_name),
+      body: noteBody,
+      byUserId: sessionUser.id,
+      byUserName: sessionUser.username,
+    });
+    sendJson(res, 200, { note });
+    return true;
+  }
+
+  // DELETE /api/admin/reports/churn/notes/:agentKey/:noteId — remove one note.
+  const churnNoteDeleteMatch = subPath.match(/^\/reports\/churn\/notes\/([^/]+)\/([^/]+)$/);
+  if (churnNoteDeleteMatch && req.method === "DELETE") {
+    if (!(await hasReportAccess("churn"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const removed = await deleteChurnNote(decodeURIComponent(churnNoteDeleteMatch[2]));
+    if (!removed) {
+      sendJson(res, 404, { error: "note not found" });
+      return true;
+    }
+    sendJson(res, 200, { ok: true });
     return true;
   }
 

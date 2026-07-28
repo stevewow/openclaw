@@ -49,6 +49,13 @@ export const REPORT_TABLE_COMPONENT_JS = `
     function rawValue(c, row){
       try { return c.value ? c.value(row) : null; } catch (e) { return null; }
     }
+    // Export value. Defaults to the sort value; a column whose sort key is not
+    // what a reader wants in a spreadsheet (a count standing in for the text
+    // behind it) overrides with cfg.csv.
+    function csvValue(c, row){
+      if (!c.csv) return rawValue(c, row);
+      try { return c.csv(row); } catch (e) { return null; }
+    }
     function cellHtml(c, row){
       if (c.render) return c.render(row);
       var v = rawValue(c, row);
@@ -78,7 +85,7 @@ export const REPORT_TABLE_COMPONENT_JS = `
       var vc = visibleCols();
       var lines = [vc.map(function(c){ return csvCell(c.label); }).join(',')];
       sortedRows().forEach(function(row){
-        lines.push(vc.map(function(c){ return csvCell(rawValue(c, row)); }).join(','));
+        lines.push(vc.map(function(c){ return csvCell(csvValue(c, row)); }).join(','));
       });
       var blob = new Blob(['\\ufeff' + lines.join('\\r\\n')], { type: 'text/csv;charset=utf-8;' });
       var url = URL.createObjectURL(blob);

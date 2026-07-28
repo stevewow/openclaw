@@ -6,6 +6,8 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Admin: Churn & Retention report gains an on-demand refresh (re-pulls Spiro order history and re-runs the retention engine over a 1/2/3/5-year window), shared per-agent notes, a collapsed-by-default explainer, and a header that states the window and what the agent count covers.
+- Docker: optional `OPENCLAW_INSTALL_PYTHON_REPORTS=1` build arg installs Python with pandas/numpy/scipy for workspace report engines the gateway shells out to.
 - Admin: Pipedrive Cleanup report now shows full record detail with clickable Pipedrive deep links and finer category badges, and the scanner adds duplicate-person, uncontactable-contact, missing-field, and dead/no-deal record checks.
 
 ### Fixes

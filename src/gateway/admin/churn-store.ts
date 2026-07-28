@@ -18,6 +18,10 @@ export interface ChurnReportSnapshot {
   schema_version: number;
   generated_at: string;
   observation_end: string;
+  // schema_version 3+: the window the figures cover. Older snapshots omit both,
+  // so the dashboard falls back to "ends <observation_end>".
+  observation_start?: string;
+  window_years?: number | null;
   seasonal_adjust: boolean;
   orders_kept: number;
   orders_total: number;

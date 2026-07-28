@@ -121,6 +121,19 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .churn-tech-body h4:first-child { margin-top: 0; }
   .churn-tech-body ul { margin: 0 0 0.2rem 1.1rem; }
   .churn-tech-body code { background: var(--surface2); border-radius: 4px; padding: 0.05rem 0.3rem; font-size: 0.78rem; }
+  .churn-howto > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0; }
+  .churn-howto > summary::-webkit-details-marker { display: none; }
+  .churn-howto > summary::before { content: '\\25b8'; font-size: 0.8em; color: var(--accent); }
+  .churn-howto[open] > summary::before { content: '\\25be'; }
+  .churn-refresh-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; font-size: 0.85rem; }
+  .churn-refresh-row label { font-weight: 600; }
+  .churn-refresh-row select { padding: 0.3rem 0.5rem; }
+  .churn-checkbox { display: flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; }
+  .churn-refresh-log { margin-top: 0.6rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.7rem; font-size: 0.76rem; font-family: ui-monospace, monospace; white-space: pre-wrap; max-height: 9rem; overflow-y: auto; color: var(--text-muted); }
+  .churn-note-btn { background: none; border: 0; padding: 0; cursor: pointer; font-size: 0.78rem; color: var(--accent); font-weight: 600; }
+  .churn-note-item { border-top: 1px solid var(--border); padding: 0.55rem 0; font-size: 0.85rem; }
+  .churn-note-item:first-child { border-top: 0; }
+  .churn-note-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; display: flex; gap: 0.4rem; align-items: center; }
   .churn-hidden-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; font-size: 0.82rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; margin-bottom: 0.6rem; }
   tr.churn-row-hidden td { opacity: 0.55; }
   .rt-toolbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); }
@@ -805,12 +818,33 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
         <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
         <div id="churn-header" class="card" style="margin-bottom:1rem"></div>
 
+        <!-- Refresh controls: window + seasonal adjustment, then re-pull and
+             re-run. Progress is polled, so the panel below fills in while the
+             engine works. -->
+        <div class="card churn-refresh" style="margin-bottom:1rem">
+          <div class="churn-refresh-row">
+            <label for="churn-years-sel">Window</label>
+            <select id="churn-years-sel">
+              <option value="1">Last 1 year</option>
+              <option value="2">Last 2 years</option>
+              <option value="3" selected>Last 3 years</option>
+              <option value="5">Last 5 years</option>
+            </select>
+            <label class="churn-checkbox"><input type="checkbox" id="churn-seasonal-chk" checked /> Seasonal adjustment</label>
+            <button type="button" class="btn btn-sm" id="churn-refresh-btn">↻ Refresh from Spiro</button>
+            <span class="text-muted" style="font-size:0.8rem">Re-pulls orders and re-runs the engine — a few minutes.</span>
+          </div>
+          <div id="churn-refresh-status"></div>
+        </div>
+
         <!-- Plain-English explainer. Static content: it must read the same
              whether or not a snapshot exists, so nothing here is data-driven.
-             The technical version lives in the collapsed disclosure block. -->
-        <div class="card" style="margin-bottom:1rem">
-          <div class="card-title">How to read this report</div>
-          <div class="churn-explain">
+             Collapsed by default — it is reference material, read once; the
+             numbers are what people come back for. The technical version is a
+             second disclosure inside it. -->
+        <details class="card churn-howto" style="margin-bottom:1rem">
+          <summary class="card-title churn-howto-summary">How to read this report</summary>
+          <div class="churn-explain" style="margin-top:0.75rem">
             <p>Agents never tell us they have left — they just stop booking. This report reads every order we have taken over the last three years and answers three questions.</p>
             <p><span class="churn-q">1. Are we keeping the money we had a year ago?</span><br />
               Take what our agents spent with us in the year before last, then look at what those same agents spent in the last twelve months. <b>GRR</b> is how much of that money came back — 83% means we kept 83 cents of every dollar. <b>NRR</b> counts growth as well, so it can go above 100% when the agents who stayed spent more than the ones who left took away. <b>Logo retention</b> is the same idea by headcount instead of dollars.</p>
@@ -822,8 +856,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               <b>Health</b> is how likely the agent is gone. <b>Urgency</b> is how recently they went quiet. They are kept apart on purpose: an agent silent for five weeks and an agent silent for three years can score the same on health, but only one of them is worth a phone call today.</p>
             <p><span class="churn-q">Where the numbers come from.</span><br />
               Completed, paid orders in Spiro. Cancelled orders, zero-dollar orders, test records and orders with nobody attached are thrown out before anything is calculated, so a cancelled shoot never counts as either revenue or churn. This page is a snapshot, not a live feed — the figures change when the report is re-run.</p>
-            <p><span class="churn-q">Tidying the list.</span><br />
-              Every row has a <b>Hide</b> button. Use it for agents who have retired, moved out of the area, or who you have already dealt with. Hiding is shared — the list gets cleaner for the whole team, it stays clean the next time the report is re-run, and <b>Show hidden</b> brings anyone back.</p>
+            <p><span class="churn-q">What "agents" counts.</span><br />
+              The agent count in the header is everyone who placed at least one clean order inside the window — the whole customer base the report is scoring, not the at-risk subset. The at-risk numbers are the health chips and the <b>Outreach Queue</b> tile below it. Widen or narrow the window at the top of the page and the count moves with it, because it is counting people who ordered in that period.</p>
+            <p><span class="churn-q">Tidying the list, and keeping notes.</span><br />
+              Every row has a <b>Hide</b> button. Use it for agents who have retired, moved out of the area, or who you have already dealt with. Hiding is shared — the list gets cleaner for the whole team, it stays clean the next time the report is re-run, and <b>Show hidden</b> brings anyone back. Every row also has a <b>Notes</b> cell: click it to record what happened ("called, listing again in spring") or why you hid someone. Notes are shared, stamped with who wrote them, and survive every re-run, so next quarter the reason is still there.</p>
+            <p><span class="churn-q">Changing the window, and getting today's numbers.</span><br />
+              <b>Refresh from Spiro</b> at the top re-pulls the order history and re-runs the whole report over the window you pick — one year through five. It takes a few minutes and everyone sees the result. A shorter window is a sharper read on how agents are behaving now; a longer one gives the model more history to judge each agent's rhythm against.</p>
           </div>
           <details class="churn-tech">
             <summary>Full technical description</summary>
@@ -850,11 +888,13 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
               <p>Dismissals are stored in the dashboard database keyed by agent GUID, not in the report file, and are re-applied every time the snapshot is read — so hiding survives the engine regenerating the report. They are shared across everyone with access to this report, recorded with who hid the agent and why. A hidden agent drops out of the Outreach Queue, the Agent Scores table, the health-tier counts, and the revenue-at-risk and queue-size tiles. The board metrics — GRR, NRR and logo retention — deliberately ignore dismissals and always cover every agent.</p>
               <h4>Not yet wired — MLS capture rate</h4>
               <p>The definitive measure would be capture rate: our orders divided by the listings that agent actually took, per period. It removes the remaining ambiguity — zero orders against zero listings is dormancy, zero orders against four listings is defection, visible the week it happens — and yields a true per-agent share of wallet. It needs listing counts joined to <code>agent_id</code> from an MLS feed.</p>
+              <h4>Notes</h4>
+              <p>Notes are stored in the dashboard database against the agent GUID, alongside dismissals and outside the snapshot, so they survive every re-run. They are shared, appended rather than overwritten, and stamped with who wrote them. Hiding an agent with a reason files that reason as a note as well, so the reason survives the agent later being restored.</p>
               <h4>Refreshing</h4>
-              <p>Nothing is computed in the dashboard. The Python engine at <code>reports/wow_retention/wow_retention.py</code> writes the snapshot this page renders; re-run it (or its schedule) to refresh, and the header line shows when it last ran.</p>
+              <p>Nothing is computed in the dashboard. <b>Refresh from Spiro</b> re-pulls the order history through the gateway's Spiro connection, writes <code>reports/wow_retention/orders_raw.csv</code>, and runs the Python engine at <code>reports/wow_retention/wow_retention.py</code> over the selected window, which rewrites the snapshot this page renders. One refresh runs at a time. The window setting is passed to the engine as <code>--years</code> and bounds both the pull and the analysis; the header line states the window and when it last ran.</p>
             </div>
           </details>
-        </div>
+        </details>
 
         <div id="churn-tiles" class="stats-grid"></div>
         <div id="churn-meta" class="card" style="margin-bottom:1.5rem"></div>
@@ -1103,6 +1143,24 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     </div>
 
   </main>
+</div>
+
+<!-- Churn: agent notes. One agent at a time; the key of the agent on show is
+     held in churnNotesState, not in the DOM. -->
+<div id="churn-note-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-title" id="churn-note-title">Notes</div>
+    <div id="churn-note-error" class="alert alert-error hidden"></div>
+    <div class="form-group">
+      <label for="churn-note-input">Add a note</label>
+      <textarea id="churn-note-input" rows="3" placeholder="Called — left voicemail. Says they are listing again in spring."></textarea>
+    </div>
+    <div id="churn-note-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="churn-note-close">Close</button>
+      <button type="button" class="btn btn-primary" id="churn-note-save">Add note</button>
+    </div>
+  </div>
 </div>
 
 <!-- Add/Edit User Modal -->
@@ -2717,7 +2775,9 @@ ${REPORT_TABLE_COMPONENT_JS}
   // report: last snapshot; dismissed: agentKey -> dismissal record (shared across
   // the team, stored server-side); showHidden: viewing mode only — the tiles and
   // tier counts always describe the cleaned list.
-  var churnState = { report: null, dismissed: {}, showHidden: false };
+  // notes: agentKey -> note records, newest first (shared, stored server-side).
+  var churnState = { report: null, dismissed: {}, notes: {}, showHidden: false, refresh: null };
+  var churnRefreshTimer = null;
   var CHURN_HEALTH_COLOR = { 'Healthy':'#2f855a', 'Watch':'#b7791f', 'At risk':'#c05621', 'Likely churned':'#b5473b' };
   // Mirror of churnAgentKey() in churn-store.ts — change both together.
   function churnKey(row){
@@ -2756,6 +2816,29 @@ ${REPORT_TABLE_COMPONENT_JS}
       ? '<button type="button" class="btn btn-sm churn-restore-btn" data-key="' + k + '">Restore</button>'
       : '<button type="button" class="btn btn-sm churn-hide-btn" data-key="' + k + '">Hide</button>';
   }
+  function churnNotesFor(r){ return churnState.notes[churnKey(r)] || []; }
+  // The cell is the affordance as well as the display: the newest note in full
+  // on hover, and one click into the whole history.
+  function churnNotesCell(r){
+    var notes = churnNotesFor(r);
+    var k = esc(churnKey(r));
+    if (!notes.length) {
+      return '<button type="button" class="churn-note-btn churn-note-open" data-key="' + k + '" title="Add a note">+ Note</button>';
+    }
+    var latest = notes[0];
+    var label = notes.length === 1 ? '1 note' : notes.length + ' notes';
+    var tip = latest.body + ' — ' + (latest.createdByName || 'unknown')
+      + (latest.createdAt ? ' on ' + new Date(latest.createdAt).toISOString().slice(0, 10) : '');
+    return '<button type="button" class="churn-note-btn churn-note-open" data-key="' + k + '" title="' + esc(tip) + '">💬 ' + label + '</button>';
+  }
+  // value() feeds sort and CSV: sorting by note count puts the worked rows
+  // together, and the export carries the newest note rather than a button.
+  var CHURN_NOTES_COL = {
+    key:'notes', label:'Notes', type:'num',
+    value:function(r){ var n = churnNotesFor(r); return n.length ? n.length : 0; },
+    csv:function(r){ var n = churnNotesFor(r); return n.length ? n[0].body : ''; },
+    render:churnNotesCell
+  };
   // Buttons live inside a table body that re-renders on every sort/filter, so
   // the handlers are delegated from the document once.
   // value() feeds sort + CSV, so the export says whether a row is hidden rather
@@ -2773,6 +2856,7 @@ ${REPORT_TABLE_COMPONENT_JS}
       { key:'annual', label:'Annual value', type:'num', value:function(r){ return r.annual_value; }, render:function(r){ return churnMoney(r.annual_value); } },
       { key:'risk', label:'Rev at risk', type:'num', value:function(r){ return r.revenue_at_risk; }, render:function(r){ return churnMoney(r.revenue_at_risk); } },
       { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } },
+      CHURN_NOTES_COL,
       CHURN_ACTION_COL
     ];
   }
@@ -2789,6 +2873,7 @@ ${REPORT_TABLE_COMPONENT_JS}
       { key:'days', label:'Days silent', type:'num', value:function(r){ return r.days_silent; } },
       { key:'risk', label:'Rev at risk', type:'num', value:function(r){ return r.revenue_at_risk; }, render:function(r){ return churnMoney(r.revenue_at_risk); } },
       { key:'priority', label:'Priority', type:'num', value:function(r){ return r.priority_score; }, render:function(r){ return churnMoney(r.priority_score); } },
+      CHURN_NOTES_COL,
       CHURN_ACTION_COL
     ];
   }
@@ -2900,9 +2985,18 @@ ${REPORT_TABLE_COMPONENT_JS}
       return (r.health === 'Watch' || r.health === 'At risk') ? sum + Number(r.revenue_at_risk || 0) : sum;
     }, 0);
 
+    // The window line is the answer to "why does this say N agents?" — the count
+    // is every agent with at least one clean order inside the window, not the
+    // at-risk subset, so it moves when the window does.
+    var windowLine = rep.observation_start
+      ? esc(String(rep.observation_start)) + ' → ' + esc(String(rep.observation_end))
+        + (rep.window_years ? ' (' + esc(String(rep.window_years)) + '-year window)' : '')
+      : 'ends ' + esc(String(rep.observation_end));
     document.getElementById('churn-header').innerHTML = '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;align-items:center">'
       + '<div><div style="font-weight:700;font-size:1.05rem">Churn &amp; Retention</div>'
-      + '<div class="text-muted" style="font-size:0.85rem">Observation window ends '+esc(String(rep.observation_end))+' · '+churnNum(rep.orders_kept)+' clean orders · '+churnNum(rep.agents_total)+' agents · seasonal adjust '+(rep.seasonal_adjust ? 'on' : 'off')+(hiddenCount ? ' · '+churnNum(hiddenCount)+' hidden' : '')+'</div></div>'
+      + '<div class="text-muted" style="font-size:0.85rem">'+windowLine+' · '+churnNum(rep.orders_kept)+' clean orders of '+churnNum(rep.orders_total)+' · '
+      + '<span title="Every agent with at least one clean order in this window — not just the at-risk ones.">'+churnNum(rep.agents_total)+' agents who ordered in the window</span>'
+      + ' · seasonal adjust '+(rep.seasonal_adjust ? 'on' : 'off')+(hiddenCount ? ' · '+churnNum(hiddenCount)+' hidden' : '')+'</div></div>'
       + '<div class="text-muted" style="font-size:0.8rem">Generated '+esc(String(rep.generated_at).replace('T', ' ').slice(0, 16))+'</div>'
       + '</div>';
 
@@ -2941,6 +3035,64 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.getElementById('churn-dq').innerHTML = churnDqHtml(rep.data_quality || []);
   }
 
+  // ── Agent notes ─────────────────────────────────────────────────────────────
+  var churnNotesState = { agentKey: null };
+  function churnNoteModal(){ return document.getElementById('churn-note-modal'); }
+  function churnRenderNoteList(){
+    var el = document.getElementById('churn-note-list');
+    if (!el) return;
+    var notes = churnState.notes[churnNotesState.agentKey] || [];
+    if (!notes.length) { el.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No notes yet.</div>'; return; }
+    el.innerHTML = notes.map(function(n){
+      var when = n.createdAt ? new Date(n.createdAt).toLocaleString() : '';
+      return '<div class="churn-note-item"><div>' + esc(n.body) + '</div>'
+        + '<div class="churn-note-meta"><span>' + esc(n.createdByName || 'unknown') + '</span><span>·</span><span>' + esc(when) + '</span>'
+        + '<button type="button" class="churn-note-btn churn-note-delete" data-id="' + esc(n.id) + '" style="color:var(--danger,#b5473b)">Delete</button></div></div>';
+    }).join('');
+  }
+  function churnOpenNotes(agentKey){
+    var row = churnFindAgent(agentKey);
+    churnNotesState.agentKey = agentKey;
+    document.getElementById('churn-note-title').textContent =
+      'Notes — ' + ((row && row.agent_name) ? row.agent_name : agentKey);
+    document.getElementById('churn-note-error').classList.add('hidden');
+    document.getElementById('churn-note-input').value = '';
+    churnRenderNoteList();
+    churnNoteModal().classList.remove('hidden');
+    document.getElementById('churn-note-input').focus();
+  }
+  function churnCloseNotes(){
+    churnNoteModal().classList.add('hidden');
+    churnNotesState.agentKey = null;
+  }
+  function churnNoteError(msg){
+    var el = document.getElementById('churn-note-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+  async function churnAddNote(){
+    var key = churnNotesState.agentKey;
+    var input = document.getElementById('churn-note-input');
+    var body = input.value.trim();
+    if (!key || !body) return;
+    var r = await api('POST', '/reports/churn/notes/' + encodeURIComponent(key), { body: body });
+    if (!r.ok) { churnNoteError((r.data && r.data.error) || 'Could not save that note.'); return; }
+    churnState.notes[key] = [r.data.note].concat(churnState.notes[key] || []);
+    input.value = '';
+    document.getElementById('churn-note-error').classList.add('hidden');
+    churnRenderNoteList();
+    churnApply();
+  }
+  async function churnDeleteNote(noteId){
+    var key = churnNotesState.agentKey;
+    if (!key) return;
+    var r = await api('DELETE', '/reports/churn/notes/' + encodeURIComponent(key) + '/' + encodeURIComponent(noteId));
+    if (!r.ok) { churnNoteError((r.data && r.data.error) || 'Could not delete that note.'); return; }
+    churnState.notes[key] = (churnState.notes[key] || []).filter(function(n){ return n.id !== noteId; });
+    churnRenderNoteList();
+    churnApply();
+  }
+
   function churnFindAgent(agentKey){
     var rep = churnState.report;
     if (!rep) return null;
@@ -2972,8 +3124,82 @@ ${REPORT_TABLE_COMPONENT_JS}
     var hide = e.target.closest('.churn-hide-btn');
     if (hide) { churnHideAgent(hide.dataset.key); return; }
     var restore = e.target.closest('.churn-restore-btn');
-    if (restore) churnRestoreAgent(restore.dataset.key);
+    if (restore) { churnRestoreAgent(restore.dataset.key); return; }
+    var note = e.target.closest('.churn-note-open');
+    if (note) { churnOpenNotes(note.dataset.key); return; }
+    var del = e.target.closest('.churn-note-delete');
+    if (del) churnDeleteNote(del.dataset.id);
   });
+  document.getElementById('churn-note-save').addEventListener('click', churnAddNote);
+  document.getElementById('churn-note-close').addEventListener('click', churnCloseNotes);
+  churnNoteModal().addEventListener('click', function(e){
+    if (e.target === churnNoteModal()) churnCloseNotes();
+  });
+  // Ctrl/Cmd+Enter saves, matching the other note fields in the dashboard.
+  document.getElementById('churn-note-input').addEventListener('keydown', function(e){
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') churnAddNote();
+  });
+
+  // ── Refresh ─────────────────────────────────────────────────────────────────
+  // A refresh is a server-side job (pull + engine), so the button starts it and
+  // the panel polls. Polling stops as soon as the job leaves 'running', and the
+  // snapshot is reloaded on success so the page shows the new numbers.
+  function churnRenderRefresh(){
+    var el = document.getElementById('churn-refresh-status');
+    var btn = document.getElementById('churn-refresh-btn');
+    if (!el || !btn) return;
+    var st = churnState.refresh;
+    var running = !!st && st.status === 'running';
+    btn.disabled = running;
+    btn.textContent = running ? 'Refreshing…' : '↻ Refresh from Spiro';
+    if (!st || st.status === 'idle') { el.innerHTML = ''; return; }
+    var head = '';
+    if (running) {
+      head = '<span class="text-muted">⏳ ' + esc(st.step || 'Working…') + '</span>';
+    } else if (st.status === 'ok') {
+      head = '<span style="color:#2f855a;font-weight:600">✓ Refreshed</span> <span class="text-muted">'
+        + esc(st.years + ' year window · seasonal adjust ' + (st.seasonal ? 'on' : 'off')
+          + (st.startedByName ? ' · started by ' + st.startedByName : '')) + '</span>';
+    } else {
+      head = '<span style="color:#b5473b;font-weight:600">✗ Refresh failed</span> <span class="text-muted">' + esc(st.error || '') + '</span>';
+    }
+    // The tail is the useful part while it runs: window-by-window pull counts,
+    // then the engine's own layer-by-layer progress.
+    var tail = (st.log || []).slice(-12).join('\\n');
+    el.innerHTML = '<div style="margin-top:0.6rem;font-size:0.82rem">' + head + '</div>'
+      + (tail ? '<div class="churn-refresh-log">' + esc(tail) + '</div>' : '');
+  }
+  function churnStopPolling(){
+    if (churnRefreshTimer) { clearInterval(churnRefreshTimer); churnRefreshTimer = null; }
+  }
+  function churnPollRefresh(){
+    churnStopPolling();
+    churnRefreshTimer = setInterval(async function(){
+      var r = await api('GET', '/reports/churn/refresh');
+      if (!r.ok) { churnStopPolling(); return; }
+      churnState.refresh = r.data.refresh;
+      churnRenderRefresh();
+      if (r.data.refresh.status !== 'running') {
+        churnStopPolling();
+        if (r.data.refresh.status === 'ok') loadChurn();
+      }
+    }, 3000);
+  }
+  async function churnStartRefresh(){
+    var years = Number(document.getElementById('churn-years-sel').value);
+    var seasonal = document.getElementById('churn-seasonal-chk').checked;
+    var r = await api('POST', '/reports/churn/refresh', { years: years, seasonal: seasonal });
+    if (!r.ok) {
+      churnState.refresh = { status:'error', step:'Failed', years: years, seasonal: seasonal,
+        error: (r.data && r.data.error) || 'Could not start the refresh.', log: [] };
+      churnRenderRefresh();
+      return;
+    }
+    churnState.refresh = r.data.refresh;
+    churnRenderRefresh();
+    churnPollRefresh();
+  }
+  document.getElementById('churn-refresh-btn').addEventListener('click', churnStartRefresh);
 
   async function loadChurn(){
     var header = document.getElementById('churn-header');
@@ -2984,6 +3210,20 @@ ${REPORT_TABLE_COMPONENT_JS}
     // the tables, tiles and tier counts all describe the same cleaned list.
     churnState.dismissed = {};
     (r.data.dismissals || []).forEach(function(d){ churnState.dismissed[d.agentKey] = d; });
+    // Notes arrive newest-first for every agent at once and are grouped here;
+    // per-row fetching would be one request per visible row.
+    churnState.notes = {};
+    (r.data.notes || []).forEach(function(n){
+      (churnState.notes[n.agentKey] = churnState.notes[n.agentKey] || []).push(n);
+    });
+    // A refresh started in another tab (or before a reload) keeps reporting here.
+    churnState.refresh = r.data.refresh || null;
+    churnRenderRefresh();
+    if (churnState.refresh && churnState.refresh.status === 'running') churnPollRefresh();
+    if (churnState.refresh && churnState.refresh.years) {
+      document.getElementById('churn-years-sel').value = String(churnState.refresh.years);
+      document.getElementById('churn-seasonal-chk').checked = churnState.refresh.seasonal !== false;
+    }
     var rep = r.data.report;
     if (!rep) {
       churnState.report = null;
