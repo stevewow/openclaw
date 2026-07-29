@@ -18,6 +18,7 @@ Docs: https://docs.openclaw.ai
 - Admin: Churn & Retention report carries the shared "Reconnect Spiro" banner, so an expired Spiro session can be re-authorized from the report instead of leaving the refresh failing.
 - Spiro: request `offline_access` so the authorization server issues a refresh token; without it every connection died at access-token expiry and only a hand-run `/spiro-auth` brought it back.
 - Spiro: an expired session that cannot be renewed now says to reconnect instead of surfacing the raw `Token refresh failed: 400` from the token endpoint.
+- Admin: Churn & Retention refresh now checks the report engine before pulling order history — a gateway image built without the Python report layer, an unmounted engine script, or a reports directory the container cannot write fail in seconds naming their own fix, instead of after a multi-minute Spiro pull with a truncated Python traceback.
 - Limit hook CLI tool authority [AI]. (#81065) Thanks @pgondhi987.
 - Require admin scope for node device token management [AI]. (#81067) Thanks @pgondhi987.
 - Restrict chat sender allowlist matching [AI]. (#80898) Thanks @pgondhi987.
