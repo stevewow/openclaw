@@ -201,6 +201,28 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .fin-note-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; justify-content: space-between; gap: 0.5rem; }
   .fin-row-click { cursor: pointer; }
   .fin-row-click:hover { background: var(--surface2); }
+  .fin-flag { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .fin-flag-clear { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
+  .fin-owner { font-size: 0.72rem; color: var(--text-muted); }
+
+  /* Past Due board */
+  .fin-toolbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .fin-toolbar label { font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.35rem; }
+  .fin-toolbar select { padding: 0.3rem 0.45rem; border: 1px solid var(--border); border-radius: 7px; font: inherit; font-size: 0.8rem; background: var(--surface); color: var(--text); }
+  .fin-board { display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.5rem; align-items: flex-start; }
+  .fin-col { flex: 0 0 260px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem; min-height: 120px; }
+  .fin-col.drop-target { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .fin-col-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .fin-col-title { font-weight: 700; font-size: 0.82rem; }
+  .fin-col-meta { font-size: 0.72rem; color: var(--text-muted); }
+  .fin-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.6rem; margin-bottom: 0.5rem; cursor: pointer; }
+  .fin-card:hover { border-color: var(--accent); }
+  .fin-card.dragging { opacity: 0.45; }
+  .fin-card-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .fin-card-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-size: 0.75rem; color: var(--text-muted); }
+  .fin-card-amount { font-weight: 700; color: var(--text); }
+  .fin-col-empty { font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 0.25rem; }
+  .fin-due-over { color: #b5473b; font-weight: 600; }
 
   /* Modal */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; overflow-y: auto; }
@@ -1064,14 +1086,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div>
               <div style="font-weight:700;font-size:1rem">Past Due Accounts</div>
-              <div class="text-muted" style="font-size:0.8rem;max-width:640px;margin-top:0.15rem">
+              <div class="text-muted" style="font-size:0.8rem;max-width:700px;margin-top:0.15rem">
                 Unpaid Spiro invoices past their due date, grouped by payee and staged against the collections policy.
-                Outstanding equals the invoice total; partial payments are not exposed by the Spiro API.
+                Outstanding is what is still owed (invoice total less payments and credits). An account holding a
+                partially paid invoice is flagged <strong>Review</strong>: a plan, dispute or short payment sits behind
+                the balance, so read it before taking the next collections step. Assign an account to hand it to
+                someone — it then shows up in their queue to work.
               </div>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
               <span class="text-muted" id="fin-refreshed-at" style="font-size:0.8rem"></span>
-              <button class="btn btn-primary btn-sm" id="fin-refresh-btn">↻ Refresh now</button>
+              <button class="btn btn-primary btn-sm admin-only" id="fin-refresh-btn">↻ Refresh now</button>
             </div>
           </div>
         </div>
@@ -1084,22 +1109,40 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           <button class="btn btn-primary btn-sm js-spiro-reconnect">Reconnect Spiro</button>
         </div>
         <div class="stats-grid" id="fin-stats-grid"></div>
-        <div class="card" style="padding:0">
+        <div class="fin-toolbar">
+          <div style="display:flex;gap:0.25rem">
+            <button class="btn btn-sm" id="fin-view-board">▦ Board</button>
+            <button class="btn btn-sm" id="fin-view-table">☰ Table</button>
+          </div>
+          <label>Owner
+            <select id="fin-filter-owner">
+              <option value="all">Everyone</option>
+              <option value="mine">Assigned to me</option>
+              <option value="unassigned">Unassigned</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="fin-filter-review" /> Needs review only</label>
+          <label><input type="checkbox" id="fin-filter-open" checked /> Hide resolved</label>
+          <span class="text-muted" style="font-size:0.78rem;margin-left:auto" id="fin-visible-count"></span>
+        </div>
+        <div id="fin-board" class="fin-board"></div>
+        <div class="card" id="fin-table-card" style="padding:0;display:none">
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Account</th>
-                  <th>Type</th>
-                  <th>Balance</th>
+                  <th>Stage</th>
+                  <th>Owner</th>
+                  <th>Outstanding</th>
                   <th>Invoices</th>
                   <th>Oldest Past Due</th>
-                  <th>Stage</th>
+                  <th>Aging</th>
                   <th>Next Action</th>
                 </tr>
               </thead>
               <tbody id="fin-table-body">
-                <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+                <tr><td colspan="8" class="empty-state">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1491,13 +1534,26 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
       <button type="button" class="btn btn-ghost btn-sm" id="fin-modal-close">✕</button>
     </div>
     <div id="fin-modal-summary" style="font-size:0.85rem;margin:0.4rem 0 1rem"></div>
+    <div id="fin-review-banner" class="hidden" style="border-left:3px solid #d97706;background:var(--surface2);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.82rem"></div>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem">
+      <label style="font-size:0.78rem;color:var(--text-muted)">Stage<br />
+        <select id="fin-status-select" style="margin-top:0.2rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)"></select>
+      </label>
+      <label id="fin-assign-wrap" style="font-size:0.78rem;color:var(--text-muted)">Assigned to<br />
+        <select id="fin-assign-select" style="margin-top:0.2rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)"></select>
+      </label>
+      <label style="font-size:0.78rem;color:var(--text-muted)">Next action due<br />
+        <input type="date" id="fin-due-input" style="margin-top:0.2rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)" />
+      </label>
+      <span class="text-muted" id="fin-case-meta" style="font-size:0.72rem"></span>
+    </div>
     <div style="display:flex;gap:0.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
       <button class="btn btn-primary btn-sm" id="fin-followup-btn">+ Create follow-up task</button>
     </div>
     <div style="font-weight:700;margin-bottom:0.5rem">Past-due invoices</div>
     <div class="table-wrap" style="margin-bottom:1.25rem">
       <table>
-        <thead><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Due</th><th>Days</th></tr></thead>
+        <thead><tr><th>Reference</th><th>Status</th><th>Invoiced</th><th>Paid</th><th>Outstanding</th><th>Due</th><th>Days</th></tr></thead>
         <tbody id="fin-modal-invoices"></tbody>
       </table>
     </div>
@@ -1750,7 +1806,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
     'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: false, superAdminOnly: false, feature: 'ticket-form' },
-    financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: true, superAdminOnly: false },
+    // Past Due is reachable both from the Financials nav ('financials', the
+    // legacy hash) and from the Reports landing ('past-due', matching the
+    // report permission key). Same page, same gate.
+    financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: false, superAdminOnly: false, report: 'past-due' },
+    'past-due': { el: 'page-financials', title: 'Past Due Accounts', adminOnly: false, superAdminOnly: false, report: 'past-due' },
     cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
   };
 
@@ -1811,7 +1871,11 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     document.getElementById('page-title').textContent = def.title;
     // Report sub-pages are reached from the Reports landing, not their own nav
     // item, so keep the Reports nav entry highlighted while viewing one.
-    const navKey = (page === 'report-cancellations' || page === 'rankings' || page === 'photographers' || page === 'pipedrive-cleanup' || page === 'churn') ? 'reports' : page;
+    let navKey = page;
+    if (page === 'report-cancellations' || page === 'rankings' || page === 'photographers' || page === 'pipedrive-cleanup' || page === 'churn') navKey = 'reports';
+    // Past Due keeps its own Financials nav entry highlighted even when it was
+    // opened from the Reports landing under its report key.
+    if (page === 'past-due') navKey = 'financials';
     document.querySelectorAll('.nav-link').forEach(a => {
       a.classList.toggle('active', a.dataset.page === navKey);
     });
@@ -1832,7 +1896,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();
     if (page === 'form-preview') loadFormPreview();
-    if (page === 'financials') loadFinancials();
+    if (page === 'financials' || page === 'past-due') loadFinancials();
     if (page === 'cleveland') loadCleveland();
     location.hash = '#' + page;
     closeSidebar();
@@ -2763,11 +2827,15 @@ ${REPORT_TABLE_COMPONENT_JS}
     { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' },
     { key: 'photographers', icon: '📸', title: 'Photographers', desc: 'Roster with the markets each serves and how many shoots they completed in a selectable range.' },
     { key: 'pipedrive-cleanup', icon: '🧹', title: 'Pipedrive Cleanup', desc: 'Suggested CRM fixes to verify. Approved items become a worklist for whoever you grant access.' },
-    { key: 'churn', icon: '📊', title: 'Churn & Retention', desc: 'Revenue retention, Pareto/NBD health, and a priority-ranked outreach queue of recoverable agents.' }
+    { key: 'churn', icon: '📊', title: 'Churn & Retention', desc: 'Revenue retention, Pareto/NBD health, and a priority-ranked outreach queue of recoverable agents.' },
+    { key: 'past-due', icon: '💰', title: 'Past Due Accounts', desc: 'Collections board of past-due payees. Assign an account and it becomes that person\\'s queue; partial payments are flagged for review.' }
   ];
   function loadReportsHome() {
     var grid = document.getElementById('reports-home-grid');
-    grid.innerHTML = REPORTS.map(function(r){
+    // Admins see the whole catalog; anyone else sees only what they were
+    // granted, so a card can't offer a page navigate() would refuse.
+    var visible = isAdmin() ? REPORTS : REPORTS.filter(function(r){ return hasReport(r.key); });
+    grid.innerHTML = visible.map(function(r){
       return '<button class="report-card" data-report="'+esc(r.key)+'">'+
         '<span class="report-card-icon">'+r.icon+'</span>'+
         '<span class="report-card-title">'+esc(r.title)+'</span>'+
@@ -2777,7 +2845,7 @@ ${REPORT_TABLE_COMPONENT_JS}
     grid.querySelectorAll('.report-card').forEach(function(btn){
       btn.addEventListener('click', function(){ navigate(btn.dataset.report); });
     });
-    if (!REPORTS.length) grid.innerHTML = '<div class="empty-state">No reports are available to you.</div>';
+    if (!visible.length) grid.innerHTML = '<div class="empty-state">No reports are available to you.</div>';
   }
 
   // ── Churn & Retention report ────────────────────────────────────────────────
@@ -3508,8 +3576,36 @@ ${REPORT_TABLE_COMPONENT_JS}
   }
 
   // ── Financials: Past Due Accounts ──────────────────────────────────────────
+  // The report doubles as a collections board: every account carries a case
+  // record (stage, owner, next action, review sign-off) that the server keeps
+  // keyed by accountKey, so it survives the invoice snapshot being replaced.
   let finBreakdown = null;
   let finAccount = null; // currently open account detail
+  let finStatuses = [];  // board columns, server-owned
+  let finAssignees = []; // assignable users (admins only)
+  let finCanAssign = false;
+  let finView = 'board';
+  try { finView = localStorage.getItem('oc_fin_view') === 'table' ? 'table' : 'board'; } catch (e) { /* private mode */ }
+  const finFilters = { owner: 'all', reviewOnly: false, hideResolved: true };
+
+  function finStatusLabel(key) {
+    const s = finStatuses.find(x => x.key === key);
+    return s ? s.label : key;
+  }
+  function finOwnerLabel(c) {
+    return c && c.assignedTo ? (c.assignedToName || 'Assigned') : 'Unassigned';
+  }
+  // The flag itself is derived from invoice data and stays true while a partly
+  // paid invoice is past due; the sign-off is what separates "not looked at" from
+  // "read and understood", and it holds until someone reopens it.
+  function finReviewOpen(a) {
+    return a.needsManualReview && !(a.case && a.case.reviewClearedAt);
+  }
+  function finDueLabel(c) {
+    if (!c || !c.dueAt) return '';
+    const overdue = c.dueAt < Date.now();
+    return '<span class="' + (overdue ? 'fin-due-over' : '') + '">Due ' + esc(finDate(c.dueAt)) + '</span>';
+  }
 
   function money(n) {
     return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3561,11 +3657,15 @@ ${REPORT_TABLE_COMPONENT_JS}
     const statsEl = document.getElementById('fin-stats-grid');
     const refEl = document.getElementById('fin-refreshed-at');
     if (!r.ok) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load past-due accounts.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Failed to load past-due accounts.</td></tr>';
+      document.getElementById('fin-board').innerHTML = '<div class="empty-state">Failed to load past-due accounts.</div>';
       statsEl.innerHTML = '';
       return;
     }
     finBreakdown = r.data.breakdown;
+    finStatuses = r.data.statuses || [];
+    finAssignees = r.data.assignees || [];
+    finCanAssign = r.data.canAssign === true;
     refEl.textContent = finBreakdown.refreshedAt
       ? 'Last refreshed: ' + new Date(finBreakdown.refreshedAt).toLocaleString()
       : 'Never refreshed — click Refresh now';
@@ -3574,63 +3674,201 @@ ${REPORT_TABLE_COMPONENT_JS}
     (finBreakdown.byBucket || []).forEach(b => { bucketAmt[b.bucket] = b; });
     const tile = (label, value) => \`<div class="stat-card"><div class="stat-label">\${label}</div><div class="stat-value">\${value}</div></div>\`;
     statsEl.innerHTML =
-      tile('Total Past Due', money(finBreakdown.totalPastDue)) +
+      tile('Outstanding', money(finBreakdown.totalPastDue)) +
       tile('Accounts', finBreakdown.accountCount) +
-      tile('Invoices', finBreakdown.invoiceCount) +
-      tile('90+ Days', money((bucketAmt['90-119'] ? bucketAmt['90-119'].amount : 0) + (bucketAmt['120+'] ? bucketAmt['120+'].amount : 0)));
+      tile('90+ Days', money((bucketAmt['90-119'] ? bucketAmt['90-119'].amount : 0) + (bucketAmt['120+'] ? bucketAmt['120+'].amount : 0))) +
+      tile('Needs review', finBreakdown.manualReviewCount || 0);
 
-    renderFinTable();
+    renderFinViews();
   }
 
-  function renderFinTable() {
-    const tbody = document.getElementById('fin-table-body');
+  // One filtered list feeds both views, so the board and the table can never
+  // disagree about what the viewer is looking at.
+  function finVisibleAccounts() {
     const accounts = (finBreakdown && finBreakdown.accounts) || [];
+    const me = currentUser ? currentUser.id : null;
+    return accounts.filter(a => {
+      const c = a.case || {};
+      if (finFilters.owner === 'mine' && c.assignedTo !== me) return false;
+      if (finFilters.owner === 'unassigned' && c.assignedTo) return false;
+      if (finFilters.reviewOnly && !finReviewOpen(a)) return false;
+      if (finFilters.hideResolved && c.status === 'resolved') return false;
+      return true;
+    });
+  }
+
+  function renderFinViews() {
+    const board = finView === 'board';
+    document.getElementById('fin-board').style.display = board ? '' : 'none';
+    document.getElementById('fin-table-card').style.display = board ? 'none' : '';
+    document.getElementById('fin-view-board').classList.toggle('btn-primary', board);
+    document.getElementById('fin-view-table').classList.toggle('btn-primary', !board);
+    const visible = finVisibleAccounts();
+    const total = (finBreakdown && finBreakdown.accounts) ? finBreakdown.accounts.length : 0;
+    document.getElementById('fin-visible-count').textContent =
+      visible.length === total ? total + ' accounts' : visible.length + ' of ' + total + ' accounts';
+    if (board) renderFinBoard(visible); else renderFinTable(visible);
+  }
+
+  function finCardHtml(a) {
+    const c = a.case || {};
+    const flag = finReviewOpen(a)
+      ? '<span class="badge fin-flag" title="Partially paid invoice — read before the next collections step">Review</span>'
+      : (a.needsManualReview ? '<span class="badge fin-flag-clear" title="Partial payment reviewed">Reviewed</span>' : '');
+    return '<div class="fin-card" draggable="true" data-account="' + esc(a.accountKey) + '">' +
+      '<div class="fin-card-name">' + esc(a.accountName) + '</div>' +
+      '<div class="fin-card-row">' +
+        '<span class="fin-card-amount">' + money(a.balance) + '</span>' +
+        '<span class="' + bucketClass(a.bucket) + '">' + esc(a.bucket) + '</span>' +
+        flag +
+      '</div>' +
+      '<div class="fin-card-row" style="margin-top:0.25rem">' +
+        '<span>' + esc(finOwnerLabel(c)) + '</span>' +
+        (c.dueAt ? '<span>·</span>' + finDueLabel(c) : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderFinBoard(accounts) {
+    const host = document.getElementById('fin-board');
+    if (!finStatuses.length) { host.innerHTML = '<div class="empty-state">No board stages available.</div>'; return; }
+    host.innerHTML = finStatuses.map(s => {
+      const inCol = accounts.filter(a => (a.case && a.case.status) === s.key);
+      const amount = inCol.reduce((sum, a) => sum + a.balance, 0);
+      return '<div class="fin-col" data-status="' + esc(s.key) + '" title="' + esc(s.detail) + '">' +
+        '<div class="fin-col-head"><span class="fin-col-title">' + esc(s.label) + '</span>' +
+        '<span class="fin-col-meta">' + inCol.length + ' · ' + money(amount) + '</span></div>' +
+        (inCol.length ? inCol.map(finCardHtml).join('') : '<div class="fin-col-empty">Drag an account here.</div>') +
+      '</div>';
+    }).join('');
+    bindFinBoard();
+  }
+
+  // Drag to move an account between stages. The card is the drag source and the
+  // column is the drop target; the drop PUTs the new stage and reloads, so the
+  // board never shows a move the server refused.
+  let finDragKey = null;
+  function bindFinBoard() {
+    const host = document.getElementById('fin-board');
+    host.querySelectorAll('.fin-card').forEach(card => {
+      card.addEventListener('click', () => { if (!finDragKey) openFinAccount(card.dataset.account); });
+      card.addEventListener('dragstart', e => {
+        finDragKey = card.dataset.account;
+        card.classList.add('dragging');
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        setTimeout(() => { finDragKey = null; }, 0);
+      });
+    });
+    host.querySelectorAll('.fin-col').forEach(col => {
+      col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop-target'); });
+      col.addEventListener('dragleave', () => col.classList.remove('drop-target'));
+      col.addEventListener('drop', async e => {
+        e.preventDefault();
+        col.classList.remove('drop-target');
+        const key = finDragKey;
+        finDragKey = null;
+        if (!key) return;
+        await setFinStatus(key, col.dataset.status);
+      });
+    });
+  }
+
+  async function setFinStatus(accountKey, status) {
+    const r = await api('PUT', '/financials/accounts/' + encodeURIComponent(accountKey) + '/status', { status });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not move this account.'); return false; }
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === accountKey);
+    if (acct) acct.case = r.data.case;
+    renderFinViews();
+    return true;
+  }
+
+  function renderFinTable(accounts) {
+    const tbody = document.getElementById('fin-table-body');
     if (accounts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No past-due accounts. If this looks wrong, click Refresh now to pull the latest invoices from Spiro.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No past-due accounts match this filter. If that looks wrong, click Refresh now to pull the latest invoices from Spiro.</td></tr>';
       return;
     }
-    tbody.innerHTML = accounts.map(a => \`
+    tbody.innerHTML = accounts.map(a => {
+      const c = a.case || {};
+      const flag = finReviewOpen(a) ? ' <span class="badge fin-flag">Review</span>' : '';
+      return \`
       <tr class="fin-row-click" data-account="\${esc(a.accountKey)}">
-        <td>\${esc(a.accountName)}</td>
-        <td class="text-muted" style="text-transform:capitalize">\${esc(a.accountType)}</td>
+        <td>\${esc(a.accountName)}<span class="fin-owner"> · \${esc(a.accountType)}</span>\${flag}</td>
+        <td>\${esc(finStatusLabel(c.status))}</td>
+        <td class="text-muted">\${esc(finOwnerLabel(c))}</td>
         <td>\${money(a.balance)}</td>
-        <td>\${a.invoiceCount}</td>
+        <td>\${a.invoiceCount}\${a.partiallyPaidCount ? ' (' + a.partiallyPaidCount + ' partial)' : ''}</td>
         <td>\${a.oldestDaysPastDue} days</td>
         <td><span class="\${bucketClass(a.bucket)}">\${esc(a.bucket)}</span></td>
         <td>\${esc(a.action.label)}</td>
-      </tr>\`).join('');
+      </tr>\`;
+    }).join('');
     tbody.querySelectorAll('.fin-row-click').forEach(row => {
       row.addEventListener('click', () => openFinAccount(row.dataset.account));
     });
   }
 
+  document.getElementById('fin-view-board').addEventListener('click', () => {
+    finView = 'board';
+    try { localStorage.setItem('oc_fin_view', 'board'); } catch (e) { /* private mode */ }
+    renderFinViews();
+  });
+  document.getElementById('fin-view-table').addEventListener('click', () => {
+    finView = 'table';
+    try { localStorage.setItem('oc_fin_view', 'table'); } catch (e) { /* private mode */ }
+    renderFinViews();
+  });
+  document.getElementById('fin-filter-owner').addEventListener('change', e => {
+    finFilters.owner = e.target.value;
+    renderFinViews();
+  });
+  document.getElementById('fin-filter-review').addEventListener('change', e => {
+    finFilters.reviewOnly = e.target.checked;
+    renderFinViews();
+  });
+  document.getElementById('fin-filter-open').addEventListener('change', e => {
+    finFilters.hideResolved = e.target.checked;
+    renderFinViews();
+  });
+
   async function openFinAccount(accountKey) {
     const acct = (finBreakdown.accounts || []).find(a => a.accountKey === accountKey);
     const r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey));
-    if (!r.ok) { alert('Failed to load account.'); return; }
+    if (!r.ok) { alert((r.data && r.data.error) === 'forbidden' ? 'This account is not assigned to you.' : 'Failed to load account.'); return; }
     finAccount = Object.assign({}, r.data, { bucket: acct && acct.bucket, action: acct && acct.action });
     document.getElementById('fin-modal-title').textContent = r.data.accountName;
-    const balance = (r.data.invoices || []).reduce((s, i) => s + i.amount, 0);
+    const invoices = r.data.invoices || [];
+    const balance = invoices.reduce((s, i) => s + i.outstanding, 0);
+    const paid = invoices.reduce((s, i) => s + (i.amountPaid || 0), 0);
     const plan = r.data.paymentPlan || {};
     const action = acct ? acct.action : null;
     document.getElementById('fin-modal-summary').innerHTML =
       '<div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:0.5rem">' +
         '<span><strong>' + money(balance) + '</strong> outstanding</span>' +
+        (paid > 0 ? '<span class="text-muted">' + money(paid) + ' paid so far</span>' : '') +
         (acct ? '<span class="' + bucketClass(acct.bucket) + '">' + esc(acct.bucket) + ' days</span>' : '') +
       '</div>' +
       (action ? '<div class="text-muted"><strong>' + esc(action.label) + ':</strong> ' + esc(action.detail) + '</div>' : '') +
       '<div class="text-muted" style="margin-top:0.4rem">Payment plan per policy: ' + money(plan.requiredDown) +
         ' down (10%), up to ' + plan.maxMonths + ' months.</div>';
 
+    renderFinReviewBanner();
+    renderFinCaseControls();
+
     const invBody = document.getElementById('fin-modal-invoices');
-    invBody.innerHTML = (r.data.invoices || []).map(i => \`
-      <tr>
-        <td>\${esc(i.referenceNumber || i.invoiceId)}</td>
+    invBody.innerHTML = invoices.map(i => \`
+      <tr\${i.partiallyPaid ? ' style="background:var(--surface2)"' : ''}>
+        <td>\${esc(i.referenceNumber || i.invoiceId)}\${i.partiallyPaid ? ' <span class="badge fin-flag">Partial</span>' : ''}</td>
         <td class="text-muted">\${esc(i.status || '—')}</td>
         <td>\${money(i.amount)}</td>
+        <td>\${i.amountPaid === null ? '—' : money(i.amountPaid)}</td>
+        <td>\${money(i.outstanding)}</td>
         <td>\${finDate(i.dateDue)}</td>
         <td>\${i.daysPastDue}</td>
-      </tr>\`).join('') || '<tr><td colspan="5" class="empty-state">No past-due invoices.</td></tr>';
+      </tr>\`).join('') || '<tr><td colspan="7" class="empty-state">No past-due invoices.</td></tr>';
 
     renderFinNotes(r.data.notes || []);
     const followBtn = document.getElementById('fin-followup-btn');
@@ -3639,17 +3877,116 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.getElementById('fin-modal').classList.remove('hidden');
   }
 
+  // Partial payments are the one thing the policy ladder must not be applied to
+  // blindly, so the flag gets its own banner with an explicit sign-off rather
+  // than a badge someone can scroll past.
+  function renderFinReviewBanner() {
+    const el = document.getElementById('fin-review-banner');
+    if (!finAccount || !finAccount.needsManualReview) { el.classList.add('hidden'); return; }
+    const c = finAccount.case || {};
+    const n = finAccount.partiallyPaidCount || 0;
+    el.classList.remove('hidden');
+    el.innerHTML =
+      '<div style="font-weight:700;margin-bottom:0.2rem">⚠️ Manual review — partial payment</div>' +
+      '<div class="text-muted">' + n + ' past-due invoice' + (n === 1 ? '' : 's') + ' on this account ' +
+        (n === 1 ? 'has' : 'have') + ' been partly paid. Confirm what was agreed before sending a billing email, ' +
+        'switching the payment plan, or escalating.</div>' +
+      '<div style="margin-top:0.5rem">' +
+        (c.reviewClearedAt
+          ? '<span class="text-muted">Reviewed by ' + esc(c.reviewClearedByName || 'someone') + ' on ' + esc(finDate(c.reviewClearedAt)) + '. </span>' +
+            '<button class="btn btn-sm" id="fin-review-btn" data-cleared="1">Reopen review</button>'
+          : '<button class="btn btn-primary btn-sm" id="fin-review-btn" data-cleared="0">Mark reviewed</button>') +
+      '</div>';
+    document.getElementById('fin-review-btn').addEventListener('click', async e => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const rr = await api('PUT', '/financials/accounts/' + encodeURIComponent(finAccount.accountKey) + '/review',
+        { cleared: btn.dataset.cleared !== '1' });
+      btn.disabled = false;
+      if (!rr.ok) { alert((rr.data && rr.data.error) || 'Could not update the review.'); return; }
+      applyFinCase(rr.data.case);
+    });
+  }
+
+  // Stage / owner / next-action controls. Assigning is admin-only server-side,
+  // so a granted assignee sees their owner as read-only text.
+  function renderFinCaseControls() {
+    const c = (finAccount && finAccount.case) || {};
+    const statuses = (finAccount && finAccount.statuses) || finStatuses;
+    const sel = document.getElementById('fin-status-select');
+    sel.innerHTML = statuses.map(s =>
+      '<option value="' + esc(s.key) + '"' + (s.key === c.status ? ' selected' : '') + '>' + esc(s.label) + '</option>').join('');
+    const assignWrap = document.getElementById('fin-assign-wrap');
+    const canAssign = finCanAssign && (finAccount ? finAccount.canAssign !== false : true);
+    if (canAssign) {
+      assignWrap.innerHTML = 'Assigned to<br />' +
+        '<select id="fin-assign-select" style="margin-top:0.2rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)">' +
+        '<option value="">Unassigned</option>' +
+        finAssignees.map(u => '<option value="' + esc(u.id) + '"' + (u.id === c.assignedTo ? ' selected' : '') + '>' + esc(u.name) + '</option>').join('') +
+        '</select>';
+      document.getElementById('fin-assign-select').addEventListener('change', async e => {
+        const rr = await api('PUT', '/financials/accounts/' + encodeURIComponent(finAccount.accountKey) + '/assign',
+          { assignedTo: e.target.value || null });
+        if (!rr.ok) { alert((rr.data && rr.data.error) || 'Could not assign this account.'); return; }
+        if (rr.data.assigneeCanView === false) {
+          alert('Assigned — but this person cannot open the Past Due report yet. Grant them the "Past Due Accounts" report under Users → Permissions so it shows up in their queue.');
+        }
+        applyFinCase(rr.data.case);
+      });
+    } else {
+      assignWrap.innerHTML = 'Assigned to<br /><span style="font-size:0.85rem;color:var(--text)">' + esc(finOwnerLabel(c)) + '</span>';
+    }
+    const dueInput = document.getElementById('fin-due-input');
+    dueInput.value = c.dueAt ? new Date(c.dueAt).toISOString().slice(0, 10) : '';
+    document.getElementById('fin-case-meta').textContent = c.updatedAt && c.updatedByName
+      ? 'Last updated by ' + c.updatedByName + ' on ' + finDate(c.updatedAt) : '';
+  }
+
+  // Keep the open modal and the board behind it on the same case record.
+  function applyFinCase(updated) {
+    if (!finAccount) return;
+    finAccount.case = updated;
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === finAccount.accountKey);
+    if (acct) acct.case = updated;
+    renderFinReviewBanner();
+    renderFinCaseControls();
+    renderFinViews();
+  }
+
+  document.getElementById('fin-status-select').addEventListener('change', async e => {
+    if (!finAccount) return;
+    const ok = await setFinStatus(finAccount.accountKey, e.target.value);
+    if (!ok) { renderFinCaseControls(); return; }
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === finAccount.accountKey);
+    if (acct) applyFinCase(acct.case);
+  });
+
+  document.getElementById('fin-due-input').addEventListener('change', async e => {
+    if (!finAccount) return;
+    // A date input yields a bare YYYY-MM-DD; read it as local noon so the day
+    // shown back is the day that was picked in every timezone.
+    const dueAt = e.target.value ? new Date(e.target.value + 'T12:00:00').getTime() : null;
+    const r = await api('PUT', '/financials/accounts/' + encodeURIComponent(finAccount.accountKey) + '/due', { dueAt });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not set the next action date.'); return; }
+    applyFinCase(r.data.case);
+  });
+
   function renderFinNotes(notes) {
     const el = document.getElementById('fin-notes-list');
     if (!notes.length) { el.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No notes yet.</div>'; return; }
-    el.innerHTML = notes.map(n => \`
+    const me = currentUser ? currentUser.id : null;
+    el.innerHTML = notes.map(n => {
+      // Shared thread: only an admin, or the person who wrote it, gets a Delete.
+      const canDelete = isAdmin() || (n.createdBy && n.createdBy === me);
+      return \`
       <div class="fin-note">
         <div>\${esc(n.body)}</div>
         <div class="fin-note-meta">
-          <span>\${new Date(n.createdAt).toLocaleString()}</span>
-          <span class="fin-note-del" data-id="\${esc(n.id)}" style="cursor:pointer;color:var(--accent)">Delete</span>
+          <span>\${esc(n.createdByName || 'Unknown')} · \${new Date(n.createdAt).toLocaleString()}</span>
+          \${canDelete ? \`<span class="fin-note-del" data-id="\${esc(n.id)}" style="cursor:pointer;color:var(--accent)">Delete</span>\` : ''}
         </div>
-      </div>\`).join('');
+      </div>\`;
+    }).join('');
     el.querySelectorAll('.fin-note-del').forEach(x => {
       x.addEventListener('click', async () => {
         if (!confirm('Delete this note?')) return;
@@ -3687,20 +4024,25 @@ ${REPORT_TABLE_COMPONENT_JS}
   document.getElementById('fin-followup-btn').addEventListener('click', async () => {
     if (!finAccount) return;
     const acct = (finBreakdown.accounts || []).find(a => a.accountKey === finAccount.accountKey);
-    const balance = (finAccount.invoices || []).reduce((s, i) => s + i.amount, 0);
+    const balance = (finAccount.invoices || []).reduce((s, i) => s + i.outstanding, 0);
     const bucket = acct ? acct.bucket : '';
     const action = acct ? acct.action : { label: 'Follow up', detail: '' };
+    const c = finAccount.case || {};
     const title = 'Collections: ' + finAccount.accountName + ' — ' + action.label;
     const desc = action.label + '. ' + action.detail + '\\n\\n' +
       'Account: ' + finAccount.accountName + '\\n' +
       'Outstanding: ' + money(balance) + '\\n' +
       'Oldest past due: ' + (acct ? acct.oldestDaysPastDue + ' days (' + bucket + ')' : 'n/a') + '\\n' +
-      'Invoices past due: ' + (finAccount.invoices || []).length;
+      'Invoices past due: ' + (finAccount.invoices || []).length +
+      (finAccount.needsManualReview ? '\\nManual review: partial payment on this account — confirm what was agreed first.' : '');
     const btn = document.getElementById('fin-followup-btn');
     btn.disabled = true;
     btn.textContent = 'Creating…';
+    // The task lands on whoever owns the account (server-side default) so an
+    // assignment made here shows up in that person's task list too.
     const r = await api('POST', '/financials/follow-up-task', {
-      title, description: desc, priority: bucketPriority(bucket), dueDate: Date.now(),
+      title, description: desc, priority: bucketPriority(bucket), accountKey: finAccount.accountKey,
+      dueDate: c.dueAt || Date.now(),
     });
     if (!r.ok) { btn.disabled = false; btn.textContent = '+ Create follow-up task'; alert(r.data.error || 'Failed to create task.'); return; }
     btn.textContent = '✓ Added to Collections';

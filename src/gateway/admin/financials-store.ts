@@ -1,5 +1,12 @@
 import crypto from "node:crypto";
 import { callTool, listTools } from "../../../extensions/spiro/api.js";
+import {
+  defaultCase,
+  listPastDueCases,
+  PAST_DUE_CASE_STATUSES,
+  type PastDueCase,
+  type PastDueCaseStatus,
+} from "./past-due-cases-store.js";
 import { getAdminDb } from "./user-store.js";
 
 // ── Collections policy ────────────────────────────────────────────────────
@@ -61,7 +68,13 @@ export type PastDueInvoice = {
   invoiceId: string;
   referenceNumber: string | null;
   status: string | null;
+  /** Invoiced total, before anything the client has paid against it. */
   amount: number;
+  /** Paid so far. Null when Spiro did not report a figure. */
+  amountPaid: number | null;
+  /** Still owed. Falls back to the invoiced total when Spiro reports nothing. */
+  outstanding: number;
+  partiallyPaid: boolean;
   dateCreated: number | null;
   dateDue: number;
   daysPastDue: number;
@@ -72,12 +85,26 @@ export type PastDueAccount = {
   accountKey: string;
   accountName: string;
   accountType: "company" | "agent" | "unknown";
+  /** Still owed across the account's past-due invoices. */
   balance: number;
+  /** Invoiced total across those invoices, before payments. */
+  invoiced: number;
+  /** Paid against those invoices so far. */
+  paid: number;
   invoiceCount: number;
+  /** Past-due invoices carrying a partial payment. Drives the review flag. */
+  partiallyPaidCount: number;
+  /**
+   * A partially paid invoice means the balance shown here is not the whole
+   * story — a plan, a dispute, or a short payment sits behind it — so the
+   * account is held out for a human to read before any collections step.
+   */
+  needsManualReview: boolean;
   oldestDaysPastDue: number;
   bucket: PastDueBucket;
   action: { label: string; detail: string };
   paymentPlan: { requiredDown: number; maxMonths: number };
+  case: PastDueCase;
 };
 
 export type PastDueBreakdown = {
@@ -86,7 +113,9 @@ export type PastDueBreakdown = {
   totalPastDue: number;
   accountCount: number;
   invoiceCount: number;
+  manualReviewCount: number;
   byBucket: Array<{ bucket: PastDueBucket; accounts: number; amount: number }>;
+  byStatus: Array<{ status: PastDueCaseStatus; accounts: number; amount: number }>;
   accounts: PastDueAccount[];
 };
 
@@ -95,6 +124,7 @@ export type FinancialNote = {
   accountKey: string;
   body: string;
   createdBy: string | null;
+  createdByName: string | null;
   createdAt: number;
 };
 
@@ -164,10 +194,36 @@ type CachedInvoice = {
   accountName: string;
   accountType: "company" | "agent" | "unknown";
   amountTotal: number;
+  amountPaid: number | null;
+  amountDue: number | null;
   dateCreated: number | null;
   dateDue: number;
   orderCount: number;
 };
+
+// What the client still owes on one invoice. Spiro's InvoiceAmountModel reports
+// `amountDue` (total less payments, credits and adjustments); it is the figure
+// to collect on. Older cached rows predate the column, so fall back to the
+// invoiced total — the pre-existing behavior — rather than guessing zero.
+function outstandingOf(row: { amount_total: number; amount_due: number | null }): number {
+  return row.amount_due ?? row.amount_total;
+}
+
+// True when money has landed against an invoice that is still not settled.
+// `status` carries Spiro's own label ("PartiallyPaid"); the amount comparison
+// catches a row whose status string drifts or is missing.
+function isPartiallyPaid(row: {
+  status: string | null;
+  amount_total: number;
+  amount_paid: number | null;
+  amount_due: number | null;
+}): boolean {
+  if ((row.status ?? "").toLowerCase().replace(/[\s_-]/g, "") === "partiallypaid") {
+    return true;
+  }
+  const paid = row.amount_paid ?? 0;
+  return paid > 0 && outstandingOf(row) > 0;
+}
 
 // Smart payee grouping: bill whoever actually owes. Spiro's InvoicePartyModel
 // carries payeeType plus company/agent ids+names. Group by company when the
@@ -239,6 +295,8 @@ function extractInvoice(raw: Record<string, unknown>): CachedInvoice | null {
     accountName: account.accountName,
     accountType: account.accountType,
     amountTotal,
+    amountPaid: amountObj ? firstNumber(amountObj, ["amountPaid", "amount_paid"]) : null,
+    amountDue: amountObj ? firstNumber(amountObj, ["amountDue", "amount_due"]) : null,
     dateCreated: parseDateMs(raw, ["dateCreated", "date_created"]),
     dateDue,
     orderCount: firstNumber(raw, ["orderCount", "order_count"]) ?? 0,
@@ -338,6 +396,8 @@ export async function refreshInvoices(opts: { manual: boolean }): Promise<{ coun
             account_name: inv.accountName,
             account_type: inv.accountType,
             amount_total: inv.amountTotal,
+            amount_paid: inv.amountPaid,
+            amount_due: inv.amountDue,
             date_created: inv.dateCreated,
             date_due: inv.dateDue,
             order_count: inv.orderCount,
@@ -388,7 +448,10 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
       name: string;
       type: "company" | "agent" | "unknown";
       balance: number;
+      invoiced: number;
+      paid: number;
       count: number;
+      partial: number;
       oldest: number;
     }
   >();
@@ -399,14 +462,24 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
       name: row.account_name,
       type: (row.account_type as "company" | "agent" | "unknown") ?? "unknown",
       balance: 0,
+      invoiced: 0,
+      paid: 0,
       count: 0,
+      partial: 0,
       oldest: 0,
     };
-    entry.balance += row.amount_total;
+    entry.balance += outstandingOf(row);
+    entry.invoiced += row.amount_total;
+    entry.paid += row.amount_paid ?? 0;
     entry.count += 1;
+    if (isPartiallyPaid(row)) {
+      entry.partial += 1;
+    }
     entry.oldest = Math.max(entry.oldest, daysPastDue);
     byAccount.set(row.account_key, entry);
   }
+
+  const cases = await listPastDueCases();
 
   const accounts: PastDueAccount[] = Array.from(byAccount.entries())
     .map(([accountKey, v]) => {
@@ -416,11 +489,16 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
         accountName: v.name,
         accountType: v.type,
         balance: Math.round(v.balance * 100) / 100,
+        invoiced: Math.round(v.invoiced * 100) / 100,
+        paid: Math.round(v.paid * 100) / 100,
         invoiceCount: v.count,
+        partiallyPaidCount: v.partial,
+        needsManualReview: v.partial > 0,
         oldestDaysPastDue: v.oldest,
         bucket,
         action: policyAction(bucket),
         paymentPlan: paymentPlanTerms(v.balance),
+        case: cases.get(accountKey) ?? defaultCase(accountKey, v.name, now),
       };
     })
     .sort((a, b) => b.oldestDaysPastDue - a.oldestDaysPastDue || b.balance - a.balance);
@@ -434,6 +512,15 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
     };
   });
 
+  const byStatus = PAST_DUE_CASE_STATUSES.map(({ key }) => {
+    const inStatus = accounts.filter((a) => a.case.status === key);
+    return {
+      status: key,
+      accounts: inStatus.length,
+      amount: Math.round(inStatus.reduce((s, a) => s + a.balance, 0) * 100) / 100,
+    };
+  });
+
   const { refreshedAt } = await getInvoiceRefreshStatus();
 
   return {
@@ -442,9 +529,58 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
     totalPastDue: Math.round(accounts.reduce((s, a) => s + a.balance, 0) * 100) / 100,
     accountCount: accounts.length,
     invoiceCount: accounts.reduce((s, a) => s + a.invoiceCount, 0),
+    manualReviewCount: accounts.filter((a) => a.needsManualReview).length,
     byBucket,
+    byStatus,
     accounts,
   };
+}
+
+/**
+ * The same breakdown, cut down to one person's assigned accounts. A collections
+ * assignee is granted the report to work their own queue, not to read the
+ * company's total exposure, so the tiles and bucket counts are recomputed over
+ * the accounts they can actually see rather than filtering rows under
+ * company-wide totals.
+ */
+export function scopeBreakdownToAssignee(
+  breakdown: PastDueBreakdown,
+  userId: string,
+): PastDueBreakdown {
+  const accounts = breakdown.accounts.filter((a) => a.case.assignedTo === userId);
+  const sum = (list: PastDueAccount[]) =>
+    Math.round(list.reduce((s, a) => s + a.balance, 0) * 100) / 100;
+  return {
+    ...breakdown,
+    totalPastDue: sum(accounts),
+    accountCount: accounts.length,
+    invoiceCount: accounts.reduce((s, a) => s + a.invoiceCount, 0),
+    manualReviewCount: accounts.filter((a) => a.needsManualReview).length,
+    byBucket: PAST_DUE_BUCKETS.map((bucket) => {
+      const inBucket = accounts.filter((a) => a.bucket === bucket);
+      return { bucket, accounts: inBucket.length, amount: sum(inBucket) };
+    }),
+    byStatus: PAST_DUE_CASE_STATUSES.map(({ key }) => {
+      const inStatus = accounts.filter((a) => a.case.status === key);
+      return { status: key, accounts: inStatus.length, amount: sum(inStatus) };
+    }),
+    accounts,
+  };
+}
+
+/**
+ * Display name for an account, from the invoice snapshot. Falls back to the key
+ * so a case can still be written for an account whose invoices have since been
+ * paid off and dropped out of the snapshot.
+ */
+export async function getAccountName(accountKey: string): Promise<string> {
+  const db = getAdminDb();
+  const row = await db
+    .selectFrom("admin_spiro_invoices")
+    .select("account_name")
+    .where("account_key", "=", accountKey)
+    .executeTakeFirst();
+  return row?.account_name ?? accountKey;
 }
 
 export async function getAccountInvoices(
@@ -465,6 +601,9 @@ export async function getAccountInvoices(
       referenceNumber: row.reference_number,
       status: row.status,
       amount: Math.round(row.amount_total * 100) / 100,
+      amountPaid: row.amount_paid === null ? null : Math.round(row.amount_paid * 100) / 100,
+      outstanding: Math.round(outstandingOf(row) * 100) / 100,
+      partiallyPaid: isPartiallyPaid(row),
       dateCreated: row.date_created,
       dateDue: row.date_due,
       daysPastDue: daysBetween(row.date_due, now),
@@ -490,35 +629,61 @@ export async function listNotes(accountKey: string): Promise<FinancialNote[]> {
     accountKey: r.account_key,
     body: r.body,
     createdBy: r.created_by,
+    createdByName: r.created_by_name,
     createdAt: r.created_at,
   }));
 }
+
+const MAX_NOTE_LEN = 2000;
 
 export async function addNote(params: {
   accountKey: string;
   body: string;
   createdBy: string | null;
+  createdByName?: string | null;
 }): Promise<FinancialNote> {
   const db = getAdminDb();
   const id = crypto.randomUUID();
   const now = Date.now();
+  const body = params.body.trim().slice(0, MAX_NOTE_LEN);
   await db
     .insertInto("admin_financial_notes")
     .values({
       id,
       account_key: params.accountKey,
-      body: params.body,
+      body,
       created_by: params.createdBy,
+      created_by_name: params.createdByName ?? null,
       created_at: now,
     })
     .execute();
   return {
     id,
     accountKey: params.accountKey,
-    body: params.body,
+    body,
     createdBy: params.createdBy,
+    createdByName: params.createdByName ?? null,
     createdAt: now,
   };
+}
+
+export async function getNote(id: string): Promise<FinancialNote | null> {
+  const db = getAdminDb();
+  const r = await db
+    .selectFrom("admin_financial_notes")
+    .selectAll()
+    .where("id", "=", id)
+    .executeTakeFirst();
+  return r
+    ? {
+        id: r.id,
+        accountKey: r.account_key,
+        body: r.body,
+        createdBy: r.created_by,
+        createdByName: r.created_by_name,
+        createdAt: r.created_at,
+      }
+    : null;
 }
 
 export async function deleteNote(id: string): Promise<void> {

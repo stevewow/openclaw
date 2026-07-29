@@ -512,7 +512,8 @@ ${REPORT_TABLE_COMPONENT_JS}
     { key: 'report-cancellations', title: 'Agent Cancellation Report' },
     { key: 'rankings', title: 'Agent & Company Rankings' },
     { key: 'photographers', title: 'Photographers' },
-    { key: 'pipedrive-cleanup', title: 'Pipedrive Cleanup' }
+    { key: 'pipedrive-cleanup', title: 'Pipedrive Cleanup' },
+    { key: 'past-due', title: 'Collections Queue' }
   ];
   function anyReportGranted(){ return PORTAL_REPORTS.some(function(r){ return hasReport(r.key); }); }
 
@@ -584,7 +585,8 @@ ${REPORT_TABLE_COMPONENT_JS}
         '<div class="report-view" data-view="report-cancellations" style="display:none"><div class="card" style="padding:0" id="prt-cancel"></div></div>' +
         '<div class="report-view" data-view="rankings" style="display:none"><div class="card" style="padding:0;margin-bottom:1rem"><div class="report-subhead">🧑‍💼 Agent Ranking</div><div id="prt-rank-agents"></div></div><div class="card" style="padding:0"><div class="report-subhead">🏢 Company Ranking</div><div id="prt-rank-companies"></div></div></div>' +
         '<div class="report-view" data-view="photographers" style="display:none"><div class="card" style="padding:0" id="prt-photographers"></div></div>' +
-        '<div class="report-view" data-view="pipedrive-cleanup" style="display:none"><div id="prt-pdc"></div></div>';
+        '<div class="report-view" data-view="pipedrive-cleanup" style="display:none"><div id="prt-pdc"></div></div>' +
+        '<div class="report-view" data-view="past-due" style="display:none"><div id="prt-pastdue"></div></div>';
       portalReportTables['report-cancellations'] = createReportTable({ containerId:'prt-cancel', reportKey:'p-cancellations', frozenFirst:true, emptyMsg:'No data cached for this range yet.', columns: portalCancelCols() });
       portalReportTables['rankings-agents'] = createReportTable({ containerId:'prt-rank-agents', reportKey:'p-rankings-agents', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Agent') });
       portalReportTables['rankings-companies'] = createReportTable({ containerId:'prt-rank-companies', reportKey:'p-rankings-companies', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Company') });
@@ -608,8 +610,8 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.querySelectorAll('#report-picker .report-tab').forEach(function(b){ b.classList.toggle('active', b.dataset.key === key); });
     document.querySelectorAll('#report-area .report-view').forEach(function(v){ v.style.display = v.dataset.view === key ? '' : 'none'; });
     // The date/market controls only apply to the Spiro data reports; the cleanup
-    // worklist is a live checklist, so hide them for it.
-    document.getElementById('report-controls').classList.toggle('hidden', key === 'pipedrive-cleanup');
+    // worklist and the collections queue are live worklists, so hide them there.
+    document.getElementById('report-controls').classList.toggle('hidden', key === 'pipedrive-cleanup' || key === 'past-due');
     renderPortalReport(key);
   }
   async function renderPortalReport(key){
@@ -630,7 +632,137 @@ ${REPORT_TABLE_COMPONENT_JS}
       portalReportTables['photographers'].setData(r3.data.report.rows);
     } else if (key === 'pipedrive-cleanup'){
       await renderPortalCleanup();
+    } else if (key === 'past-due'){
+      await renderPortalPastDue();
     }
+  }
+
+  // ── Collections queue (past-due accounts assigned to this user) ─────────────
+  // The server only returns accounts assigned to the viewer, so this page is
+  // their queue by construction — no client-side filtering to get wrong.
+  var portalPastDueOpen = {}; // accountKey -> detail expanded
+  function pdMoney(n){ return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+  function pdDate(ms){ return ms ? new Date(ms).toLocaleDateString() : '—'; }
+  async function renderPortalPastDue(){
+    var host = document.getElementById('prt-pastdue');
+    host.innerHTML = '<div class="text-muted" style="padding:1rem">Loading…</div>';
+    var r = await api('GET', '/financials/past-due');
+    if (!r.ok){ host.innerHTML = '<div class="empty-state"><p>Could not load your collections queue.</p></div>'; return; }
+    var accounts = (r.data.breakdown && r.data.breakdown.accounts) || [];
+    var statuses = r.data.statuses || [];
+    if (!accounts.length){
+      host.innerHTML = '<div class="empty-state"><p>Nothing assigned to you yet — accounts show up here once someone assigns them.</p></div>';
+      return;
+    }
+    var review = accounts.filter(function(a){ return a.needsManualReview && !(a.case && a.case.reviewClearedAt); }).length;
+    var head = '<div class="card" style="margin-bottom:0.75rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">' +
+      '<div style="font-weight:700">Your collections queue</div>' +
+      '<div class="text-muted" style="font-size:0.85rem">' + accounts.length + ' account' + (accounts.length === 1 ? '' : 's') +
+      ' · ' + pdMoney(r.data.breakdown.totalPastDue) + ' outstanding' +
+      (review ? ' · ' + review + ' needing review' : '') + '</div></div>';
+    host.innerHTML = head + accounts.map(function(a){ return portalPastDueCard(a, statuses); }).join('');
+    bindPortalPastDue();
+  }
+  function portalPastDueCard(a, statuses){
+    var c = a.case || {};
+    var flagOpen = a.needsManualReview && !c.reviewClearedAt;
+    var flag = flagOpen
+      ? '<span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#fbf1dd;color:#b7791f;margin-left:0.4rem">⚠ Manual review</span>'
+      : (a.needsManualReview ? '<span class="text-muted" style="font-size:0.72rem;margin-left:0.4rem">Reviewed</span>' : '');
+    var due = c.dueAt ? '<span class="text-muted" style="font-size:0.78rem">Next action ' + esc(pdDate(c.dueAt)) + '</span>' : '';
+    return '<div class="card" style="margin-bottom:0.5rem">' +
+      '<div style="display:flex;gap:0.6rem;align-items:baseline;flex-wrap:wrap">' +
+        '<span style="font-weight:600">' + esc(a.accountName) + '</span>' + flag +
+        '<span style="margin-left:auto;font-weight:700">' + pdMoney(a.balance) + '</span>' +
+      '</div>' +
+      '<div class="text-muted" style="font-size:0.82rem;margin-top:0.2rem">' +
+        esc(a.oldestDaysPastDue + ' days past due (' + a.bucket + ') · ' + a.invoiceCount + ' invoice' + (a.invoiceCount === 1 ? '' : 's')) +
+        (a.partiallyPaidCount ? esc(', ' + a.partiallyPaidCount + ' partly paid') : '') +
+      '</div>' +
+      '<div class="text-muted" style="font-size:0.82rem;margin-top:0.2rem"><strong>' + esc(a.action.label) + ':</strong> ' + esc(a.action.detail) + '</div>' +
+      (flagOpen ? '<div style="font-size:0.8rem;margin-top:0.4rem;padding:0.4rem 0.55rem;border-left:3px solid #b7791f;background:var(--surface2,#f6f7f9);border-radius:6px">' +
+        'A partial payment sits behind this balance. Confirm what was agreed before the next collections step. ' +
+        '<button class="btn btn-sm" data-pd-review="' + esc(a.accountKey) + '">Mark reviewed</button></div>' : '') +
+      '<div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;margin-top:0.5rem">' +
+        '<label class="text-muted" style="font-size:0.78rem">Stage ' +
+          '<select data-pd-status="' + esc(a.accountKey) + '" style="font-size:0.8rem;padding:0.25rem 0.4rem;margin-left:0.25rem">' +
+          statuses.map(function(s){ return '<option value="' + esc(s.key) + '"' + (s.key === c.status ? ' selected' : '') + '>' + esc(s.label) + '</option>'; }).join('') +
+          '</select></label>' + due +
+        '<button class="btn btn-sm" data-pd-toggle="' + esc(a.accountKey) + '" style="margin-left:auto">' +
+          (portalPastDueOpen[a.accountKey] ? 'Hide notes' : 'Notes &amp; invoices') + '</button>' +
+      '</div>' +
+      '<div data-pd-detail="' + esc(a.accountKey) + '"' + (portalPastDueOpen[a.accountKey] ? '' : ' style="display:none"') + '></div>' +
+    '</div>';
+  }
+  function bindPortalPastDue(){
+    var host = document.getElementById('prt-pastdue');
+    host.querySelectorAll('[data-pd-status]').forEach(function(sel){
+      sel.addEventListener('change', async function(){
+        var res = await api('PUT', '/financials/accounts/' + encodeURIComponent(sel.dataset.pdStatus) + '/status', { status: sel.value });
+        if (!res.ok){ alert((res.data && res.data.error) || 'Could not update the stage.'); }
+        await renderPortalPastDue();
+      });
+    });
+    host.querySelectorAll('[data-pd-review]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var res = await api('PUT', '/financials/accounts/' + encodeURIComponent(btn.dataset.pdReview) + '/review', { cleared: true });
+        if (!res.ok){ alert((res.data && res.data.error) || 'Could not record the review.'); }
+        await renderPortalPastDue();
+      });
+    });
+    host.querySelectorAll('[data-pd-toggle]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        var key = btn.dataset.pdToggle;
+        portalPastDueOpen[key] = !portalPastDueOpen[key];
+        var panel = host.querySelector('[data-pd-detail="' + CSS.escape(key) + '"]');
+        if (!portalPastDueOpen[key]){ panel.style.display = 'none'; btn.innerHTML = 'Notes &amp; invoices'; return; }
+        panel.style.display = '';
+        btn.textContent = 'Hide notes';
+        await renderPortalPastDueDetail(key, panel);
+      });
+    });
+    // Restore any panel left open across a re-render.
+    Object.keys(portalPastDueOpen).forEach(function(key){
+      if (!portalPastDueOpen[key]) return;
+      var panel = host.querySelector('[data-pd-detail="' + CSS.escape(key) + '"]');
+      if (panel) void renderPortalPastDueDetail(key, panel);
+    });
+  }
+  async function renderPortalPastDueDetail(accountKey, panel){
+    panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem;padding:0.5rem 0">Loading…</div>';
+    var r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey));
+    if (!r.ok){ panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem">Could not load this account.</div>'; return; }
+    var invoices = (r.data.invoices || []).map(function(i){
+      return '<tr><td>' + esc(i.referenceNumber || i.invoiceId) + (i.partiallyPaid ? ' <strong style="color:#b7791f">partial</strong>' : '') + '</td>' +
+        '<td>' + pdMoney(i.amount) + '</td><td>' + (i.amountPaid === null ? '—' : pdMoney(i.amountPaid)) + '</td>' +
+        '<td>' + pdMoney(i.outstanding) + '</td><td>' + esc(pdDate(i.dateDue)) + '</td><td>' + i.daysPastDue + '</td></tr>';
+    }).join('');
+    var notes = (r.data.notes || []).map(function(n){
+      return '<div style="border:1px solid var(--border);border-radius:7px;padding:0.45rem 0.6rem;margin-bottom:0.35rem">' +
+        '<div style="font-size:0.85rem">' + esc(n.body) + '</div>' +
+        '<div class="text-muted" style="font-size:0.72rem;margin-top:0.2rem">' + esc(n.createdByName || 'Unknown') + ' · ' + esc(new Date(n.createdAt).toLocaleString()) + '</div>' +
+      '</div>';
+    }).join('') || '<div class="text-muted" style="font-size:0.8rem">No notes yet.</div>';
+    panel.innerHTML =
+      '<div style="margin-top:0.6rem;font-weight:700;font-size:0.85rem">Past-due invoices</div>' +
+      '<div class="table-wrap"><table style="font-size:0.8rem"><thead><tr><th>Reference</th><th>Invoiced</th><th>Paid</th><th>Outstanding</th><th>Due</th><th>Days</th></tr></thead><tbody>' +
+      (invoices || '<tr><td colspan="6" class="empty-state">No past-due invoices.</td></tr>') + '</tbody></table></div>' +
+      '<div style="margin-top:0.6rem;font-weight:700;font-size:0.85rem">Notes</div>' +
+      '<form data-pd-note-form="' + esc(accountKey) + '" style="display:flex;gap:0.4rem;margin:0.35rem 0 0.5rem">' +
+        '<input type="text" placeholder="Add a note…" autocomplete="off" style="flex:1;font-size:0.82rem;padding:0.3rem 0.5rem" />' +
+        '<button type="submit" class="btn btn-sm">Add</button></form>' +
+      notes;
+    var form = panel.querySelector('[data-pd-note-form]');
+    form.addEventListener('submit', async function(e){
+      e.preventDefault();
+      var input = form.querySelector('input');
+      var body = input.value.trim();
+      if (!body) return;
+      var res = await api('POST', '/financials/notes', { accountKey: accountKey, body: body });
+      if (!res.ok){ alert((res.data && res.data.error) || 'Could not add the note.'); return; }
+      input.value = '';
+      await renderPortalPastDueDetail(accountKey, panel);
+    });
   }
 
   // ── Pipedrive Cleanup worklist (the one writable report) ────────────────────

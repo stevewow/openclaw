@@ -544,6 +544,180 @@ describe("pipedrive cleanup report — admin-approve vs VA-done split", () => {
   });
 });
 
+describe("past due accounts — assigned worklist", () => {
+  const ACCOUNT = "agent:authz-past-due";
+  const OTHER = "agent:authz-past-due-other";
+
+  async function grantPastDue(): Promise<string> {
+    const token = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [{ permissionType: "report", value: "past-due" }]);
+    return token;
+  }
+
+  it("hides the report from a user without the grant", async () => {
+    const token = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, []);
+    expect((await call("GET", "/financials/past-due", { token })).status).toBe(403);
+    expect((await call("GET", `/financials/accounts/${ACCOUNT}`, { token })).status).toBe(403);
+  });
+
+  it("keeps refresh admin-only even for a granted user", async () => {
+    const token = await grantPastDue();
+    expect((await call("POST", "/financials/past-due/refresh", { token })).status).toBe(403);
+  });
+
+  it("refuses a granted user acting on an account nobody assigned them", async () => {
+    const token = await grantPastDue();
+    const res = await call("PUT", `/financials/accounts/${ACCOUNT}/status`, {
+      token,
+      body: { status: "working" },
+    });
+    expect(res.status).toBe(403);
+    const note = await call("POST", "/financials/notes", {
+      token,
+      body: { accountKey: ACCOUNT, body: "should not land" },
+    });
+    expect(note.status).toBe(403);
+  });
+
+  it("refuses a granted user assigning work — that stays with admins", async () => {
+    const token = await grantPastDue();
+    const res = await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token,
+      body: { assignedTo: plainId },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects an unknown assignee and an off-board stage", async () => {
+    const bad = await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: "no-such-user" },
+    });
+    expect(bad.status).toBe(400);
+    const stage = await call("PUT", `/financials/accounts/${ACCOUNT}/status`, {
+      token: adminToken,
+      body: { status: "done" },
+    });
+    expect(stage.status).toBe(400);
+  });
+
+  it("opens the account to its assignee once an admin hands it over", async () => {
+    const token = await grantPastDue();
+    const assign = await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    expect(assign.status).toBe(200);
+    expect((assign.json?.case as { assignedTo: string }).assignedTo).toBe(plainId);
+
+    // Now theirs to work: read, move, note.
+    expect((await call("GET", `/financials/accounts/${ACCOUNT}`, { token })).status).toBe(200);
+    const moved = await call("PUT", `/financials/accounts/${ACCOUNT}/status`, {
+      token,
+      body: { status: "promised" },
+    });
+    expect(moved.status).toBe(200);
+    expect((moved.json?.case as { status: string }).status).toBe("promised");
+    const note = await call("POST", "/financials/notes", {
+      token,
+      body: { accountKey: ACCOUNT, body: "Client says Friday." },
+    });
+    expect(note.status).toBe(201);
+    expect((note.json?.note as { createdByName: string }).createdByName).toBe("other");
+
+    // …but only this account. A different one is still closed to them.
+    await call("PUT", `/financials/accounts/${OTHER}/status`, {
+      token: adminToken,
+      body: { status: "working" },
+    });
+    expect((await call("GET", `/financials/accounts/${OTHER}`, { token })).status).toBe(403);
+  });
+
+  it("says so when the new owner cannot open the report yet", async () => {
+    await userStore.setUserPermissions(plainId, []);
+    const blind = await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    expect(blind.json?.assigneeCanView).toBe(false);
+
+    await userStore.setUserPermissions(plainId, [{ permissionType: "report", value: "past-due" }]);
+    const granted = await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    expect(granted.json?.assigneeCanView).toBe(true);
+
+    // An admin assignee needs no grant at all.
+    const toAdmin = await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: adminId },
+    });
+    expect(toAdmin.json?.assigneeCanView).toBe(true);
+  });
+
+  it("lets the assignee sign off the partial-payment review", async () => {
+    const token = await grantPastDue();
+    await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    const res = await call("PUT", `/financials/accounts/${ACCOUNT}/review`, {
+      token,
+      body: { cleared: true },
+    });
+    expect(res.status).toBe(200);
+    expect((res.json?.case as { reviewClearedByName: string }).reviewClearedByName).toBe("other");
+  });
+
+  it("scopes the breakdown to the assignee's own accounts", async () => {
+    const token = await grantPastDue();
+    await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    const mine = await call("GET", "/financials/past-due", { token });
+    expect(mine.status).toBe(200);
+    const accounts = (mine.json?.breakdown as { accounts: Array<{ accountKey: string }> }).accounts;
+    // No invoice snapshot exists in this suite, so the scoped list is empty —
+    // the point is that it never leaks the company-wide roster or the
+    // assignment picker.
+    expect(accounts.every((a) => a.accountKey === ACCOUNT)).toBe(true);
+    expect(mine.json?.canAssign).toBe(false);
+    expect(mine.json?.assignees).toEqual([]);
+
+    const admin = await call("GET", "/financials/past-due", { token: adminToken });
+    expect(admin.json?.canAssign).toBe(true);
+    expect((admin.json?.assignees as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it("lets the author delete their own note but not someone else's", async () => {
+    const token = await grantPastDue();
+    await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    const mine = await call("POST", "/financials/notes", {
+      token,
+      body: { accountKey: ACCOUNT, body: "mine to delete" },
+    });
+    const theirs = await call("POST", "/financials/notes", {
+      token: adminToken,
+      body: { accountKey: ACCOUNT, body: "the admin's note" },
+    });
+    const mineId = (mine.json?.note as { id: string }).id;
+    const theirsId = (theirs.json?.note as { id: string }).id;
+
+    expect((await call("DELETE", `/financials/notes/${theirsId}`, { token })).status).toBe(403);
+    expect((await call("DELETE", `/financials/notes/${mineId}`, { token })).status).toBe(200);
+    // The admin can still clear anyone's.
+    expect(
+      (await call("DELETE", `/financials/notes/${theirsId}`, { token: adminToken })).status,
+    ).toBe(200);
+  });
+});
+
 describe("churn report — read gated by the report grant", () => {
   // Pin the snapshot path to a missing file so resolution is deterministic
   // regardless of the host's real workspace.

@@ -57,11 +57,24 @@ import {
   deleteNote,
   ensureFinancialsScheduler,
   getAccountInvoices,
+  getAccountName,
+  getNote,
   getPastDueBreakdown,
   listNotes,
   paymentPlanTerms,
   refreshInvoices,
+  scopeBreakdownToAssignee,
 } from "./financials-store.js";
+import {
+  assignPastDueCase,
+  defaultCase,
+  getPastDueCase,
+  isPastDueCaseStatus,
+  PAST_DUE_CASE_STATUSES,
+  setPastDueCaseDueAt,
+  setPastDueCaseReviewCleared,
+  setPastDueCaseStatus,
+} from "./past-due-cases-store.js";
 import {
   type CleanupImportItem,
   decideCleanupItem,
@@ -541,6 +554,19 @@ export async function handleAdminHttpRequest(
     return (await viewerPerms()).some(
       (p) => p.permissionType === "report" && p.value === reportKey,
     );
+  }
+  // Past Due is a worklist, so a granted non-admin acts on their own queue only:
+  // the report permission opens the page, the assignment opens the account. An
+  // unassigned account is nobody's to work but an admin's.
+  async function canWorkPastDueAccount(accountKey: string): Promise<boolean> {
+    if (isAdmin) {
+      return true;
+    }
+    if (!(await hasReportAccess("past-due"))) {
+      return false;
+    }
+    const existing = await getPastDueCase(accountKey);
+    return existing?.assignedTo === viewerId;
   }
 
   // POST /api/admin/auth/logout
@@ -2421,14 +2447,31 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/financials/past-due — grouped past-due breakdown (admin only)
+  // GET /api/admin/financials/past-due — grouped past-due breakdown. Admins see
+  // every account; a granted non-admin sees only the ones assigned to them.
+  // `statuses` ships the board columns so the UI never hardcodes them, and
+  // `assignees` (admins only) fills the assignment picker in the same round trip.
   if (subPath === "/financials/past-due" && req.method === "GET") {
-    if (!isAdmin) {
+    if (!(await hasReportAccess("past-due"))) {
       sendForbidden(res);
       return true;
     }
-    const breakdown = await getPastDueBreakdown();
-    sendJson(res, 200, { breakdown });
+    const full = await getPastDueBreakdown();
+    const breakdown = isAdmin ? full : scopeBreakdownToAssignee(full, sessionUser.id);
+    const assignees = isAdmin
+      ? (await listUsers()).map((u) => ({
+          id: u.id,
+          username: u.username,
+          name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username,
+          role: u.role,
+        }))
+      : [];
+    sendJson(res, 200, {
+      breakdown,
+      statuses: PAST_DUE_CASE_STATUSES,
+      assignees,
+      canAssign: isAdmin,
+    });
     return true;
   }
 
@@ -2447,36 +2490,174 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/financials/accounts/:accountKey — invoices + notes for an account (admin only)
-  const acctMatch = subPath.match(/^\/financials\/accounts\/([^/]+)$/);
-  if (acctMatch && req.method === "GET") {
+  // PUT /api/admin/financials/accounts/:accountKey/status — move the account
+  // along the collections board. Admins, or the assignee working it.
+  const acctStatusMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/status$/);
+  if (acctStatusMatch && req.method === "PUT") {
+    const accountKey = decodeURIComponent(acctStatusMatch[1]);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const status = (body.value as Record<string, unknown>).status;
+    if (!isPastDueCaseStatus(status)) {
+      sendBadRequest(
+        res,
+        "status must be one of: " + PAST_DUE_CASE_STATUSES.map((s) => s.key).join(", "),
+      );
+      return true;
+    }
+    const updated = await setPastDueCaseStatus({
+      accountKey,
+      accountName: await getAccountName(accountKey),
+      status,
+      byUserName: sessionUser.username,
+    });
+    sendJson(res, 200, { case: updated });
+    return true;
+  }
+
+  // PUT /api/admin/financials/accounts/:accountKey/assign — hand the account to
+  // a user (or `assignedTo: null` to release it). Admin only: an assignee works
+  // their queue, they do not hand work to each other.
+  const acctAssignMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/assign$/);
+  if (acctAssignMatch && req.method === "PUT") {
     if (!isAdmin) {
       sendForbidden(res);
       return true;
     }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const assignedTo = normalizeString(data.assignedTo);
+    if (assignedTo && !(await getUserById(assignedTo))) {
+      sendBadRequest(res, "assignedTo is not a known user");
+      return true;
+    }
+    const accountKey = decodeURIComponent(acctAssignMatch[1]);
+    const updated = await assignPastDueCase({
+      accountKey,
+      accountName: await getAccountName(accountKey),
+      assignedTo,
+      dueAt: typeof data.dueAt === "number" ? data.dueAt : data.dueAt === null ? null : undefined,
+      byUserId: sessionUser.id,
+      byUserName: sessionUser.username,
+    });
+    // Assigning to someone who was never granted the report leaves the work
+    // invisible to them, so say so rather than letting it sit unseen.
+    let assigneeCanView = true;
+    if (assignedTo) {
+      const target = await getUserById(assignedTo);
+      assigneeCanView =
+        target?.role === "admin" ||
+        target?.role === "superadmin" ||
+        (await getUserPermissions(assignedTo)).some(
+          (p) => p.permissionType === "report" && p.value === "past-due",
+        );
+    }
+    sendJson(res, 200, { case: updated, assigneeCanView });
+    return true;
+  }
+
+  // PUT /api/admin/financials/accounts/:accountKey/due — next-action date
+  const acctDueMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/due$/);
+  if (acctDueMatch && req.method === "PUT") {
+    const accountKey = decodeURIComponent(acctDueMatch[1]);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const raw = (body.value as Record<string, unknown>).dueAt;
+    if (raw !== null && typeof raw !== "number") {
+      sendBadRequest(res, "dueAt must be a timestamp or null");
+      return true;
+    }
+    const updated = await setPastDueCaseDueAt({
+      accountKey,
+      accountName: await getAccountName(accountKey),
+      dueAt: raw,
+      byUserName: sessionUser.username,
+    });
+    sendJson(res, 200, { case: updated });
+    return true;
+  }
+
+  // PUT /api/admin/financials/accounts/:accountKey/review — sign off (or reopen)
+  // the manual review a partial payment triggers.
+  const acctReviewMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/review$/);
+  if (acctReviewMatch && req.method === "PUT") {
+    const accountKey = decodeURIComponent(acctReviewMatch[1]);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const updated = await setPastDueCaseReviewCleared({
+      accountKey,
+      accountName: await getAccountName(accountKey),
+      cleared: (body.value as Record<string, unknown>).cleared !== false,
+      byUserId: sessionUser.id,
+      byUserName: sessionUser.username,
+    });
+    sendJson(res, 200, { case: updated });
+    return true;
+  }
+
+  // GET /api/admin/financials/accounts/:accountKey — invoices, notes and case
+  // state for one account. Admins, or the assignee working it.
+  const acctMatch = subPath.match(/^\/financials\/accounts\/([^/]+)$/);
+  if (acctMatch && req.method === "GET") {
     const accountKey = decodeURIComponent(acctMatch[1]!);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
     const { accountName, invoices } = await getAccountInvoices(accountKey);
     const notes = await listNotes(accountKey);
-    const balance = invoices.reduce((s, i) => s + i.amount, 0);
+    const balance = invoices.reduce((s, i) => s + i.outstanding, 0);
+    const partiallyPaid = invoices.filter((i) => i.partiallyPaid);
     sendJson(res, 200, {
       accountKey,
       accountName,
       invoices,
       notes,
       paymentPlan: paymentPlanTerms(balance),
+      case: (await getPastDueCase(accountKey)) ?? defaultCase(accountKey, accountName),
+      needsManualReview: partiallyPaid.length > 0,
+      partiallyPaidCount: partiallyPaid.length,
+      statuses: PAST_DUE_CASE_STATUSES,
+      canAssign: isAdmin,
     });
     return true;
   }
 
-  // GET/POST /api/admin/financials/notes — list (by ?accountKey) or create (admin only)
+  // GET/POST /api/admin/financials/notes — list (by ?accountKey) or create.
+  // Notes are the shared thread on an account, so anyone who can work it writes.
   if (subPath === "/financials/notes" && req.method === "GET") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const accountKey = normalizeString(url.searchParams.get("accountKey"));
     if (!accountKey) {
       sendBadRequest(res, "accountKey required");
+      return true;
+    }
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
       return true;
     }
     const notes = await listNotes(accountKey);
@@ -2484,10 +2665,6 @@ export async function handleAdminHttpRequest(
     return true;
   }
   if (subPath === "/financials/notes" && req.method === "POST") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -2500,29 +2677,42 @@ export async function handleAdminHttpRequest(
       sendBadRequest(res, "accountKey and body required");
       return true;
     }
-    const note = await addNote({ accountKey, body: noteBody, createdBy: sessionUser.id });
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const note = await addNote({
+      accountKey,
+      body: noteBody,
+      createdBy: sessionUser.id,
+      createdByName: sessionUser.username,
+    });
     sendJson(res, 201, { note });
     return true;
   }
 
-  // DELETE /api/admin/financials/notes/:id (admin only)
+  // DELETE /api/admin/financials/notes/:id — admins, or the person who wrote it.
+  // The thread is shared history: nobody edits or removes someone else's entry.
   const noteDeleteMatch = subPath.match(/^\/financials\/notes\/([^/]+)$/);
   if (noteDeleteMatch && req.method === "DELETE") {
-    if (!isAdmin) {
+    const note = await getNote(noteDeleteMatch[1]);
+    if (!note) {
+      sendNotFound(res);
+      return true;
+    }
+    const ownNote = note.createdBy === sessionUser.id;
+    if (!isAdmin && !(ownNote && (await canWorkPastDueAccount(note.accountKey)))) {
       sendForbidden(res);
       return true;
     }
-    await deleteNote(noteDeleteMatch[1]!);
+    await deleteNote(note.id);
     sendJson(res, 200, { ok: true });
     return true;
   }
 
-  // POST /api/admin/financials/follow-up-task — create a task in the Collections project (admin only)
+  // POST /api/admin/financials/follow-up-task — create a task in the Collections
+  // project. Admins, or an assignee raising a task on an account they own.
   if (subPath === "/financials/follow-up-task" && req.method === "POST") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -2534,6 +2724,14 @@ export async function handleAdminHttpRequest(
       sendBadRequest(res, "title required");
       return true;
     }
+    const accountKey = normalizeString(data.accountKey);
+    if (!isAdmin && !(accountKey && (await canWorkPastDueAccount(accountKey)))) {
+      sendForbidden(res);
+      return true;
+    }
+    // Default the task to whoever owns the account, so "assign an activity"
+    // from the board lands in that person's task list without a second pick.
+    const caseOwner = accountKey ? ((await getPastDueCase(accountKey))?.assignedTo ?? null) : null;
     const validPriorities = ["low", "medium", "high", "urgent"] as const;
     const projectId = await ensureCollectionsProject(sessionUser.id);
     const task = await createTask({
@@ -2544,7 +2742,7 @@ export async function handleAdminHttpRequest(
         ? (data.priority as (typeof validPriorities)[number])
         : "high",
       dueDate: typeof data.dueDate === "number" ? data.dueDate : null,
-      assignedTo: normalizeString(data.assignedTo),
+      assignedTo: normalizeString(data.assignedTo) ?? caseOwner,
       tags: ["collections"],
       createdBy: sessionUser.id,
     });

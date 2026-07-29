@@ -19,15 +19,28 @@ vi.mock("../../../extensions/spiro/api.js", () => ({
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function invoice(id: string, opts: { dateFullyPaid?: string | null; amount?: number } = {}) {
+function invoice(
+  id: string,
+  opts: {
+    dateFullyPaid?: string | null;
+    amount?: number;
+    amountPaid?: number;
+    status?: string;
+    agentId?: string;
+  } = {},
+) {
+  const total = opts.amount ?? 100;
+  const paid = opts.amountPaid ?? 0;
+  const agentId = opts.agentId ?? `a-${id}`;
   return {
     invoiceId: id,
     referenceNumber: id,
-    status: "open",
+    status: opts.status ?? "open",
     dateDue: new Date(Date.now() - 90 * DAY).toISOString(),
     dateFullyPaid: opts.dateFullyPaid ?? null,
-    amount: { total: opts.amount ?? 100 },
-    party: { payeeType: "agent", agentId: `a-${id}`, agentName: `Agent ${id}` },
+    // Mirrors Spiro's InvoiceAmountModel: amountDue is the total less payments.
+    amount: { total, amountPaid: paid, amountDue: total - paid },
+    party: { payeeType: "agent", agentId, agentName: `Agent ${agentId}` },
   };
 }
 
@@ -87,6 +100,7 @@ describe("refreshInvoices", () => {
   let tmpDir: string;
   let refreshInvoices: typeof import("./financials-store.js").refreshInvoices;
   let getPastDueBreakdown: typeof import("./financials-store.js").getPastDueBreakdown;
+  let getAccountInvoices: typeof import("./financials-store.js").getAccountInvoices;
 
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "financials-store-test-"));
@@ -94,6 +108,7 @@ describe("refreshInvoices", () => {
     const mod = await import("./financials-store.js");
     refreshInvoices = mod.refreshInvoices;
     getPastDueBreakdown = mod.getPastDueBreakdown;
+    getAccountInvoices = mod.getAccountInvoices;
     listTools.mockResolvedValue([{ name: "search_spiro_invoices" }]);
   });
 
@@ -128,5 +143,76 @@ describe("refreshInvoices", () => {
     const breakdown = await getPastDueBreakdown();
     expect(breakdown.invoiceCount).toBe(3);
     expect(breakdown.totalPastDue).toBe(300);
+  });
+
+  describe("partial payments", () => {
+    it("owes only what is still due and flags the account for manual review", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page(
+          [
+            invoice("PART", { amount: 300, amountPaid: 250, status: "PartiallyPaid" }),
+            invoice("FULL", { amount: 200, agentId: "clean" }),
+          ],
+          false,
+        ),
+      );
+      await refreshInvoices({ manual: true });
+
+      const breakdown = await getPastDueBreakdown();
+      // $50 still owed on the partly paid invoice, not the $300 invoiced.
+      expect(breakdown.totalPastDue).toBe(250);
+      expect(breakdown.manualReviewCount).toBe(1);
+
+      const flagged = breakdown.accounts.find((a) => a.accountKey === "agent:a-PART");
+      expect(flagged?.balance).toBe(50);
+      expect(flagged?.invoiced).toBe(300);
+      expect(flagged?.paid).toBe(250);
+      expect(flagged?.partiallyPaidCount).toBe(1);
+      expect(flagged?.needsManualReview).toBe(true);
+
+      const clean = breakdown.accounts.find((a) => a.accountKey === "agent:clean");
+      expect(clean?.balance).toBe(200);
+      expect(clean?.needsManualReview).toBe(false);
+    });
+
+    it("flags a payment Spiro reports without the PartiallyPaid label", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page([invoice("QUIET", { amount: 400, amountPaid: 100, status: "sent" })], false),
+      );
+      await refreshInvoices({ manual: true });
+
+      const { invoices } = await getAccountInvoices("agent:a-QUIET");
+      expect(invoices[0]?.partiallyPaid).toBe(true);
+      expect(invoices[0]?.outstanding).toBe(300);
+      expect(invoices[0]?.amountPaid).toBe(100);
+    });
+
+    it("falls back to the invoiced total when Spiro reports no amounts", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page(
+          [
+            {
+              invoiceId: "BARE",
+              referenceNumber: "BARE",
+              status: "sent",
+              dateDue: new Date(Date.now() - 90 * DAY).toISOString(),
+              dateFullyPaid: null,
+              amount: { total: 175 },
+              party: { payeeType: "agent", agentId: "bare", agentName: "Agent bare" },
+            },
+          ],
+          false,
+        ),
+      );
+      await refreshInvoices({ manual: true });
+
+      const { invoices } = await getAccountInvoices("agent:bare");
+      expect(invoices[0]?.amountPaid).toBeNull();
+      expect(invoices[0]?.outstanding).toBe(175);
+      expect(invoices[0]?.partiallyPaid).toBe(false);
+    });
   });
 });

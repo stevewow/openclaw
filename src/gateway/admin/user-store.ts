@@ -140,6 +140,8 @@ type SpiroInvoicesTable = {
   account_name: string;
   account_type: string;
   amount_total: number;
+  amount_paid: number | null;
+  amount_due: number | null;
   date_created: number | null;
   date_due: number;
   order_count: number;
@@ -223,7 +225,24 @@ type FinancialNotesTable = {
   account_key: string;
   body: string;
   created_by: string | null;
+  created_by_name: string | null;
   created_at: number;
+};
+
+type PastDueCasesTable = {
+  account_key: string;
+  account_name: string;
+  status: string;
+  assigned_to: string | null;
+  assigned_by: string | null;
+  assigned_at: number | null;
+  due_at: number | null;
+  review_cleared_by: string | null;
+  review_cleared_by_name: string | null;
+  review_cleared_at: number | null;
+  created_at: number;
+  updated_at: number;
+  updated_by_name: string | null;
 };
 
 type ClevelandOrdersTable = {
@@ -331,6 +350,7 @@ export type AdminDb = {
   admin_churn_dismissals: ChurnDismissalsTable;
   admin_churn_notes: ChurnNotesTable;
   admin_financial_notes: FinancialNotesTable;
+  admin_past_due_cases: PastDueCasesTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
   admin_tickets: TicketsTable;
@@ -545,6 +565,10 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       account_name TEXT NOT NULL,
       account_type TEXT NOT NULL DEFAULT 'unknown',
       amount_total REAL NOT NULL DEFAULT 0,
+      -- Nullable on purpose: NULL means Spiro did not report the figure, which
+      -- is not the same as a reported 0. Outstanding falls back to the total.
+      amount_paid REAL,
+      amount_due REAL,
       date_created INTEGER,
       date_due INTEGER NOT NULL,
       order_count INTEGER NOT NULL DEFAULT 0,
@@ -620,9 +644,31 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       account_key TEXT NOT NULL,
       body TEXT NOT NULL,
       created_by TEXT,
+      created_by_name TEXT,
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_financial_notes_account ON admin_financial_notes(account_key);
+    -- Collections worklist state for a past-due account. The invoice snapshot is
+    -- replaced wholesale on every Spiro refresh, so anything a human decides —
+    -- stage, owner, next action, manual-review sign-off — lives here and is
+    -- re-attached by account_key when the report is read.
+    CREATE TABLE IF NOT EXISTS admin_past_due_cases (
+      account_key TEXT PRIMARY KEY,
+      account_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new'
+        CHECK(status IN ('new','working','promised','plan','escalated','resolved')),
+      assigned_to TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+      assigned_by TEXT,
+      assigned_at INTEGER,
+      due_at INTEGER,
+      review_cleared_by TEXT,
+      review_cleared_by_name TEXT,
+      review_cleared_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      updated_by_name TEXT
+    );
+    CREATE INDEX IF NOT EXISTS admin_past_due_cases_assigned ON admin_past_due_cases(assigned_to);
     CREATE TABLE IF NOT EXISTS admin_cleveland_orders (
       order_id TEXT PRIMARY KEY,
       photographer TEXT NOT NULL,
@@ -755,6 +801,23 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (!ticketColumns.some((c) => c.name === "is_test")) {
     db.exec("ALTER TABLE admin_tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0");
+  }
+  // Spiro reports amountPaid/amountDue per invoice; the snapshot predates both.
+  // Nullable, so rows cached before the next refresh read as "not reported"
+  // rather than as a paid-in-full zero.
+  const invoiceColumns = db.prepare("PRAGMA table_info(admin_spiro_invoices)").all() as Array<{
+    name: string;
+  }>;
+  for (const col of ["amount_paid", "amount_due"] as const) {
+    if (!invoiceColumns.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE admin_spiro_invoices ADD COLUMN ${col} REAL`);
+    }
+  }
+  const financialNoteColumns = db
+    .prepare("PRAGMA table_info(admin_financial_notes)")
+    .all() as Array<{ name: string }>;
+  if (!financialNoteColumns.some((c) => c.name === "created_by_name")) {
+    db.exec("ALTER TABLE admin_financial_notes ADD COLUMN created_by_name TEXT");
   }
   backfillPortalFeaturePermissions(db);
 }

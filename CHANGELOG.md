@@ -6,12 +6,15 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Admin: Past Due Accounts becomes a collections board — stage columns with drag-to-move, per-account assignment, next-action dates, and shared notes; an assigned account shows up as that person's queue in the user portal under the new `past-due` report grant.
+- Admin: Past Due Accounts flags any account holding a partially paid invoice for manual review, with a per-invoice invoiced/paid/outstanding breakdown and a review sign-off.
 - Admin: Churn & Retention report gains an on-demand refresh (re-pulls Spiro order history and re-runs the retention engine over a 1/2/3/5-year window), shared per-agent notes, a collapsed-by-default explainer, and a header that states the window and what the agent count covers.
 - Docker: optional `OPENCLAW_INSTALL_PYTHON_REPORTS=1` build arg installs Python with pandas/numpy/scipy for workspace report engines the gateway shells out to.
 - Admin: Pipedrive Cleanup report now shows full record detail with clickable Pipedrive deep links and finer category badges, and the scanner adds duplicate-person, uncontactable-contact, missing-field, and dead/no-deal record checks.
 
 ### Fixes
 
+- Admin: Past Due Accounts no longer overstates what is owed — Spiro reports `amountPaid`/`amountDue` per invoice, so balances now net off partial payments and credits instead of counting the full invoice total.
 - Admin: Churn & Retention report carries the shared "Reconnect Spiro" banner, so an expired Spiro session can be re-authorized from the report instead of leaving the refresh failing.
 - Spiro: request `offline_access` so the authorization server issues a refresh token; without it every connection died at access-token expiry and only a hand-run `/spiro-auth` brought it back.
 - Spiro: an expired session that cannot be renewed now says to reconnect instead of surfacing the raw `Token refresh failed: 400` from the token endpoint.
