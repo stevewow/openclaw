@@ -1,3 +1,8 @@
+import {
+  PROJECT_CALENDAR_COMPONENT_JS,
+  PROJECT_CALENDAR_CSS,
+  PROJECT_CALENDAR_MARKUP,
+} from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
 
 export const USER_PORTAL_HTML = `<!DOCTYPE html>
@@ -155,6 +160,12 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
   .tasks-toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
   .tasks-toolbar .spacer { margin-left: auto; }
+  /* Board/Calendar switch, styled to match the dashboard's view toggle. */
+  .pt-view-toggle { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 2px; gap: 2px; }
+  .pt-view-btn { background: none; border: none; border-radius: calc(var(--radius) - 3px); padding: 0.35rem 0.7rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); cursor: pointer; font-family: inherit; transition: background 0.1s, color 0.1s; }
+  .pt-view-btn:hover { color: var(--text); }
+  .pt-view-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+${PROJECT_CALENDAR_CSS}
   .board-wrap { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 0.875rem; align-items: start; }
   @media (max-width: 900px) { .board-wrap { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { .board-wrap { grid-template-columns: 1fr; } }
@@ -281,10 +292,15 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
       </div>
       <div class="page-scroll">
         <div class="tasks-toolbar">
+          <div class="pt-view-toggle">
+            <button type="button" class="pt-view-btn active" id="pt-view-board">⊞ Board</button>
+            <button type="button" class="pt-view-btn" id="pt-view-cal">📅 Calendar</button>
+          </div>
           <select id="pt-project-filter" style="max-width:260px"><option value="all">All Projects</option></select>
           <button class="btn btn-ghost btn-sm" id="pt-edit-project" disabled>Edit Project</button>
         </div>
         <div id="pt-board"></div>
+        <div id="pt-calendar" class="hidden">${PROJECT_CALENDAR_MARKUP}</div>
       </div>
     </div>
 
@@ -503,6 +519,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
     return { ok: r.ok, status: r.status, data };
   }
 ${REPORT_TABLE_COMPONENT_JS}
+${PROJECT_CALENDAR_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -970,16 +987,70 @@ ${REPORT_TABLE_COMPONENT_JS}
     sel.value = prev && (prev === 'all' || ptProjects.find(function(p) { return p.id === prev; })) ? prev : 'all';
     ptFilter = sel.value;
     document.getElementById('pt-edit-project').disabled = ptFilter === 'all';
-    ptRenderBoard();
+    ptRenderView();
   }
 
-  function ptRenderBoard() {
-    const board = document.getElementById('pt-board');
-    const tasks = ptTasks.filter(function(t) {
+  /** Top-level tasks under the current project filter — what any view draws. */
+  function ptVisibleTasks() {
+    return ptTasks.filter(function(t) {
       if (t.parentTaskId) return false;
       if (ptFilter !== 'all') return t.projectId === ptFilter;
       return true;
     });
+  }
+
+  /** Projects the calendar can place: under the filter and carrying a date. */
+  function ptCalendarProjects() {
+    return ptProjects.filter(function(p) {
+      if (ptFilter !== 'all' && p.id !== ptFilter) return false;
+      return p.startDate || p.endDate;
+    });
+  }
+
+  // The same month grid the dashboard draws (project-calendar-ui.ts), fed this
+  // portal's own scoped data — a member only ever sees the projects and tasks
+  // the API already scopes to them.
+  const ptCalendar = createProjectCalendar({
+    rootId: 'pt-calendar',
+    tasks: ptVisibleTasks,
+    projects: ptCalendarProjects,
+    taskColor: function(t) {
+      const proj = t.projectId ? ptProjects.find(function(p) { return p.id === t.projectId; }) : null;
+      return proj ? proj.color : '#6b7280';
+    },
+    onTask: function(id) {
+      const t = ptTasks.find(function(x) { return x.id === id; });
+      if (t) ptOpenTask(t);
+    },
+    onProject: function(id) {
+      const p = ptProjects.find(function(x) { return x.id === id; });
+      if (p) ptOpenProject(p);
+    },
+    onDay: function(ms) { ptOpenTask(null, ms); },
+  });
+
+  let ptView = 'board'; // 'board' | 'calendar'
+
+  function ptSwitchView(view) {
+    ptView = view;
+    document.getElementById('pt-board').classList.toggle('hidden', view !== 'board');
+    document.getElementById('pt-calendar').classList.toggle('hidden', view !== 'calendar');
+    document.getElementById('pt-view-board').classList.toggle('active', view === 'board');
+    document.getElementById('pt-view-cal').classList.toggle('active', view === 'calendar');
+    ptRenderView();
+  }
+  document.getElementById('pt-view-board').addEventListener('click', function() { ptSwitchView('board'); });
+  document.getElementById('pt-view-cal').addEventListener('click', function() { ptSwitchView('calendar'); });
+
+  /** Draw whichever view is on. Called after every load and mutation. */
+  function ptRenderView() {
+    if (ptView === 'calendar') ptCalendar.render();
+    else ptRenderBoard();
+  }
+
+  function ptRenderBoard() {
+    const board = document.getElementById('pt-board');
+    const tasks = ptVisibleTasks();
     board.innerHTML = '<div class="board-wrap">' + PT_STATUSES.map(function(st) {
       const matching = tasks
         .filter(function(t) { return t.status === st.key; })
@@ -1225,7 +1296,8 @@ ${REPORT_TABLE_COMPONENT_JS}
 
   // Task modal
   document.getElementById('pt-new-task').addEventListener('click', function() { ptOpenTask(null); });
-  function ptOpenTask(task) {
+  /** presetDueMs prefills the due date when the task is started from a calendar cell. */
+  function ptOpenTask(task, presetDueMs) {
     ptEditingTask = task ? task.id : null;
     document.getElementById('pt-task-title').textContent = task ? 'Edit Task' : 'New Task';
     document.getElementById('pt-task-error').classList.add('hidden');
@@ -1234,7 +1306,9 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.getElementById('pt-t-status').value = task ? task.status : 'todo';
     document.getElementById('pt-t-priority').value = task ? task.priority : 'medium';
     ptPopulateProjectSelect(task ? (task.projectId || '') : (ptFilter !== 'all' ? ptFilter : ''));
-    document.getElementById('pt-t-due').value = task && task.dueDate ? new Date(task.dueDate).toISOString().slice(0,10) : '';
+    document.getElementById('pt-t-due').value = task && task.dueDate
+      ? calDateInputValue(task.dueDate)
+      : (presetDueMs ? calDateInputValue(presetDueMs) : '');
     ptRenderMemberPicker('pt-t-assignees', task ? (task.assigneeIds || []) : []);
     document.getElementById('pt-task-delete').classList.toggle('hidden', !task);
     // Attachments need a task id to hang off, so they appear once it exists.
@@ -1283,7 +1357,7 @@ ${REPORT_TABLE_COMPONENT_JS}
   document.getElementById('pt-project-filter').addEventListener('change', function() {
     ptFilter = this.value;
     document.getElementById('pt-edit-project').disabled = ptFilter === 'all';
-    ptRenderBoard();
+    ptRenderView();
   });
   function ptOpenProject(project) {
     ptEditingProject = project ? project.id : null;

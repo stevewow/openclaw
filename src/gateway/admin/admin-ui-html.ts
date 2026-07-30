@@ -1,3 +1,8 @@
+import {
+  PROJECT_CALENDAR_COMPONENT_JS,
+  PROJECT_CALENDAR_CSS,
+  PROJECT_CALENDAR_MARKUP,
+} from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
 import { PORTAL_FEATURES } from "./types.js";
 
@@ -389,29 +394,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .task-attach-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
   .task-tags { display: flex; gap: 0.25rem; flex-wrap: wrap; }
   .task-tag { padding: 0.12rem 0.4rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: 0.65rem; font-weight: 500; color: var(--text-muted); }
-  .cal-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
-  .cal-header { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); }
-  .cal-title { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
-  .cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border); background: var(--surface2); }
-  .cal-weekday { padding: 0.5rem 0.4rem; text-align: center; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-right: 1px solid var(--border); }
-  .cal-weekday:last-child { border-right: none; }
-  .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); }
-  .cal-day { min-height: 90px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.35rem 0.4rem; cursor: pointer; transition: background 0.1s; }
-  .cal-day:hover { background: var(--surface2); }
-  .cal-day:nth-child(7n) { border-right: none; }
-  .cal-day-num { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.2rem; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
-  .cal-day.today .cal-day-num { background: var(--accent); color: #fff; }
-  .cal-day.other-month { background: #fafafa; cursor: default; }
-  .cal-day.other-month .cal-day-num { color: #d1d5db; }
-  .cal-task-chip { display: block; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.65rem; font-weight: 600; color: #fff; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-  .cal-task-chip:hover { opacity: 0.85; }
-  .cal-more { font-size: 0.65rem; color: var(--text-muted); font-weight: 600; padding: 0 0.3rem; }
-  /* Project date ranges, drawn above that day's task chips. */
-  .cal-proj-bar { display: block; font-size: 0.62rem; font-weight: 700; color: var(--text); padding: 0.05rem 0.3rem; margin-bottom: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 3px solid transparent; }
-  .cal-proj-bar.cal-proj-start { border-radius: 3px 0 0 3px; }
-  .cal-proj-bar.cal-proj-end { border-radius: 0 3px 3px 0; }
-  .cal-proj-bar.cal-proj-solo { border-radius: 3px; }
-  .cal-proj-bar:hover { filter: brightness(0.95); }
+${PROJECT_CALENDAR_CSS}
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
   .color-swatch:hover { transform: scale(1.15); }
@@ -447,10 +430,6 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .proj-status-badge-archived { background: var(--surface2); color: var(--text-muted); }
   @media (max-width: 640px) {
     .board-column { flex: 0 0 240px; }
-    .cal-day { min-height: 64px; padding: 0.25rem; }
-    .cal-day-num { font-size: 0.7rem; width: 18px; height: 18px; }
-    .cal-task-chip { font-size: 0.6rem; }
-    .cal-weekday { font-size: 0.6rem; padding: 0.4rem 0.2rem; }
   }
 </style>
 </head>
@@ -700,21 +679,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
           </div>
         </div>
 
-        <div id="projects-calendar" class="hidden">
-          <div class="cal-wrap">
-            <div class="cal-header">
-              <button class="btn btn-ghost btn-sm" id="cal-prev-btn">← Prev</button>
-              <span class="cal-title" id="cal-title"></span>
-              <button class="btn btn-ghost btn-sm" id="cal-next-btn">Next →</button>
-            </div>
-            <div class="cal-weekdays">
-              <div class="cal-weekday">Sun</div><div class="cal-weekday">Mon</div><div class="cal-weekday">Tue</div>
-              <div class="cal-weekday">Wed</div><div class="cal-weekday">Thu</div><div class="cal-weekday">Fri</div>
-              <div class="cal-weekday">Sat</div>
-            </div>
-            <div class="cal-days" id="cal-days"></div>
-          </div>
-        </div>
+        <div id="projects-calendar" class="hidden">${PROJECT_CALENDAR_MARKUP}</div>
 
         <div id="projects-list" class="hidden">
           <div class="proj-status-tabs mb-4" id="proj-status-tabs">
@@ -2792,6 +2757,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   }
 
 ${REPORT_TABLE_COMPONENT_JS}
+${PROJECT_CALENDAR_COMPONENT_JS}
   var cancelCols = [
     { key: 'client', label: 'Client', value: function(r){ return r.client; } },
     { key: 'totalOrders', label: 'Total Orders', type: 'num', value: function(r){ return r.totalOrders; } },
@@ -4292,8 +4258,6 @@ ${REPORT_TABLE_COMPONENT_JS}
   // Completed/archived projects stay out of the board, calendar, and pickers
   // until asked for; the Projects list keeps its own status tabs.
   let showClosedProjects = false;
-  let calYear = new Date().getFullYear();
-  let calMonth = new Date().getMonth(); // 0-11
   let taskModalTags = [];
   let projModalTags = [];
   let editingTaskId = null;
@@ -4498,25 +4462,8 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (card) { openEditTask(card.dataset.id); return; }
   });
 
-  // Calendar event delegation
-  document.getElementById('projects-calendar').addEventListener('click', function(e) {
-    const bar = e.target.closest('.cal-proj-bar');
-    if (bar) { openEditProject(bar.dataset.projectId); return; }
-    const chip = e.target.closest('.cal-task-chip');
-    if (chip) { openEditTask(chip.dataset.id); return; }
-    const day = e.target.closest('.cal-day[data-date]');
-    if (day) { openAddTask('todo', parseInt(day.dataset.date, 10)); }
-  });
-
-  // Calendar prev/next
-  document.getElementById('cal-prev-btn').addEventListener('click', function() {
-    calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; }
-    renderCalendar();
-  });
-  document.getElementById('cal-next-btn').addEventListener('click', function() {
-    calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; }
-    renderCalendar();
-  });
+  // Calendar month navigation and click targets live in the shared component;
+  // see the createProjectCalendar wiring below.
 
   const BOARD_STATUSES = ['todo', 'in_progress', 'review', 'done'];
 
@@ -4900,59 +4847,23 @@ ${REPORT_TABLE_COMPONENT_JS}
     });
   }
 
-  function renderCalendar() {
-    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    document.getElementById('cal-title').textContent = monthNames[calMonth] + ' ' + calYear;
-    const tasks = getFilteredTasks().filter(function(t) { return t.dueDate; });
-    const projects = calendarProjects();
-    const firstDay = new Date(calYear, calMonth, 1).getDay(); // 0=Sun
-    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-    const today = new Date(); today.setHours(0,0,0,0);
+  // The month grid itself is the shared component (project-calendar-ui.ts), so
+  // the dashboard and the user portal cannot drift apart. This wiring supplies
+  // the dashboard's own filtered data and click targets.
+  const projectsCalendar = createProjectCalendar({
+    rootId: 'projects-calendar',
+    tasks: getFilteredTasks,
+    projects: calendarProjects,
+    taskColor: function(t) {
+      const proj = t.projectId ? allProjects.find(function(p) { return p.id === t.projectId; }) : null;
+      return proj ? proj.color : '#6b7280';
+    },
+    onTask: openEditTask,
+    onProject: openEditProject,
+    onDay: function(ms) { openAddTask('todo', ms); },
+  });
 
-    let html = '';
-    // Leading blanks so the 1st lands on its weekday.
-    for (let i = 0; i < firstDay; i++) html += '<div class="cal-day other-month"></div>';
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dayStart = new Date(calYear, calMonth, d).getTime();
-      const dayEnd = dayStart + 86400000;
-      const weekday = new Date(calYear, calMonth, d).getDay();
-      const isToday = isSameDay(dayStart, today.getTime());
-      html += '<div class="cal-day' + (isToday ? ' today' : '') + '" data-date="' + dayStart + '">';
-      html += '<div class="cal-day-num">' + d + '</div>';
-
-      // Project ranges first — they frame the day; a one-sided range marks
-      // just the date it has.
-      const dayProjects = projects.filter(function(p) {
-        const from = p.startDate || p.endDate;
-        const to = p.endDate || p.startDate;
-        return from < dayEnd && to >= dayStart;
-      });
-      dayProjects.slice(0, 2).forEach(function(p) {
-        const from = p.startDate || p.endDate;
-        const to = p.endDate || p.startDate;
-        const isStart = from >= dayStart && from < dayEnd;
-        const isEnd = to >= dayStart && to < dayEnd;
-        const shape = isStart && isEnd ? ' cal-proj-solo' : isStart ? ' cal-proj-start' : isEnd ? ' cal-proj-end' : '';
-        // Repeat the name at each week break so a long run stays readable.
-        const label = isStart || weekday === 0 ? p.title : '&nbsp;';
-        html += '<div class="cal-proj-bar' + shape + '" data-project-id="' + esc(p.id) + '"' +
-          ' style="background:' + esc(p.color) + '22;border-left-color:' + (isStart ? esc(p.color) : 'transparent') + '"' +
-          ' title="' + esc(p.title + ' · ' + formatDateRange(p.startDate, p.endDate)) + '">' +
-          (label === '&nbsp;' ? label : esc(label)) + '</div>';
-      });
-      if (dayProjects.length > 2) html += '<div class="cal-more">+' + (dayProjects.length - 2) + ' project' + (dayProjects.length - 2 === 1 ? '' : 's') + '</div>';
-
-      const dayTasks = tasks.filter(function(t) { return t.dueDate >= dayStart && t.dueDate < dayEnd; });
-      dayTasks.slice(0, 3).forEach(function(t) {
-        const proj = t.projectId ? allProjects.find(function(p) { return p.id === t.projectId; }) : null;
-        const color = proj ? proj.color : '#6b7280';
-        html += '<div class="cal-task-chip" data-id="' + esc(t.id) + '" style="background:' + esc(color) + '" title="' + esc(t.title) + '">' + esc(t.title) + '</div>';
-      });
-      if (dayTasks.length > 3) html += '<div class="cal-more">+' + (dayTasks.length - 3) + ' more</div>';
-      html += '</div>';
-    }
-    document.getElementById('cal-days').innerHTML = html;
-  }
+  function renderCalendar() { projectsCalendar.render(); }
 
   // ── Task Modal ─────────────────────────────────────────────────────────────
   function openAddTask(status, dateMs) {
@@ -4968,8 +4879,7 @@ ${REPORT_TABLE_COMPONENT_JS}
     document.getElementById('task-status').value = status || 'todo';
     document.getElementById('task-priority').value = 'medium';
     if (dateMs) {
-      const d = new Date(dateMs);
-      document.getElementById('task-due').value = d.toISOString().slice(0,10);
+      document.getElementById('task-due').value = calDateInputValue(dateMs);
     }
     populateTaskProjectSelect(projectsFilter || '');
     renderTaskModalTags();
@@ -5281,10 +5191,6 @@ ${REPORT_TABLE_COMPONENT_JS}
     if (start) return 'Begins ' + formatDateMed(start);
     if (end) return 'Goal: ' + formatDateMed(end);
     return '';
-  }
-  function isSameDay(a, b) {
-    const da = new Date(a), db = new Date(b);
-    return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
   }
 
   // ── Support Tickets ─────────────────────────────────────────────────────────

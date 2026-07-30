@@ -90,6 +90,44 @@ describe("user portal inline script", () => {
   });
 });
 
+// The portal shipped board-only for a while, so members had no calendar at all
+// while the dashboard did. Both SPAs now mount the same shared component; these
+// pin that down from either side.
+describe("both SPAs mount the shared calendar", () => {
+  const surfaces: Array<[string, string]> = [
+    ["admin dashboard", ADMIN_UI_HTML],
+    ["user portal", USER_PORTAL_HTML],
+  ];
+
+  it.each(surfaces)("%s carries the calendar markup", (_label, html) => {
+    expect(html).toContain('class="cal-weekdays"');
+    expect(html).toContain('class="cal-days"');
+    expect(html).toContain('class="btn btn-ghost btn-sm cal-prev"');
+    expect(html).toContain('class="btn btn-ghost btn-sm cal-next"');
+  });
+
+  it.each(surfaces)("%s instantiates the shared component", (_label, html) => {
+    expect(html).toContain("function createProjectCalendar(cfg)");
+    expect(html).toContain("createProjectCalendar({");
+  });
+
+  it("gives the portal a Board/Calendar switch pointing at both containers", () => {
+    expect(USER_PORTAL_HTML).toContain('id="pt-view-board"');
+    expect(USER_PORTAL_HTML).toContain('id="pt-view-cal"');
+    expect(USER_PORTAL_HTML).toContain('id="pt-calendar"');
+    expect(USER_PORTAL_HTML).toContain("rootId: 'pt-calendar'");
+  });
+
+  it("keeps one copy of the month-grid logic, not a fork per SPA", () => {
+    // The renderer body must come from the shared module only. Two copies of
+    // this line would mean the SPAs had drifted apart again.
+    const marker = "html += '<div class=\"cal-day' + (isToday ? ' today' : '')";
+    for (const [, html] of surfaces) {
+      expect(html.split(marker).length - 1).toBe(1);
+    }
+  });
+});
+
 describe("closed projects stay off the board", () => {
   it("hides completed and archived projects from pickers by default", () => {
     const m = loadVisibilityModel({ projects: PROJECTS, tasks: TASKS });
