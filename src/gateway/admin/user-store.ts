@@ -283,6 +283,19 @@ type TicketsTable = {
   resolved_at: number | null;
 };
 
+type TaskStatusesTable = {
+  id: string;
+  project_id: string | null;
+  key: string;
+  label: string;
+  color: string;
+  sort_order: number;
+  is_done: number;
+  wip_limit: number | null;
+  created_at: number;
+  updated_at: number;
+};
+
 type TaskEventsTable = {
   id: string;
   task_id: string;
@@ -352,6 +365,7 @@ export type AdminDb = {
   admin_tasks: TasksTable;
   admin_task_assignees: TaskAssigneesTable;
   admin_task_events: TaskEventsTable;
+  admin_task_statuses: TaskStatusesTable;
   admin_attachments: AttachmentsTable;
   admin_spiro_orders: SpiroOrdersTable;
   admin_spiro_refresh_log: SpiroRefreshLogTable;
@@ -519,7 +533,9 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       parent_task_id TEXT REFERENCES admin_tasks(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       description TEXT,
-      status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','in_progress','review','done')),
+      -- No CHECK: board columns are data (admin_task_statuses), not a fixed
+      -- enum. Existing databases are freed by migrateTaskStatusCheck.
+      status TEXT NOT NULL DEFAULT 'todo',
       priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
       due_date INTEGER,
       assigned_to TEXT,
@@ -556,6 +572,24 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       edited_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS admin_task_events_task ON admin_task_events(task_id, created_at);
+    -- Board columns. A row with project_id NULL belongs to the global default
+    -- set, used by projects that have not customised and by tasks with no
+    -- project. is_done marks the column that means finished -- recurrence,
+    -- due-date colouring and progress all ask that rather than hardcoding a key.
+    CREATE TABLE IF NOT EXISTS admin_task_statuses (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES admin_projects(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#6b7280',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_done INTEGER NOT NULL DEFAULT 0,
+      wip_limit INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS admin_task_statuses_scope_key
+      ON admin_task_statuses(IFNULL(project_id, ''), key);
     -- Links and files hung off a task or project. No FK: owner_type decides which
     -- table owner_id points at, so cascade is handled in the delete paths.
     CREATE TABLE IF NOT EXISTS admin_attachments (
@@ -798,6 +832,9 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       "ALTER TABLE admin_tasks ADD COLUMN recurrence TEXT CHECK(recurrence IN ('daily','weekly','monthly','yearly'))",
     );
   }
+  // Must follow the recurrence backfill: the rebuild copies that column across.
+  migrateTaskStatusCheck(db);
+  seedDefaultTaskStatuses(db);
   const sessionColumns = db.prepare("PRAGMA table_info(admin_sessions)").all() as Array<{
     name: string;
   }>;
@@ -888,6 +925,98 @@ function backfillPortalFeaturePermissions(db: import("node:sqlite").DatabaseSync
     MARKER,
     Date.now(),
   );
+}
+
+/**
+ * The four columns every board started with, as the global default set. Seeded
+ * once; an admin editing them afterwards is not undone on the next boot, and a
+ * deliberately emptied global set is left empty.
+ */
+function seedDefaultTaskStatuses(db: import("node:sqlite").DatabaseSync): void {
+  const MARKER = "default_task_statuses_v1";
+  const done = db.prepare("SELECT id FROM admin_migrations WHERE id = ?").get(MARKER);
+  if (done) {
+    return;
+  }
+  const now = Date.now();
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO admin_task_statuses
+       (id, project_id, key, label, color, sort_order, is_done, wip_limit, created_at, updated_at)
+     VALUES (?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+  );
+  const defaults: Array<[string, string, string, number]> = [
+    ["todo", "Todo", "#6b7280", 0],
+    ["in_progress", "In Progress", "#3b82f6", 0],
+    ["review", "Review", "#f59e0b", 0],
+    ["done", "Done", "#16a34a", 1],
+  ];
+  defaults.forEach(([key, label, color, isDone], i) => {
+    insert.run(`status-default-${key}`, key, label, color, i, isDone, now, now);
+  });
+  db.prepare("INSERT OR IGNORE INTO admin_migrations (id, applied_at) VALUES (?, ?)").run(
+    MARKER,
+    now,
+  );
+}
+
+/**
+ * Task status became per-project and admin-managed, but existing databases pin
+ * it with `CHECK(status IN ('todo','in_progress','review','done'))`, which
+ * rejects any column an admin adds. SQLite cannot drop a CHECK in place, so
+ * rebuild the table once, following the documented procedure
+ * (https://sqlite.org/lang_altertable.html#otheralter).
+ *
+ * Foreign keys MUST be off for the swap, and the stakes here are higher than
+ * for tickets: admin_task_assignees and admin_task_events both reference
+ * admin_tasks ON DELETE CASCADE, and admin_tasks references itself for
+ * subtasks. Dropping the old table with them enabled would take every
+ * assignment, every comment thread and every subtask with it.
+ */
+function migrateTaskStatusCheck(db: import("node:sqlite").DatabaseSync): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='admin_tasks'")
+    .get() as { sql?: string } | undefined;
+  if (!row?.sql?.includes("CHECK(status IN")) {
+    return;
+  }
+
+  db.exec("PRAGMA foreign_keys=OFF");
+  try {
+    db.exec("BEGIN");
+    db.exec(`
+      CREATE TABLE admin_tasks_rebuild (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES admin_projects(id) ON DELETE CASCADE,
+        parent_task_id TEXT REFERENCES admin_tasks(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'todo',
+        priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
+        due_date INTEGER,
+        assigned_to TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
+        position INTEGER NOT NULL DEFAULT 0,
+        recurrence TEXT CHECK(recurrence IN ('daily','weekly','monthly','yearly')),
+        created_by TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO admin_tasks_rebuild SELECT
+        id, project_id, parent_task_id, title, description, status, priority, due_date,
+        assigned_to, tags, position, recurrence, created_by, created_at, updated_at
+      FROM admin_tasks;
+      DROP TABLE admin_tasks;
+      ALTER TABLE admin_tasks_rebuild RENAME TO admin_tasks;
+      CREATE INDEX IF NOT EXISTS admin_tasks_project_id ON admin_tasks(project_id);
+      CREATE INDEX IF NOT EXISTS admin_tasks_due_date ON admin_tasks(due_date);
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys=ON");
+  }
 }
 
 /**
