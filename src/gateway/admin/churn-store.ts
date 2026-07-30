@@ -26,6 +26,20 @@ export interface ChurnReportSnapshot {
   orders_kept: number;
   orders_total: number;
   agents_total: number;
+  // schema_version 4+: who the reporting surfaces cover. The engine reports on
+  // repeat agents only (one-and-done buyers are ~29% of the base but ~3% of
+  // revenue, and a single order carries no repeat signal, so they pooled in the
+  // Watch tier). Absent on older snapshots, which covered everyone.
+  agent_filter?: {
+    min_orders: number;
+    new_agent_grace_days: number;
+    agents_before: number;
+    agents_reported: number;
+    agents_excluded: number;
+    excluded_revenue: number;
+    excluded_revenue_share: number;
+    new_agents_kept: number;
+  } | null;
   headline: Record<string, number | string | null>;
   health_tiers: Record<string, number>;
   model: Record<string, number>;
