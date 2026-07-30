@@ -5,6 +5,7 @@ import {
 } from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
 import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
+import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
 
 export const USER_PORTAL_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -168,6 +169,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .pt-view-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
+${TASK_LIST_CSS}
   .board-wrap { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 0.875rem; align-items: start; }
   @media (max-width: 900px) { .board-wrap { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { .board-wrap { grid-template-columns: 1fr; } }
@@ -297,12 +299,15 @@ ${TASK_FEED_CSS}
           <div class="pt-view-toggle">
             <button type="button" class="pt-view-btn active" id="pt-view-board">⊞ Board</button>
             <button type="button" class="pt-view-btn" id="pt-view-cal">📅 Calendar</button>
+            <button type="button" class="pt-view-btn" id="pt-view-list">☰ List</button>
           </div>
           <select id="pt-project-filter" style="max-width:260px"><option value="all">All Projects</option></select>
           <button class="btn btn-ghost btn-sm" id="pt-edit-project" disabled>Edit Project</button>
         </div>
+        <div id="pt-filter-bar">${TASK_LIST_MARKUP}</div>
         <div id="pt-board"></div>
         <div id="pt-calendar" class="hidden">${PROJECT_CALENDAR_MARKUP}</div>
+        <div id="pt-tasklist" class="hidden"></div>
       </div>
     </div>
 
@@ -527,6 +532,7 @@ ${TASK_FEED_CSS}
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
+${TASK_LIST_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -980,7 +986,6 @@ ${TASK_FEED_COMPONENT_JS}
     return Array.prototype.slice.call(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(function(cb) { return cb.value; });
   }
 
-  function ptFormatDate(ms) { return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
 
   async function loadTasksPage() {
     await ensurePtUsers();
@@ -997,14 +1002,55 @@ ${TASK_FEED_COMPONENT_JS}
     ptRenderView();
   }
 
-  /** Top-level tasks under the current project filter — what any view draws. */
-  function ptVisibleTasks() {
+  /** Tasks in scope before the filter bar — project picker only. */
+  function ptTasksInScope() {
     return ptTasks.filter(function(t) {
       if (t.parentTaskId) return false;
       if (ptFilter !== 'all') return t.projectId === ptFilter;
       return true;
     });
   }
+
+  // Same filter bar the dashboard uses, over this member's own scoped tasks.
+  const ptFilterBar = createTaskFilterBar({
+    rootId: 'pt-filter-bar',
+    onChange: function() { ptRenderView(); },
+    people: function() {
+      return ptUsers.map(function(u) { return { id: u.id, name: u.username }; });
+    },
+    tags: function() {
+      const set = {};
+      ptTasksInScope().forEach(function(t) { (t.tags || []).forEach(function(g) { set[g] = 1; }); });
+      return Object.keys(set).sort();
+    },
+    currentUserId: function() { return currentUser ? currentUser.id : null; },
+  });
+
+  /** Top-level tasks under the project picker and the filter bar. */
+  function ptVisibleTasks() {
+    return ptFilterBar.apply(ptTasksInScope());
+  }
+
+  const ptTaskList = createTaskList({
+    rootId: 'pt-tasklist',
+    tasks: ptVisibleTasks,
+    projectFor: function(t) {
+      return t.projectId ? ptProjects.find(function(p) { return p.id === t.projectId; }) || null : null;
+    },
+    userLabel: function(id) {
+      const u = ptUsers.find(function(x) { return x.id === id; });
+      return u ? u.username : id;
+    },
+    onOpen: function(id) {
+      const t = ptTasks.find(function(x) { return x.id === id; });
+      if (t) ptOpenTask(t);
+    },
+    onPatch: async function(id, patch) {
+      const r = await api('PUT', '/tasks/' + id, patch);
+      if (r.ok) await loadTasksPage();
+    },
+    groupBy: function() { return ''; },
+  });
 
   /** Projects the calendar can place: under the filter and carrying a date. */
   function ptCalendarProjects() {
@@ -1042,17 +1088,23 @@ ${TASK_FEED_COMPONENT_JS}
     ptView = view;
     document.getElementById('pt-board').classList.toggle('hidden', view !== 'board');
     document.getElementById('pt-calendar').classList.toggle('hidden', view !== 'calendar');
+    document.getElementById('pt-tasklist').classList.toggle('hidden', view !== 'list');
     document.getElementById('pt-view-board').classList.toggle('active', view === 'board');
     document.getElementById('pt-view-cal').classList.toggle('active', view === 'calendar');
+    document.getElementById('pt-view-list').classList.toggle('active', view === 'list');
     ptRenderView();
   }
   document.getElementById('pt-view-board').addEventListener('click', function() { ptSwitchView('board'); });
   document.getElementById('pt-view-cal').addEventListener('click', function() { ptSwitchView('calendar'); });
+  document.getElementById('pt-view-list').addEventListener('click', function() { ptSwitchView('list'); });
 
   /** Draw whichever view is on. Called after every load and mutation. */
   function ptRenderView() {
+    ptFilterBar.refreshOptions();
     if (ptView === 'calendar') ptCalendar.render();
+    else if (ptView === 'list') ptTaskList.render();
     else ptRenderBoard();
+    ptFilterBar.setCount(ptVisibleTasks().length, ptTasksInScope().length);
   }
 
   function ptRenderBoard() {
@@ -1280,8 +1332,8 @@ ${TASK_FEED_COMPONENT_JS}
     if (task.description) html += '<div class="task-card-desc">' + esc(task.description) + '</div>';
     html += '<div class="task-card-meta">';
     if (task.dueDate) {
-      const overdue = task.dueDate < Date.now() && task.status !== 'done';
-      html += '<span class="task-chip' + (overdue ? ' overdue' : '') + '">📅 ' + esc(ptFormatDate(task.dueDate)) + '</span>';
+      // Shared due chip: overdue / today / this week / later, never red on done.
+      html += dueChip(task);
     }
     if (task.attachmentCount) html += '<span class="task-chip">📎 ' + task.attachmentCount + '</span>';
     if (task.commentCount) html += '<span class="task-chip">💬 ' + task.commentCount + '</span>';

@@ -5,6 +5,7 @@ import {
 } from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
 import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
+import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
 import { PORTAL_FEATURES } from "./types.js";
 
 export const ADMIN_UI_HTML = `<!DOCTYPE html>
@@ -397,6 +398,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .task-tag { padding: 0.12rem 0.4rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: 0.65rem; font-weight: 500; color: var(--text-muted); }
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
+${TASK_LIST_CSS}
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
   .color-swatch:hover { transform: scale(1.15); }
@@ -626,6 +628,7 @@ ${TASK_FEED_CSS}
           <div class="view-toggle">
             <button class="view-btn active" id="view-board-btn">⊞ Board</button>
             <button class="view-btn" id="view-cal-btn">📅 Calendar</button>
+            <button class="view-btn" id="view-tasklist-btn">☰ List</button>
             <button class="view-btn" id="view-projects-btn">📁 Projects</button>
           </div>
           <div class="proj-filter-wrap">
@@ -643,6 +646,12 @@ ${TASK_FEED_CSS}
             <button class="btn btn-primary btn-sm" id="add-task-btn">+ New Task</button>
           </div>
         </div>
+
+        <!-- Filter bar. Applies to the board, calendar and list alike, so a
+             filtered view stays filtered when you switch how you look at it. -->
+        <div id="task-filter-bar">${TASK_LIST_MARKUP}</div>
+
+        <div id="projects-tasklist" class="hidden"></div>
 
         <div id="projects-board">
           <div class="board-wrap">
@@ -2765,6 +2774,7 @@ ${TASK_FEED_CSS}
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
+${TASK_LIST_COMPONENT_JS}
   var cancelCols = [
     { key: 'client', label: 'Client', value: function(r){ return r.client; } },
     { key: 'totalOrders', label: 'Total Orders', type: 'num', value: function(r){ return r.totalOrders; } },
@@ -4321,7 +4331,8 @@ ${TASK_FEED_COMPONENT_JS}
     projectsFilter = sel.value;
   }
 
-  function getFilteredTasks() {
+  /** Tasks in scope before the filter bar — project visibility only. */
+  function tasksInScope() {
     // Tasks with no project always show; project-bound ones follow their
     // project's visibility.
     const visible = new Set(selectableProjects().map(function(p) { return p.id; }));
@@ -4332,13 +4343,59 @@ ${TASK_FEED_COMPONENT_JS}
     });
   }
 
+  // Search, assignee, priority, due window, tag and "only mine". Shared with the
+  // portal; drives the board, the calendar and the list from one place.
+  const taskFilterBar = createTaskFilterBar({
+    rootId: 'task-filter-bar',
+    onChange: function() { renderProjectsPage(); },
+    people: function() {
+      return adminUsers.map(function(u) { return { id: u.id, name: u.username }; });
+    },
+    tags: function() {
+      const set = {};
+      tasksInScope().forEach(function(t) { (t.tags || []).forEach(function(g) { set[g] = 1; }); });
+      return Object.keys(set).sort();
+    },
+    currentUserId: function() { return currentUser ? currentUser.id : null; },
+  });
+
+  function getFilteredTasks() {
+    return taskFilterBar.apply(tasksInScope());
+  }
+
+  const projectsTaskList = createTaskList({
+    rootId: 'projects-tasklist',
+    tasks: getFilteredTasks,
+    projectFor: function(t) {
+      return t.projectId ? allProjects.find(function(p) { return p.id === t.projectId; }) || null : null;
+    },
+    userLabel: userLabel,
+    onOpen: openEditTask,
+    // Inline edits are the point of the list view: change many tasks without
+    // opening each one.
+    onPatch: async function(id, patch) {
+      const r = await api('PUT', '/tasks/' + id, patch);
+      if (r.ok) await loadProjects();
+    },
+    groupBy: function() { return ''; },
+  });
+
   function renderProjectsPage() {
     document.getElementById('projects-board').classList.toggle('hidden', projectsView !== 'board');
     document.getElementById('projects-calendar').classList.toggle('hidden', projectsView !== 'calendar');
+    document.getElementById('projects-tasklist').classList.toggle('hidden', projectsView !== 'tasks');
     document.getElementById('projects-list').classList.toggle('hidden', projectsView !== 'list');
+    // The Projects grid is about projects, not tasks, so the task filter bar has
+    // nothing to act on there.
+    document.getElementById('task-filter-bar').classList.toggle('hidden', projectsView === 'list');
+    taskFilterBar.refreshOptions();
     if (projectsView === 'board') renderBoard();
     else if (projectsView === 'calendar') renderCalendar();
+    else if (projectsView === 'tasks') projectsTaskList.render();
     else renderProjectsList();
+    if (projectsView !== 'list') {
+      taskFilterBar.setCount(getFilteredTasks().length, tasksInScope().length);
+    }
     document.getElementById('edit-project-btn').disabled = !projectsFilter;
     document.getElementById('dup-project-btn').disabled = !projectsFilter;
   }
@@ -4354,11 +4411,13 @@ ${TASK_FEED_COMPONENT_JS}
     projectsView = view;
     document.getElementById('view-board-btn').classList.toggle('active', view === 'board');
     document.getElementById('view-cal-btn').classList.toggle('active', view === 'calendar');
+    document.getElementById('view-tasklist-btn').classList.toggle('active', view === 'tasks');
     document.getElementById('view-projects-btn').classList.toggle('active', view === 'list');
     renderProjectsPage();
   }
   document.getElementById('view-board-btn').addEventListener('click', function() { switchProjectsView('board'); });
   document.getElementById('view-cal-btn').addEventListener('click', function() { switchProjectsView('calendar'); });
+  document.getElementById('view-tasklist-btn').addEventListener('click', function() { switchProjectsView('tasks'); });
   document.getElementById('view-projects-btn').addEventListener('click', function() { switchProjectsView('list'); });
 
   function renderProjectsList() {
@@ -4805,12 +4864,10 @@ ${TASK_FEED_COMPONENT_JS}
     // Dates and recurrence read as labelled facts rather than a cramped chip row.
     let facts = '';
     if (task.dueDate) {
-      const d = new Date(task.dueDate);
-      const now = new Date(); now.setHours(0,0,0,0);
-      const overdue = d < now && task.status !== 'done';
+      // Shared due-date chip: overdue / today / this week / later, and never
+      // red once the task is done.
       facts += '<div class="task-card-fact"><span class="task-card-fact-label">📅</span>' +
-        '<span class="task-card-fact-value task-due' + (overdue ? ' task-due-overdue' : '') + '">' +
-        esc(formatDateShort(task.dueDate)) + (overdue ? ' · overdue' : '') + '</span></div>';
+        '<span class="task-card-fact-value">' + dueChip(task) + '</span></div>';
     }
     if (task.recurrence) {
       facts += '<div class="task-card-fact"><span class="task-card-fact-label">🔁</span>' +

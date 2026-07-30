@@ -37,11 +37,33 @@ function loadVisibilityModel(opts: {
 
   // The block closes over SPA state and over helpers it never calls here
   // (loadProjects/populateProjectFilter touch the DOM but stay unreached).
+  // The block also builds the shared filter bar and list view, which reach for
+  // the DOM and for SPA-wide state. Stub them: this suite is about project
+  // visibility, and the filter bar has its own tests in task-list-ui.test.ts.
+  // The pass-through `apply` keeps getFilteredTasks equal to its unfiltered
+  // scope, which is exactly what these cases assert on.
   const preamble = `
     let allProjects = ${JSON.stringify(opts.projects)};
     let allTasks = ${JSON.stringify(opts.tasks)};
     let projectsFilter = ${JSON.stringify(opts.projectsFilter ?? "")};
     let showClosedProjects = ${opts.showClosed ? "true" : "false"};
+    let adminUsers = [];
+    let currentUser = null;
+    function createTaskFilterBar() {
+      return {
+        apply: function (t) { return t; },
+        refreshOptions: function () {},
+        setCount: function () {},
+        filter: function () { return {}; },
+        reset: function () {},
+      };
+    }
+    function createTaskList() { return { render: function () {} }; }
+    function userLabel(id) { return id; }
+    function openEditTask() {}
+    function api() {}
+    function loadProjects() {}
+    function renderProjectsPage() {}
   `;
   // Evaluating the shipped block is the point of this suite; the input is our
   // own source file, not user data.
@@ -116,6 +138,19 @@ describe("both SPAs mount the shared calendar", () => {
     expect(USER_PORTAL_HTML).toContain('id="pt-view-cal"');
     expect(USER_PORTAL_HTML).toContain('id="pt-calendar"');
     expect(USER_PORTAL_HTML).toContain("rootId: 'pt-calendar'");
+  });
+
+  it.each(surfaces)("%s mounts the shared filter bar and list view", (_label, html) => {
+    expect(html).toContain('class="tl-search"');
+    expect(html).toContain("function createTaskFilterBar(cfg)");
+    expect(html).toContain("createTaskFilterBar({");
+    expect(html).toContain("function createTaskList(cfg)");
+    expect(html).toContain("createTaskList({");
+  });
+
+  it.each(surfaces)("%s uses the shared due chip rather than its own", (_label, html) => {
+    expect(html).toContain("function dueChip(task, now)");
+    expect(html).toContain("dueChip(task)");
   });
 
   it("keeps one copy of the month-grid logic, not a fork per SPA", () => {
