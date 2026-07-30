@@ -11,7 +11,7 @@
 // OPENCLAW_INSTALL_PYTHON_REPORTS).
 
 import { spawn } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pullChurnOrders } from "./churn-orders.js";
@@ -102,7 +102,21 @@ export function churnEnginePaths(workspaceDir?: string): {
 }
 
 function pythonBin(): string {
-  return process.env.OPENCLAW_CHURN_PYTHON?.trim() || "python3";
+  const override = process.env.OPENCLAW_CHURN_PYTHON?.trim();
+  if (override) return override;
+  // The image installs the engine's wheels into a venv and puts it first on
+  // PATH, but the gateway hardens PATH at startup — ensureOpenClawCliOnPath
+  // (src/infra/path-env.ts) prepends /usr/bin and /bin so user-writable dirs
+  // cannot shadow OS binaries — which also moves the venv behind the system
+  // interpreter. A bare `python3` therefore resolves to /usr/bin/python3, which
+  // has none of the wheels. Resolve the venv interpreter directly instead of
+  // relying on lookup order.
+  const venv = process.env.OPENCLAW_PYTHON_REPORTS_VENV?.trim();
+  if (venv) {
+    const candidate = path.join(venv, "bin", "python3");
+    if (existsSync(candidate)) return candidate;
+  }
+  return "python3";
 }
 
 /**
