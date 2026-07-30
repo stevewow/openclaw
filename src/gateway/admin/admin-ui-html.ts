@@ -4,6 +4,7 @@ import {
   PROJECT_CALENDAR_MARKUP,
 } from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
+import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
 import { PORTAL_FEATURES } from "./types.js";
 
 export const ADMIN_UI_HTML = `<!DOCTYPE html>
@@ -395,6 +396,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .task-tags { display: flex; gap: 0.25rem; flex-wrap: wrap; }
   .task-tag { padding: 0.12rem 0.4rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: 0.65rem; font-weight: 500; color: var(--text-muted); }
 ${PROJECT_CALENDAR_CSS}
+${TASK_FEED_CSS}
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
   .color-swatch:hover { transform: scale(1.15); }
@@ -1374,6 +1376,10 @@ ${PROJECT_CALENDAR_CSS}
           <button type="button" class="btn btn-ghost btn-sm" id="task-attach-file-btn">Upload File</button>
           <input type="file" id="task-attach-file" class="hidden">
         </div>
+      </div>
+      <div id="task-feed-section" class="hidden" style="margin-bottom:1.125rem">
+        <label style="display:block;margin-bottom:0.5rem;font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted)">Comments &amp; Activity</label>
+        <div id="task-feed">${TASK_FEED_MARKUP}</div>
       </div>
       <div class="modal-actions" style="justify-content:flex-start">
         <button type="button" class="btn btn-danger btn-sm hidden" id="task-modal-delete">Delete</button>
@@ -2758,6 +2764,7 @@ ${PROJECT_CALENDAR_CSS}
 
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
+${TASK_FEED_COMPONENT_JS}
   var cancelCols = [
     { key: 'client', label: 'Client', value: function(r){ return r.client; } },
     { key: 'totalOrders', label: 'Total Orders', type: 'num', value: function(r){ return r.totalOrders; } },
@@ -4814,6 +4821,10 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
       facts += '<div class="task-card-fact"><span class="task-card-fact-label">📎</span>' +
         '<span class="task-card-fact-value task-attach-count">' + attachCount + (attachCount === 1 ? ' attachment' : ' attachments') + '</span></div>';
     }
+    if (task.commentCount) {
+      facts += '<div class="task-card-fact"><span class="task-card-fact-label">💬</span>' +
+        '<span class="task-card-fact-value task-attach-count">' + task.commentCount + (task.commentCount === 1 ? ' comment' : ' comments') + '</span></div>';
+    }
     if (facts) html += '<div class="task-card-facts">' + facts + '</div>';
 
     // Every assignee gets a named chip — the old card truncated to two names.
@@ -4874,8 +4885,11 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
     document.getElementById('task-modal-form').reset();
     document.getElementById('task-modal-delete').classList.add('hidden');
     document.getElementById('task-subtasks-section').classList.add('hidden');
-    // Attachments need an id to hang off, so they appear once the task exists.
+    // Attachments and the comment thread need an id to hang off, so both appear
+    // once the task exists.
     document.getElementById('task-attach-section').classList.add('hidden');
+    document.getElementById('task-feed-section').classList.add('hidden');
+    taskFeed.clear();
     document.getElementById('task-status').value = status || 'todo';
     document.getElementById('task-priority').value = 'medium';
     if (dateMs) {
@@ -4908,8 +4922,10 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
     document.getElementById('task-subtasks-section').classList.remove('hidden');
     document.getElementById('task-attach-section').classList.remove('hidden');
     document.getElementById('task-attach-url').value = '';
+    document.getElementById('task-feed-section').classList.remove('hidden');
     renderSubtasks(id);
     loadAttachments('task', 'task', id);
+    taskFeed.load(id);
     document.getElementById('task-modal').classList.remove('hidden');
     document.getElementById('task-title').focus();
   }
@@ -4923,6 +4939,37 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
     sel.innerHTML = '<option value="">— No Project —</option>' +
       options.map(function(p) { return '<option value="' + esc(p.id) + '"' + (p.id === selectedId ? ' selected' : '') + '>' + esc(p.title) + (isClosedProject(p) ? ' (' + esc(p.status) + ')' : '') + '</option>'; }).join('');
   }
+
+  // Comment thread + activity history, shared with the user portal.
+  const taskFeed = createTaskFeed({
+    rootId: 'task-feed',
+    api: api,
+    get currentUserId() { return currentUser ? currentUser.id : null; },
+    get isAdmin() { return currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin'); },
+    people: function() {
+      return adminUsers.map(function(u) { return { id: u.id, name: u.username }; });
+    },
+    // Activity rows store raw ids and timestamps; turn them into what people
+    // actually call these things.
+    labelFor: function(field, value) {
+      if (field === 'projectId') {
+        const p = allProjects.find(function(x) { return x.id === value; });
+        return p ? p.title : null;
+      }
+      if (field === 'assignees') {
+        return String(value).split(',').filter(Boolean).map(function(id) {
+          const u = adminUsers.find(function(x) { return x.id === id; });
+          return u ? u.username : id;
+        }).join(', ');
+      }
+      if (field === 'dueDate') {
+        const n = Number(value);
+        return Number.isFinite(n) ? new Date(n).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : null;
+      }
+      if (field === 'status') return TF_STATUS_LABELS[value] || value;
+      return null;
+    },
+  });
 
   function renderSubtasks(parentId) {
     const subs = allTasks.filter(function(t) { return t.parentTaskId === parentId; });

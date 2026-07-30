@@ -1027,3 +1027,148 @@ describe("churn refresh — gated, validated, one at a time", () => {
     expect(res.json?.refresh).toMatchObject({ status: "idle" });
   });
 });
+
+describe("task comments + activity — scoped to the task", () => {
+  // Portal sections are deny-by-default, so the two non-admin accounts need the
+  // projects grant before they can hold a task at all. Last describe in the
+  // file, so widening them here does not leak into other cases.
+  beforeAll(async () => {
+    for (const id of [userId, plainId]) {
+      await userStore.setUserPermissions(id, [{ permissionType: "feature", value: "projects" }]);
+    }
+  });
+
+  async function taskOwnedBy(token: string, over: Record<string, unknown> = {}) {
+    const r = await call("POST", "/tasks", { token, body: { title: "Shoot 42", ...over } });
+    return (r.json?.task as { id: string }).id;
+  }
+
+  it("opens the history with who created the task", async () => {
+    const id = await taskOwnedBy(adminToken);
+    const r = await call("GET", `/tasks/${id}/events`, { token: adminToken });
+    expect(r.status).toBe(200);
+    const events = r.json?.events as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "activity", field: "created", authorName: "desk" });
+  });
+
+  it("records only what actually changed on an update", async () => {
+    const id = await taskOwnedBy(adminToken);
+    // Re-sends the same title plus a real status change: one line, not two.
+    await call("PUT", `/tasks/${id}`, {
+      token: adminToken,
+      body: { title: "Shoot 42", status: "review" },
+    });
+    const r = await call("GET", `/tasks/${id}/events`, { token: adminToken });
+    const activity = (r.json?.events as Array<Record<string, unknown>>).filter(
+      (e) => e.kind === "activity" && e.field !== "created",
+    );
+    expect(activity).toHaveLength(1);
+    expect(activity[0]).toMatchObject({ field: "status", from: "todo", to: "review" });
+  });
+
+  it("logs nothing for a drag that only moves position", async () => {
+    const id = await taskOwnedBy(adminToken);
+    await call("PUT", `/tasks/${id}`, { token: adminToken, body: { position: 7 } });
+    const r = await call("GET", `/tasks/${id}/events`, { token: adminToken });
+    const events = r.json?.events as Array<Record<string, unknown>>;
+    expect(events.filter((e) => e.field !== "created")).toHaveLength(0);
+  });
+
+  it("resolves @mentions against real accounts only", async () => {
+    const id = await taskOwnedBy(adminToken);
+    const r = await call("POST", `/tasks/${id}/events`, {
+      token: adminToken,
+      body: { body: "@viewer and @nobody please look" },
+    });
+    expect(r.status).toBe(201);
+    expect((r.json?.event as { mentions: string[] }).mentions).toEqual([userId]);
+  });
+
+  it("rejects an empty comment", async () => {
+    const id = await taskOwnedBy(adminToken);
+    const r = await call("POST", `/tasks/${id}/events`, {
+      token: adminToken,
+      body: { body: "  " },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("404s for a task that does not exist", async () => {
+    const r = await call("GET", "/tasks/no-such-task/events", { token: adminToken });
+    expect(r.status).toBe(404);
+  });
+
+  it("keeps a stranger out of someone else's task thread", async () => {
+    // Owned by `viewer`, with `other` neither assigned nor a project member.
+    const id = await taskOwnedBy(userToken);
+    expect((await call("GET", `/tasks/${id}/events`, { token: userToken })).status).toBe(200);
+    const denied = await call("GET", `/tasks/${id}/events`, { token: await tokenFor(plainId) });
+    expect(denied.status).toBe(403);
+    const posted = await call("POST", `/tasks/${id}/events`, {
+      token: await tokenFor(plainId),
+      body: { body: "sneaking in" },
+    });
+    expect(posted.status).toBe(403);
+  });
+
+  it("lets the author edit and delete their own comment", async () => {
+    const id = await taskOwnedBy(userToken);
+    const created = await call("POST", `/tasks/${id}/events`, {
+      token: userToken,
+      body: { body: "first pass" },
+    });
+    const eventId = (created.json?.event as { id: string }).id;
+    const edited = await call("PUT", `/tasks/${id}/events/${eventId}`, {
+      token: userToken,
+      body: { body: "second pass" },
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.json?.event).toMatchObject({ body: "second pass" });
+    expect((edited.json?.event as { editedAt: number }).editedAt).toBeGreaterThan(0);
+    const gone = await call("DELETE", `/tasks/${id}/events/${eventId}`, { token: userToken });
+    expect(gone.status).toBe(200);
+  });
+
+  it("stops one user rewriting another's comment, but lets an admin remove it", async () => {
+    const id = await taskOwnedBy(adminToken);
+    const created = await call("POST", `/tasks/${id}/events`, {
+      token: adminToken,
+      body: { body: "desk wrote this" },
+    });
+    const eventId = (created.json?.event as { id: string }).id;
+    // `viewer` cannot even reach this task, so scope denies before ownership.
+    expect(
+      (
+        await call("PUT", `/tasks/${id}/events/${eventId}`, {
+          token: userToken,
+          body: { body: "x" },
+        })
+      ).status,
+    ).toBe(403);
+    // superadmin can clear it even though they did not write it.
+    expect(
+      (await call("DELETE", `/tasks/${id}/events/${eventId}`, { token: superToken })).status,
+    ).toBe(200);
+  });
+
+  it("refuses to edit an activity row", async () => {
+    const id = await taskOwnedBy(adminToken);
+    const events = (await call("GET", `/tasks/${id}/events`, { token: adminToken })).json
+      ?.events as Array<{ id: string }>;
+    const r = await call("PUT", `/tasks/${id}/events/${events[0]!.id}`, {
+      token: adminToken,
+      body: { body: "rewriting history" },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("counts comments on the task list", async () => {
+    const id = await taskOwnedBy(adminToken, { title: "Counted" });
+    await call("POST", `/tasks/${id}/events`, { token: adminToken, body: { body: "one" } });
+    await call("POST", `/tasks/${id}/events`, { token: adminToken, body: { body: "two" } });
+    const list = await call("GET", "/tasks", { token: adminToken });
+    const task = (list.json?.tasks as Array<Record<string, unknown>>).find((t) => t.id === id);
+    expect(task?.commentCount).toBe(2);
+  });
+});

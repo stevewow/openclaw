@@ -127,6 +127,16 @@ import {
   refreshMonth,
 } from "./spiro-report-store.js";
 import {
+  addTaskComment,
+  countCommentsByTask,
+  deleteTaskComment,
+  editTaskComment,
+  listTaskEvents,
+  parseMentions,
+  recordTaskActivity,
+  recordTaskDiff,
+} from "./task-events-store.js";
+import {
   TICKET_CATEGORIES,
   TICKET_PRIORITIES,
   TICKET_STATUSES,
@@ -1324,12 +1334,15 @@ export async function handleAdminHttpRequest(
       userId: sessionUser.id,
       role: sessionUser.role,
     });
-    const counts = await listAttachmentsForOwners(
-      "task",
-      tasks.map((t) => t.id),
-    );
+    const taskIds = tasks.map((t) => t.id);
+    const counts = await listAttachmentsForOwners("task", taskIds);
+    const comments = await countCommentsByTask(taskIds);
     sendJson(res, 200, {
-      tasks: tasks.map((t) => ({ ...t, attachmentCount: counts.get(t.id)?.length ?? 0 })),
+      tasks: tasks.map((t) => ({
+        ...t,
+        attachmentCount: counts.get(t.id)?.length ?? 0,
+        commentCount: comments.get(t.id) ?? 0,
+      })),
     });
     return true;
   }
@@ -1383,6 +1396,15 @@ export async function handleAdminHttpRequest(
         : null,
       assigneeIds: normalizeIdArray(data.assigneeIds),
       createdBy: sessionUser.id,
+    });
+    // Opens the task's history with who put it on the board, so a feed is never
+    // blank and "who added this?" is answerable.
+    await recordTaskActivity({
+      taskId: task.id,
+      field: "created",
+      to: task.status,
+      authorId: sessionUser.id,
+      authorName: sessionUser.username,
     });
     sendJson(res, 201, { task });
     return true;
@@ -1447,6 +1469,12 @@ export async function handleAdminHttpRequest(
       sendNotFound(res);
       return true;
     }
+    // History comes from the real before/after diff, not the submitted body, so
+    // a drag that only moves position — or a form that re-sends every field
+    // unchanged — adds nothing to the feed.
+    if (before) {
+      await recordTaskDiff(before, updated, { id: sessionUser.id, name: sessionUser.username });
+    }
     if (updated.status === "done" && before?.status !== "done" && updated.recurrence) {
       await createTask({
         title: updated.title,
@@ -1475,6 +1503,112 @@ export async function handleAdminHttpRequest(
     await deleteAttachmentsForOwner("task", id);
     await deleteTask(id);
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // ── Task comments + activity ───────────────────────────────────────────────
+  // One chronological feed per task. Access mirrors the task itself: if you can
+  // open it you can read and add to its thread.
+  const taskEventsMatch = subPath.match(/^\/tasks\/([^/]+)\/events$/);
+  if (taskEventsMatch) {
+    const taskId = taskEventsMatch[1]!;
+    // Admins bypass the access guard, so existence is checked separately —
+    // commenting on a missing id would strand a row behind a deleted task.
+    if (!(await getTask(taskId))) {
+      sendNotFound(res);
+      return true;
+    }
+    if (!(await canAccessTask(taskEditViewer, taskId))) {
+      sendForbidden(res);
+      return true;
+    }
+
+    if (req.method === "GET") {
+      sendJson(res, 200, { events: await listTaskEvents(taskId) });
+      return true;
+    }
+
+    if (req.method === "POST") {
+      const body = await readJsonBody(req, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendBadRequest(res, body.error);
+        return true;
+      }
+      const text = normalizeString((body.value as Record<string, unknown>).body);
+      if (!text) {
+        sendBadRequest(res, "body required");
+        return true;
+      }
+      // Mentions are resolved server-side against real accounts, so a comment
+      // cannot claim to mention someone who does not exist.
+      const people = (await listUsers()).map((u) => ({ id: u.id, name: u.username }));
+      const event = await addTaskComment({
+        taskId,
+        body: text,
+        mentions: parseMentions(text, people),
+        authorId: sessionUser.id,
+        authorName: sessionUser.username,
+      });
+      sendJson(res, 201, { event });
+      return true;
+    }
+
+    sendBadRequest(res, "unsupported method");
+    return true;
+  }
+
+  // PUT / DELETE /api/admin/tasks/:taskId/events/:eventId — comments only.
+  const taskEventEditMatch = subPath.match(/^\/tasks\/([^/]+)\/events\/([^/]+)$/);
+  if (taskEventEditMatch && (req.method === "PUT" || req.method === "DELETE")) {
+    const taskId = taskEventEditMatch[1]!;
+    const eventId = taskEventEditMatch[2]!;
+    if (!(await canAccessTask(taskEditViewer, taskId))) {
+      sendForbidden(res);
+      return true;
+    }
+    const existing = (await listTaskEvents(taskId)).find((e) => e.id === eventId);
+    if (!existing) {
+      sendNotFound(res);
+      return true;
+    }
+    // Your own words are yours to fix or retract; an admin can also clear
+    // anything. Activity rows belong to no one and are rejected by the store.
+    const isOwn = existing.authorId === sessionUser.id;
+    const isAdmin = sessionUser.role === "admin" || sessionUser.role === "superadmin";
+    if (!isOwn && !isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+
+    if (req.method === "DELETE") {
+      const ok = await deleteTaskComment(eventId);
+      if (!ok) {
+        sendBadRequest(res, "only comments can be deleted");
+        return true;
+      }
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const text = normalizeString((body.value as Record<string, unknown>).body);
+    if (!text) {
+      sendBadRequest(res, "body required");
+      return true;
+    }
+    const people = (await listUsers()).map((u) => ({ id: u.id, name: u.username }));
+    const updatedEvent = await editTaskComment(eventId, text, {
+      mentions: parseMentions(text, people),
+    });
+    if (!updatedEvent) {
+      sendBadRequest(res, "only comments can be edited");
+      return true;
+    }
+    sendJson(res, 200, { event: updatedEvent });
     return true;
   }
 

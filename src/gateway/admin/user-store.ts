@@ -283,6 +283,19 @@ type TicketsTable = {
   resolved_at: number | null;
 };
 
+type TaskEventsTable = {
+  id: string;
+  task_id: string;
+  kind: string;
+  body: string | null;
+  meta: string | null;
+  mentions: string;
+  author_id: string | null;
+  author_name: string | null;
+  created_at: number;
+  edited_at: number | null;
+};
+
 type TicketEventsTable = {
   id: string;
   ticket_id: string;
@@ -338,6 +351,7 @@ export type AdminDb = {
   admin_project_members: ProjectMembersTable;
   admin_tasks: TasksTable;
   admin_task_assignees: TaskAssigneesTable;
+  admin_task_events: TaskEventsTable;
   admin_attachments: AttachmentsTable;
   admin_spiro_orders: SpiroOrdersTable;
   admin_spiro_refresh_log: SpiroRefreshLogTable;
@@ -524,6 +538,24 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       PRIMARY KEY (task_id, user_id)
     );
     CREATE INDEX IF NOT EXISTS admin_task_assignees_user ON admin_task_assignees(user_id);
+    -- One chronological feed per task: what people said and what the task did.
+    -- Comments and activity share a table so the drawer can render them in a
+    -- single stream, the way every board tool does. author_name is denormalised
+    -- so history stays readable after the account that wrote it is deleted.
+    -- meta holds the field/from/to payload for activity rows as JSON.
+    CREATE TABLE IF NOT EXISTS admin_task_events (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES admin_tasks(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('comment','activity')),
+      body TEXT,
+      meta TEXT,
+      mentions TEXT NOT NULL DEFAULT '[]',
+      author_id TEXT,
+      author_name TEXT,
+      created_at INTEGER NOT NULL,
+      edited_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS admin_task_events_task ON admin_task_events(task_id, created_at);
     -- Links and files hung off a task or project. No FK: owner_type decides which
     -- table owner_id points at, so cascade is handled in the delete paths.
     CREATE TABLE IF NOT EXISTS admin_attachments (

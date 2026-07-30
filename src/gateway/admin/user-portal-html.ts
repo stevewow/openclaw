@@ -4,6 +4,7 @@ import {
   PROJECT_CALENDAR_MARKUP,
 } from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
+import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
 
 export const USER_PORTAL_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -166,6 +167,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .pt-view-btn:hover { color: var(--text); }
   .pt-view-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 ${PROJECT_CALENDAR_CSS}
+${TASK_FEED_CSS}
   .board-wrap { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 0.875rem; align-items: start; }
   @media (max-width: 900px) { .board-wrap { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { .board-wrap { grid-template-columns: 1fr; } }
@@ -419,6 +421,10 @@ ${PROJECT_CALENDAR_CSS}
           <input type="file" id="pt-attach-file" class="hidden">
         </div>
       </div>
+      <div id="pt-feed-section" class="form-group hidden">
+        <label>Comments &amp; Activity</label>
+        <div id="pt-feed">${TASK_FEED_MARKUP}</div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost btn-sm hidden" id="pt-task-delete" style="color:#991b1b">Delete</button>
         <div class="spacer"></div>
@@ -520,6 +526,7 @@ ${PROJECT_CALENDAR_CSS}
   }
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
+${TASK_FEED_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -1277,6 +1284,7 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
       html += '<span class="task-chip' + (overdue ? ' overdue' : '') + '">📅 ' + esc(ptFormatDate(task.dueDate)) + '</span>';
     }
     if (task.attachmentCount) html += '<span class="task-chip">📎 ' + task.attachmentCount + '</span>';
+    if (task.commentCount) html += '<span class="task-chip">💬 ' + task.commentCount + '</span>';
     html += '</div>';
     // Every assignee named, rather than the old "+N" truncation.
     const names = (task.assigneeIds || []).map(ptUserLabel);
@@ -1296,6 +1304,35 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
 
   // Task modal
   document.getElementById('pt-new-task').addEventListener('click', function() { ptOpenTask(null); });
+  // Comment thread + activity history, the same component the dashboard uses.
+  const ptFeed = createTaskFeed({
+    rootId: 'pt-feed',
+    api: api,
+    get currentUserId() { return currentUser ? currentUser.id : null; },
+    get isAdmin() { return currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin'); },
+    people: function() {
+      return ptUsers.map(function(u) { return { id: u.id, name: u.username }; });
+    },
+    labelFor: function(field, value) {
+      if (field === 'projectId') {
+        const p = ptProjects.find(function(x) { return x.id === value; });
+        return p ? p.title : null;
+      }
+      if (field === 'assignees') {
+        return String(value).split(',').filter(Boolean).map(function(id) {
+          const u = ptUsers.find(function(x) { return x.id === id; });
+          return u ? u.username : id;
+        }).join(', ');
+      }
+      if (field === 'dueDate') {
+        const n = Number(value);
+        return Number.isFinite(n) ? new Date(n).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : null;
+      }
+      if (field === 'status') return TF_STATUS_LABELS[value] || value;
+      return null;
+    },
+  });
+
   /** presetDueMs prefills the due date when the task is started from a calendar cell. */
   function ptOpenTask(task, presetDueMs) {
     ptEditingTask = task ? task.id : null;
@@ -1313,6 +1350,8 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
     document.getElementById('pt-task-delete').classList.toggle('hidden', !task);
     // Attachments need a task id to hang off, so they appear once it exists.
     document.getElementById('pt-attach-section').classList.toggle('hidden', !task);
+    document.getElementById('pt-feed-section').classList.toggle('hidden', !task);
+    if (task) ptFeed.load(task.id); else ptFeed.clear();
     document.getElementById('pt-attach-url').value = '';
     if (task) ptLoadAttachments(task.id);
     document.getElementById('pt-task-modal').classList.remove('hidden');
