@@ -1172,3 +1172,177 @@ describe("task comments + activity — scoped to the task", () => {
     expect(task?.commentCount).toBe(2);
   });
 });
+
+describe("board columns — readable by members, writable by admins", () => {
+  async function resetGlobal() {
+    await call("PUT", "/task-statuses", {
+      token: superToken,
+      body: {
+        statuses: [
+          { key: "todo", label: "Todo" },
+          { key: "in_progress", label: "In Progress" },
+          { key: "review", label: "Review" },
+          { key: "done", label: "Done", isDone: true },
+        ],
+      },
+    });
+  }
+
+  it("serves the global set by default", async () => {
+    await resetGlobal();
+    const r = await call("GET", "/task-statuses", { token: adminToken });
+    expect(r.status).toBe(200);
+    expect((r.json?.statuses as Array<{ key: string }>).map((s) => s.key)).toEqual([
+      "todo",
+      "in_progress",
+      "review",
+      "done",
+    ]);
+  });
+
+  it("refuses a non-admin rewriting the columns", async () => {
+    const r = await call("PUT", "/task-statuses", {
+      token: userToken,
+      body: { statuses: [{ key: "a", label: "A" }] },
+    });
+    expect(r.status).toBe(403);
+  });
+
+  it("gives a project its own columns and leaves the global set alone", async () => {
+    await resetGlobal();
+    const proj = await call("POST", "/projects", {
+      token: adminToken,
+      body: { title: "Shoots" },
+    });
+    const projectId = (proj.json?.project as { id: string }).id;
+    const put = await call("PUT", `/task-statuses?projectId=${projectId}`, {
+      token: adminToken,
+      body: {
+        statuses: [
+          { key: "booked", label: "Booked", color: "#c0000a" },
+          { key: "delivered", label: "Delivered", isDone: true },
+        ],
+      },
+    });
+    expect(put.status).toBe(200);
+    expect((put.json?.statuses as Array<{ key: string }>).map((s) => s.key)).toEqual([
+      "booked",
+      "delivered",
+    ]);
+    const global = await call("GET", "/task-statuses", { token: adminToken });
+    expect((global.json?.statuses as Array<{ key: string }>).map((s) => s.key)).toContain("todo");
+  });
+
+  it("accepts a task on a custom column the old constraint would have rejected", async () => {
+    const proj = await call("POST", "/projects", { token: adminToken, body: { title: "Custom" } });
+    const projectId = (proj.json?.project as { id: string }).id;
+    await call("PUT", `/task-statuses?projectId=${projectId}`, {
+      token: adminToken,
+      body: {
+        statuses: [
+          { key: "booked", label: "Booked" },
+          { key: "delivered", label: "Delivered", isDone: true },
+        ],
+      },
+    });
+    const created = await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "Shoot 12 Oak", projectId, status: "delivered" },
+    });
+    expect(created.status).toBe(201);
+    expect((created.json?.task as { status: string }).status).toBe("delivered");
+  });
+
+  it("opens a new task in the board's first column, not a hardcoded one", async () => {
+    const proj = await call("POST", "/projects", { token: adminToken, body: { title: "First" } });
+    const projectId = (proj.json?.project as { id: string }).id;
+    await call("PUT", `/task-statuses?projectId=${projectId}`, {
+      token: adminToken,
+      body: {
+        statuses: [
+          { key: "intake", label: "Intake" },
+          { key: "shipped", label: "Shipped", isDone: true },
+        ],
+      },
+    });
+    const created = await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "No status given", projectId },
+    });
+    expect((created.json?.task as { status: string }).status).toBe("intake");
+  });
+
+  it("ignores a status that is not on the destination board", async () => {
+    const proj = await call("POST", "/projects", { token: adminToken, body: { title: "Strict" } });
+    const projectId = (proj.json?.project as { id: string }).id;
+    await call("PUT", `/task-statuses?projectId=${projectId}`, {
+      token: adminToken,
+      body: [{ key: "only", label: "Only" }].length
+        ? { statuses: [{ key: "only", label: "Only", isDone: true }] }
+        : {},
+    });
+    const created = await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "T", projectId, status: "review" },
+    });
+    expect((created.json?.task as { status: string }).status).toBe("only");
+  });
+
+  it("remaps stranded tasks and reports how many moved", async () => {
+    const proj = await call("POST", "/projects", { token: adminToken, body: { title: "Remap" } });
+    const projectId = (proj.json?.project as { id: string }).id;
+    const t = await call("POST", "/tasks", {
+      token: adminToken,
+      body: { title: "Stranded", projectId, status: "review" },
+    });
+    const taskId = (t.json?.task as { id: string }).id;
+    const put = await call("PUT", `/task-statuses?projectId=${projectId}`, {
+      token: adminToken,
+      body: {
+        statuses: [
+          { key: "todo", label: "Todo" },
+          { key: "done", label: "Done", isDone: true },
+        ],
+      },
+    });
+    expect(put.json?.remapped).toBe(1);
+    const list = await call("GET", "/tasks", { token: adminToken });
+    const moved = (list.json?.tasks as Array<Record<string, unknown>>).find((x) => x.id === taskId);
+    expect(moved?.status).toBe("todo");
+  });
+
+  it("resets a project back to the global set", async () => {
+    await resetGlobal();
+    const proj = await call("POST", "/projects", { token: adminToken, body: { title: "Reset" } });
+    const projectId = (proj.json?.project as { id: string }).id;
+    await call("PUT", `/task-statuses?projectId=${projectId}`, {
+      token: adminToken,
+      body: { statuses: [{ key: "solo", label: "Solo", isDone: true }] },
+    });
+    expect(
+      (await call("GET", `/task-statuses?projectId=${projectId}`, { token: adminToken })).json
+        ?.custom,
+    ).toBe(true);
+    const del = await call("DELETE", `/task-statuses?projectId=${projectId}`, {
+      token: adminToken,
+    });
+    expect(del.status).toBe(200);
+    const after = await call("GET", `/task-statuses?projectId=${projectId}`, { token: adminToken });
+    expect(after.json?.custom).toBe(false);
+    expect((after.json?.statuses as Array<{ key: string }>).map((s) => s.key)).toContain("todo");
+  });
+
+  it("rejects an empty column set", async () => {
+    const r = await call("PUT", "/task-statuses", { token: adminToken, body: { statuses: [] } });
+    expect(r.status).toBe(400);
+    await resetGlobal();
+  });
+
+  it("404s for a project that does not exist", async () => {
+    const r = await call("PUT", "/task-statuses?projectId=nope", {
+      token: adminToken,
+      body: { statuses: [{ key: "a", label: "A" }] },
+    });
+    expect(r.status).toBe(404);
+  });
+});

@@ -137,6 +137,14 @@ import {
   recordTaskDiff,
 } from "./task-events-store.js";
 import {
+  clearProjectStatuses,
+  defaultStatusKey,
+  isDoneStatus,
+  listProjectStatuses,
+  resolveStatuses,
+  setStatuses,
+} from "./task-status-store.js";
+import {
   TICKET_CATEGORIES,
   TICKET_PRIORITIES,
   TICKET_STATUSES,
@@ -1375,12 +1383,16 @@ export async function handleAdminHttpRequest(
       sendForbidden(res);
       return true;
     }
+    // Statuses are per-board now, so validity is decided by the destination
+    // project's own columns rather than a fixed list.
+    const boardKeys = new Set((await resolveStatuses(targetProjectId)).map((s) => s.key));
+    const requestedStatus = typeof data.status === "string" ? data.status : "";
     const task = await createTask({
       title,
       description: normalizeString(data.description),
-      status: validStatuses.includes(data.status as (typeof validStatuses)[number])
-        ? (data.status as (typeof validStatuses)[number])
-        : "todo",
+      status: (boardKeys.has(requestedStatus)
+        ? requestedStatus
+        : await defaultStatusKey(targetProjectId)) as (typeof validStatuses)[number],
       priority: validPriorities.includes(data.priority as (typeof validPriorities)[number])
         ? (data.priority as (typeof validPriorities)[number])
         : "medium",
@@ -1432,11 +1444,18 @@ export async function handleAdminHttpRequest(
     const newTitle = normalizeString(data.title);
     if (newTitle) params.title = newTitle;
     if (data.description !== undefined) params.description = normalizeString(data.description);
-    if (
-      typeof data.status === "string" &&
-      validStatuses.includes(data.status as (typeof validStatuses)[number])
-    ) {
-      params.status = data.status as (typeof validStatuses)[number];
+    if (typeof data.status === "string") {
+      // Validate against the board the task will live on after this write — a
+      // move between projects can change which columns are legal.
+      const existing = await getTask(id);
+      const destProject =
+        data.projectId !== undefined
+          ? normalizeString(data.projectId)
+          : (existing?.projectId ?? null);
+      const allowed = new Set((await resolveStatuses(destProject)).map((s) => s.key));
+      if (allowed.has(data.status)) {
+        params.status = data.status as (typeof validStatuses)[number];
+      }
     }
     if (
       typeof data.priority === "string" &&
@@ -1475,11 +1494,18 @@ export async function handleAdminHttpRequest(
     if (before) {
       await recordTaskDiff(before, updated, { id: sessionUser.id, name: sessionUser.username });
     }
-    if (updated.status === "done" && before?.status !== "done" && updated.recurrence) {
+    // "Finished" is whichever column carries is_done on this board, not the
+    // literal key 'done' — a board ending in "Delivered" still rolls a
+    // recurring task over.
+    const nowDone = await isDoneStatus(updated.projectId, updated.status);
+    const wasDone = before ? await isDoneStatus(before.projectId, before.status) : false;
+    if (nowDone && !wasDone && updated.recurrence) {
       await createTask({
         title: updated.title,
         description: updated.description,
-        status: "todo",
+        // The next occurrence opens in this board's first column, whatever it
+        // is called.
+        status: (await defaultStatusKey(updated.projectId)) as typeof updated.status,
         priority: updated.priority,
         projectId: updated.projectId,
         parentTaskId: updated.parentTaskId,
@@ -1503,6 +1529,75 @@ export async function handleAdminHttpRequest(
     await deleteAttachmentsForOwner("task", id);
     await deleteTask(id);
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // ── Board columns (task statuses) ──────────────────────────────────────────
+  // GET is open to anyone who can see the board — the columns are needed to
+  // render it. Rewriting them is an admin act: it moves other people's cards.
+  const statusListMatch = subPath.match(/^\/task-statuses$/);
+  if (statusListMatch && req.method === "GET") {
+    const projectId = normalizeString(url.searchParams.get("projectId"));
+    if (projectId && !(await canAccessProject(taskEditViewer, projectId))) {
+      sendForbidden(res);
+      return true;
+    }
+    sendJson(res, 200, {
+      statuses: await resolveStatuses(projectId),
+      // Says whether these are the project's own columns or the global set, so
+      // the editor can offer "reset to default" only when there is one.
+      custom: projectId ? (await listProjectStatuses(projectId)).length > 0 : true,
+    });
+    return true;
+  }
+
+  if (statusListMatch && (req.method === "PUT" || req.method === "DELETE")) {
+    if (sessionUser.role !== "admin" && sessionUser.role !== "superadmin") {
+      sendForbidden(res);
+      return true;
+    }
+    const projectId = normalizeString(url.searchParams.get("projectId"));
+    if (projectId && !(await getProject(projectId))) {
+      sendNotFound(res);
+      return true;
+    }
+
+    if (req.method === "DELETE") {
+      if (!projectId) {
+        sendBadRequest(res, "the global column set cannot be deleted, only replaced");
+        return true;
+      }
+      const remapped = await clearProjectStatuses(projectId);
+      sendJson(res, 200, { statuses: await resolveStatuses(projectId), remapped });
+      return true;
+    }
+
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const raw = (body.value as Record<string, unknown>).statuses;
+    if (!Array.isArray(raw)) {
+      sendBadRequest(res, "statuses must be an array");
+      return true;
+    }
+    const inputs = raw.map((r) => {
+      const row = (r ?? {}) as Record<string, unknown>;
+      return {
+        key: typeof row.key === "string" ? row.key : "",
+        label: typeof row.label === "string" ? row.label : "",
+        color: typeof row.color === "string" ? row.color : undefined,
+        isDone: row.isDone === true,
+        wipLimit: typeof row.wipLimit === "number" ? row.wipLimit : null,
+      };
+    });
+    try {
+      const result = await setStatuses(projectId, inputs);
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendBadRequest(res, err instanceof Error ? err.message : String(err));
+    }
     return true;
   }
 
