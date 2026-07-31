@@ -217,6 +217,9 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .fin-contact { font-weight: 600; }
   .fin-contact-stale { color: #b45309; }
   .fin-contact-never { font-weight: 700; color: #991b1b; }
+  /* Growth is the column the Focus report exists for, so it carries colour. */
+  .focus-up { color: #15803d; font-weight: 700; }
+  .focus-down { color: #b91c1c; font-weight: 700; }
   #fin-table-head th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
   #fin-table-head th[data-sort]:hover { color: var(--text); }
   .fin-contact-log { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
@@ -799,6 +802,41 @@ ${MY_WORK_CSS}
           </div>
         </div>
         <div class="card" style="padding:0"><div id="photog-table"></div></div>
+      </div>
+
+      <!-- Reports: Sales Focus -->
+      <div id="page-focus" class="page hidden">
+        <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label>From</label>
+              <input type="date" id="focus-from" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>To</label>
+              <input type="date" id="focus-to" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Compare with</label>
+              <select id="focus-compare">
+                <option value="yoy">Same period last year</option>
+                <option value="previous">The period before</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>BDS</label>
+              <select id="focus-bds"><option value="">Everyone</option></select>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+              <span class="text-muted" id="focus-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-ghost btn-sm admin-only" id="focus-refresh-btn">↻ Refresh now</button>
+            </div>
+          </div>
+          <div class="text-muted" style="font-size:0.8rem;margin-top:0.5rem" id="focus-note"></div>
+        </div>
+        <div class="card" style="margin-bottom:1rem;padding:0.75rem 1rem"><div id="focus-totals" class="flex items-center gap-2" style="flex-wrap:wrap"></div></div>
+        <div class="card" style="padding:0"><div id="focus-table"></div></div>
       </div>
 
       <!-- Pipedrive Cleanup checklist -->
@@ -1863,6 +1901,7 @@ ${MY_WORK_CSS}
     'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: false, superAdminOnly: false, report: 'report-cancellations' },
     rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: false, superAdminOnly: false, report: 'rankings' },
     photographers: { el: 'page-photographers', title: 'Photographers', adminOnly: false, superAdminOnly: false, report: 'photographers' },
+    focus: { el: 'page-focus', title: 'Sales Focus', adminOnly: false, superAdminOnly: false, report: 'focus' },
     'pipedrive-cleanup': { el: 'page-pipedrive-cleanup', title: 'Pipedrive Cleanup', adminOnly: false, superAdminOnly: false, report: 'pipedrive-cleanup' },
     churn: { el: 'page-churn', title: 'Churn & Retention', adminOnly: false, superAdminOnly: false, report: 'churn' },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: false, superAdminOnly: false, feature: 'tickets' },
@@ -1953,6 +1992,7 @@ ${MY_WORK_CSS}
     if (page === 'report-cancellations') loadReports();
     if (page === 'rankings') loadRankings();
     if (page === 'photographers') loadPhotographers();
+    if (page === 'focus') loadFocus();
     if (page === 'pipedrive-cleanup') loadPipedriveCleanup();
     if (page === 'churn') loadChurn();
     if (page === 'tickets') loadTickets();
@@ -2898,6 +2938,7 @@ ${MY_WORK_COMPONENT_JS}
     { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' },
     { key: 'photographers', icon: '📸', title: 'Photographers', desc: 'Roster with the markets each serves and how many shoots they completed in a selectable range.' },
     { key: 'pipedrive-cleanup', icon: '🧹', title: 'Pipedrive Cleanup', desc: 'Suggested CRM fixes to verify. Approved items become a worklist for whoever you grant access.' },
+    { key: 'focus', icon: '🎯', title: 'Sales Focus', desc: 'Each BDS\\'s clients ranked by shoots and revenue over a period, with growth on the same period last year and when they were last contacted.' },
     { key: 'churn', icon: '📊', title: 'Churn & Retention', desc: 'Revenue retention, Pareto/NBD health, and a priority-ranked outreach queue of recoverable agents.' },
     { key: 'past-due', icon: '💰', title: 'Past Due Accounts', desc: 'Collections board of past-due payees. Assign an account and it becomes that person\\'s queue; partial payments are flagged for review.' }
   ];
@@ -3580,6 +3621,136 @@ ${MY_WORK_COMPONENT_JS}
     btn.disabled = false; btn.innerHTML = '↻ Refresh now';
     if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
     await loadPhotogTable();
+  });
+
+  // ── Sales Focus report ──────────────────────────────────────────────────────
+  // One row per client. Ranked by revenue by default, but every column sorts —
+  // a BDS chasing volume and one chasing spend want different orders.
+  var focusTable = null;
+
+  function focusPct(v) {
+    if (v === null || v === undefined) return '—';
+    var sign = v > 0 ? '+' : '';
+    return sign + v.toFixed(1) + '%';
+  }
+
+  function focusCols() {
+    return [
+      { key: 'agent', label: 'Client', value: function(r){ return r.agentName; } },
+      { key: 'company', label: 'Brokerage', value: function(r){ return r.companyName || '—'; } },
+      { key: 'region', label: 'Region', value: function(r){ return r.region; } },
+      { key: 'bds', label: 'BDS', value: function(r){ return r.bds || 'Unassigned'; } },
+      { key: 'shoots', label: '# Shoots', type: 'num', value: function(r){ return r.shoots; } },
+      { key: 'revenue', label: 'Revenue', type: 'num', value: function(r){ return r.revenue; },
+        render: function(r){ return money(r.revenue); } },
+      { key: 'priorRevenue', label: 'Prior Revenue', type: 'num', value: function(r){ return r.priorRevenue; },
+        render: function(r){ return money(r.priorRevenue); } },
+      // Growth is the column this report exists for, so it is coloured.
+      { key: 'growth', label: 'Growth', type: 'num',
+        value: function(r){ return r.growthPct === null ? -Infinity : r.growthPct; },
+        // The sort sentinel must not reach a spreadsheet as "-Infinity".
+        csv: function(r){ return r.growthPct === null ? 'New' : r.growthPct; },
+        render: function(r){
+          if (r.growthPct === null) return '<span class="text-muted" title="No revenue in the comparison period">New</span>';
+          var cls = r.growthPct > 0 ? 'focus-up' : r.growthPct < 0 ? 'focus-down' : '';
+          return '<span class="' + cls + '">' + esc(focusPct(r.growthPct)) + '</span>';
+        } },
+      { key: 'lastContact', label: 'Days Since Contact', type: 'num',
+        // Never-contacted sorts as the most urgent rather than as "0 days ago".
+        value: function(r){ return r.daysSinceContact === null ? Number.MAX_SAFE_INTEGER : r.daysSinceContact; },
+        csv: function(r){ return r.daysSinceContact === null ? 'Never' : r.daysSinceContact; },
+        render: function(r){
+          if (r.daysSinceContact === null) return '<span class="fin-contact-never">Never</span>';
+          var d = r.daysSinceContact;
+          var label = d === 0 ? 'Today' : d === 1 ? 'Yesterday' : d + 'd ago';
+          return '<span class="' + (d >= 60 ? 'fin-contact-stale' : '') + '">' + esc(label) + '</span>';
+        } }
+    ];
+  }
+
+  function focusDefaultRange() {
+    var to = new Date();
+    var from = new Date(to.getFullYear() - 1, to.getMonth(), to.getDate() + 1);
+    var fmt = function(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+    return { from: fmt(from), to: fmt(to) };
+  }
+
+  async function loadFocusTable() {
+    if (!focusTable) {
+      focusTable = createReportTable({
+        containerId: 'focus-table',
+        reportKey: 'focus',
+        frozenFirst: true,
+        emptyMsg: 'No orders cached for this range yet. An admin can pull them with Refresh now.',
+        columns: focusCols(),
+      });
+    }
+    var qs = 'from=' + encodeURIComponent(document.getElementById('focus-from').value) +
+      '&to=' + encodeURIComponent(document.getElementById('focus-to').value) +
+      '&compare=' + encodeURIComponent(document.getElementById('focus-compare').value) +
+      '&bds=' + encodeURIComponent(document.getElementById('focus-bds').value);
+    var r = await api('GET', '/reports/focus?' + qs);
+    if (!r.ok) { focusTable.setError(); return; }
+    var rep = r.data;
+    focusTable.setData(rep.rows);
+
+    // Keep the BDS options in step with who actually has clients in range,
+    // without losing the current selection.
+    var sel = document.getElementById('focus-bds');
+    var keep = sel.value;
+    sel.innerHTML = '<option value="">Everyone</option>' +
+      (rep.bdsOptions || []).map(function(b){ return '<option value="' + esc(b) + '">' + esc(b) + '</option>'; }).join('');
+    sel.value = keep;
+
+    var change = rep.totals.priorRevenue > 0
+      ? ((rep.totals.revenue - rep.totals.priorRevenue) / rep.totals.priorRevenue) * 100
+      : null;
+    document.getElementById('focus-totals').innerHTML =
+      '<span><strong>' + rep.totals.clients + '</strong> clients</span>' +
+      '<span><strong>' + rep.totals.shoots + '</strong> shoots</span>' +
+      '<span><strong>' + money(rep.totals.revenue) + '</strong> revenue</span>' +
+      '<span class="text-muted">vs ' + money(rep.totals.priorRevenue) + ' in ' + esc(rep.comparisonFrom) + ' → ' + esc(rep.comparisonTo) + '</span>' +
+      (change === null ? '' : '<span class="' + (change >= 0 ? 'focus-up' : 'focus-down') + '">' + esc(focusPct(Math.round(change * 10) / 10)) + '</span>');
+    document.getElementById('focus-note').textContent = rep.splitNote || '';
+    document.getElementById('focus-refreshed-at').textContent = rep.refreshedAt
+      ? 'Updated ' + new Date(rep.refreshedAt).toLocaleString()
+      : 'Never refreshed';
+  }
+
+  async function loadFocus() {
+    var fromEl = document.getElementById('focus-from');
+    var toEl = document.getElementById('focus-to');
+    if (!fromEl.value || !toEl.value) {
+      var d = focusDefaultRange();
+      fromEl.value = d.from;
+      toEl.value = d.to;
+    }
+    await loadFocusTable();
+  }
+
+  ['focus-from', 'focus-to', 'focus-compare', 'focus-bds'].forEach(function(id) {
+    document.getElementById(id).addEventListener('change', loadFocusTable);
+  });
+
+  document.getElementById('focus-refresh-btn').addEventListener('click', async () => {
+    var btn = document.getElementById('focus-refresh-btn');
+    btn.disabled = true;
+    // This is dozens of Spiro requests over a year of orders, so say so rather
+    // than leave someone staring at a spinner.
+    btn.textContent = 'Pulling a year of orders…';
+    var r = await api('POST', '/reports/focus/refresh', {
+      from: document.getElementById('focus-from').value,
+      to: document.getElementById('focus-to').value,
+      compare: document.getElementById('focus-compare').value,
+    });
+    btn.disabled = false;
+    btn.innerHTML = '↻ Refresh now';
+    if (!r.ok) {
+      await updateSpiroBanner();
+      alert((r.data && r.data.error) || 'Refresh failed. Reconnect Spiro and try again.');
+      return;
+    }
+    await loadFocusTable();
   });
 
   // ── Pipedrive Cleanup checklist ────────────────────────────────────────────

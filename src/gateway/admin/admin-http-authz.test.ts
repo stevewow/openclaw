@@ -1490,3 +1490,52 @@ describe("past-due contact log", () => {
     expect(r.status).toBe(403);
   });
 });
+
+describe("the Focus report is gated like every other report", () => {
+  it("serves it to someone granted focus, defaulting to a 12-month window", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "focus" }]);
+    const r = await call("GET", "/reports/focus", { token: userToken });
+    expect(r.status).toBe(200);
+    // No dates given, so it picks the trailing year and compares year on year.
+    expect(r.json?.compare).toBe("yoy");
+    const from = r.json?.from as string;
+    const to = r.json?.to as string;
+    expect(Date.parse(to) - Date.parse(from)).toBeGreaterThan(360 * 86400000);
+  });
+
+  it("denies it to someone without the grant", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "rankings" }]);
+    const r = await call("GET", "/reports/focus", { token: userToken });
+    expect(r.status).toBe(403);
+  });
+
+  it("keeps the Spiro sweep to admins — it is dozens of requests", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "focus" }]);
+    const r = await call("POST", "/reports/focus/refresh", { token: userToken, body: {} });
+    expect(r.status).toBe(403);
+  });
+
+  it("rejects a backwards range rather than returning nonsense", async () => {
+    const r = await call("GET", "/reports/focus?from=2026-07-31&to=2026-07-01", {
+      token: adminToken,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("accepts the previous-period comparison", async () => {
+    const r = await call("GET", "/reports/focus?from=2026-07-01&to=2026-07-31&compare=previous", {
+      token: adminToken,
+    });
+    expect(r.status).toBe(200);
+    expect(r.json?.compare).toBe("previous");
+    expect(r.json?.comparisonTo).toBe("2026-06-30");
+  });
+
+  it("treats an unknown compare mode as year-on-year rather than failing", async () => {
+    const r = await call("GET", "/reports/focus?from=2026-07-01&to=2026-07-31&compare=wat", {
+      token: adminToken,
+    });
+    expect(r.status).toBe(200);
+    expect(r.json?.compare).toBe("yoy");
+  });
+});

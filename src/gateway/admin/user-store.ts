@@ -200,6 +200,42 @@ type PipedriveRefreshLogTable = {
   manual: number;
 };
 
+// Focus report caches: companies carry the service area that decides a client's
+// region, agents carry the email that joins them to the CRM, orders carry both
+// the shoot count and the revenue.
+type FocusCompaniesTable = {
+  company_id: string;
+  name: string;
+  region: string | null;
+  cached_at: number;
+};
+
+type FocusAgentsTable = {
+  agent_id: string;
+  name: string;
+  email: string | null;
+  company_id: string | null;
+  cached_at: number;
+};
+
+type FocusOrdersTable = {
+  order_id: string;
+  agent_id: string;
+  agent_name: string;
+  company_id: string | null;
+  company_name: string | null;
+  order_date: number;
+  total: number;
+  status: string;
+  cached_at: number;
+};
+
+type FocusRefreshLogTable = {
+  id: string;
+  refreshed_at: number;
+  manual: number;
+};
+
 // Reusable outreach scripts with merge fields, picked on an account.
 type OutreachTemplatesTable = {
   id: string;
@@ -435,6 +471,10 @@ export type AdminDb = {
   admin_pipedrive_refresh_log: PipedriveRefreshLogTable;
   admin_past_due_contacts: PastDueContactsTable;
   admin_outreach_templates: OutreachTemplatesTable;
+  admin_focus_companies: FocusCompaniesTable;
+  admin_focus_agents: FocusAgentsTable;
+  admin_focus_orders: FocusOrdersTable;
+  admin_focus_refresh_log: FocusRefreshLogTable;
   admin_churn_dismissals: ChurnDismissalsTable;
   admin_churn_notes: ChurnNotesTable;
   admin_financial_notes: FinancialNotesTable;
@@ -760,6 +800,37 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_past_due_contacts_account ON admin_past_due_contacts(account_key, contacted_at DESC);
+    CREATE TABLE IF NOT EXISTS admin_focus_companies (
+      company_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      region TEXT,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_focus_agents (
+      agent_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT,
+      company_id TEXT,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_focus_orders (
+      order_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      company_id TEXT,
+      company_name TEXT,
+      order_date INTEGER NOT NULL,
+      total REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'unknown',
+      cached_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_focus_orders_date ON admin_focus_orders(order_date);
+    CREATE INDEX IF NOT EXISTS admin_focus_orders_agent ON admin_focus_orders(agent_id);
+    CREATE TABLE IF NOT EXISTS admin_focus_refresh_log (
+      id TEXT PRIMARY KEY,
+      refreshed_at INTEGER NOT NULL,
+      manual INTEGER NOT NULL DEFAULT 0
+    );
     CREATE TABLE IF NOT EXISTS admin_outreach_templates (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,

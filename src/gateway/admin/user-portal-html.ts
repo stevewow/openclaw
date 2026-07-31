@@ -174,6 +174,9 @@ ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
+  .focus-up { color: #15803d; font-weight: 700; }
+  .focus-down { color: #b91c1c; font-weight: 700; }
+  .focus-never { font-weight: 700; color: #991b1b; }
   /* One filter row: project picker, the shared filter bar, and an overflow menu
      holding what used to sit loose in the toolbar. */
   .board-tools { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; }
@@ -566,6 +569,7 @@ ${MY_WORK_COMPONENT_JS}
     { key: 'report-cancellations', title: 'Agent Cancellation Report' },
     { key: 'rankings', title: 'Agent & Company Rankings' },
     { key: 'photographers', title: 'Photographers' },
+    { key: 'focus', title: 'Sales Focus' },
     { key: 'pipedrive-cleanup', title: 'Pipedrive Cleanup' },
     { key: 'past-due', title: 'Collections Queue' }
   ];
@@ -614,6 +618,35 @@ ${MY_WORK_COMPONENT_JS}
     { key:'shoots', label:'# Shoots', type:'num', value:function(r){ return r.shoots; } },
     { key:'status', label:'Status', value:function(r){ return r.active ? 'Active' : 'Inactive'; } }
   ]; }
+  // Same columns the dashboard draws, so a BDS and their manager read one
+  // report rather than two that drift.
+  function pFocusMoney(n){ return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+  function portalFocusCols(){ return [
+    { key:'agent', label:'Client', value:function(r){ return r.agentName; } },
+    { key:'company', label:'Brokerage', value:function(r){ return r.companyName || '—'; } },
+    { key:'region', label:'Region', value:function(r){ return r.region; } },
+    { key:'bds', label:'BDS', value:function(r){ return r.bds || 'Unassigned'; } },
+    { key:'shoots', label:'# Shoots', type:'num', value:function(r){ return r.shoots; } },
+    { key:'revenue', label:'Revenue', type:'num', value:function(r){ return r.revenue; }, render:function(r){ return pFocusMoney(r.revenue); } },
+    { key:'priorRevenue', label:'Prior Revenue', type:'num', value:function(r){ return r.priorRevenue; }, render:function(r){ return pFocusMoney(r.priorRevenue); } },
+    { key:'growth', label:'Growth', type:'num',
+      value:function(r){ return r.growthPct === null ? -Infinity : r.growthPct; },
+      csv:function(r){ return r.growthPct === null ? 'New' : r.growthPct; },
+      render:function(r){
+        if (r.growthPct === null) return '<span class="text-muted">New</span>';
+        var cls = r.growthPct > 0 ? 'focus-up' : r.growthPct < 0 ? 'focus-down' : '';
+        return '<span class="' + cls + '">' + (r.growthPct > 0 ? '+' : '') + r.growthPct.toFixed(1) + '%</span>';
+      } },
+    { key:'lastContact', label:'Days Since Contact', type:'num',
+      value:function(r){ return r.daysSinceContact === null ? Number.MAX_SAFE_INTEGER : r.daysSinceContact; },
+      csv:function(r){ return r.daysSinceContact === null ? 'Never' : r.daysSinceContact; },
+      render:function(r){
+        if (r.daysSinceContact === null) return '<span class="focus-never">Never</span>';
+        var d = r.daysSinceContact;
+        return d === 0 ? 'Today' : d === 1 ? 'Yesterday' : d + 'd ago';
+      } }
+  ]; }
+
   function loadReportsPage(){
     var granted = PORTAL_REPORTS.filter(function(r){ return hasReport(r.key); });
     var picker = document.getElementById('report-picker');
@@ -639,12 +672,23 @@ ${MY_WORK_COMPONENT_JS}
         '<div class="report-view" data-view="report-cancellations" style="display:none"><div class="card" style="padding:0" id="prt-cancel"></div></div>' +
         '<div class="report-view" data-view="rankings" style="display:none"><div class="card" style="padding:0;margin-bottom:1rem"><div class="report-subhead">🧑‍💼 Agent Ranking</div><div id="prt-rank-agents"></div></div><div class="card" style="padding:0"><div class="report-subhead">🏢 Company Ranking</div><div id="prt-rank-companies"></div></div></div>' +
         '<div class="report-view" data-view="photographers" style="display:none"><div class="card" style="padding:0" id="prt-photographers"></div></div>' +
+        '<div class="report-view" data-view="focus" style="display:none">' +
+          '<div class="card" style="margin-bottom:1rem;padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">' +
+            '<label style="font-size:0.8rem;font-weight:600">BDS <select id="prt-focus-bds"><option value="">Everyone</option></select></label>' +
+            '<label style="font-size:0.8rem;font-weight:600">Compare <select id="prt-focus-compare"><option value="yoy">Same period last year</option><option value="previous">The period before</option></select></label>' +
+            '<span class="text-muted" id="prt-focus-note" style="font-size:0.78rem"></span>' +
+          '</div>' +
+          '<div class="card" style="padding:0" id="prt-focus"></div>' +
+        '</div>' +
         '<div class="report-view" data-view="pipedrive-cleanup" style="display:none"><div id="prt-pdc"></div></div>' +
         '<div class="report-view" data-view="past-due" style="display:none"><div id="prt-pastdue"></div></div>';
       portalReportTables['report-cancellations'] = createReportTable({ containerId:'prt-cancel', reportKey:'p-cancellations', frozenFirst:true, emptyMsg:'No data cached for this range yet.', columns: portalCancelCols() });
       portalReportTables['rankings-agents'] = createReportTable({ containerId:'prt-rank-agents', reportKey:'p-rankings-agents', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Agent') });
       portalReportTables['rankings-companies'] = createReportTable({ containerId:'prt-rank-companies', reportKey:'p-rankings-companies', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Company') });
       portalReportTables['photographers'] = createReportTable({ containerId:'prt-photographers', reportKey:'p-photographers', frozenFirst:true, emptyMsg:'No photographers cached yet.', columns: portalPhotographerCols() });
+      portalReportTables['focus'] = createReportTable({ containerId:'prt-focus', reportKey:'p-focus', frozenFirst:true, emptyMsg:'No orders cached for this range yet. Ask an admin to refresh it.', columns: portalFocusCols() });
+      document.getElementById('prt-focus-bds').onchange = function(){ renderPortalReport('focus'); };
+      document.getElementById('prt-focus-compare').onchange = function(){ renderPortalReport('focus'); };
       portalReportsBuilt = true;
       loadPortalMarkets();
     }
@@ -684,6 +728,25 @@ ${MY_WORK_COMPONENT_JS}
       var r3 = await api('GET', '/reports/photographers?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
       if (!r3.ok){ portalReportTables['photographers'].setError(); return; }
       portalReportTables['photographers'].setData(r3.data.report.rows);
+    } else if (key === 'focus'){
+      // The shared controls are month-granular; the Focus API wants whole days,
+      // so the picked months are widened to cover themselves completely.
+      var fFrom = from + '-01';
+      var toParts = to.split('-');
+      var lastDay = new Date(Number(toParts[0]), Number(toParts[1]), 0).getDate();
+      var fTo = to + '-' + String(lastDay).padStart(2, '0');
+      var bds = document.getElementById('prt-focus-bds').value;
+      var cmp = document.getElementById('prt-focus-compare').value;
+      var r4 = await api('GET', '/reports/focus?from=' + encodeURIComponent(fFrom) + '&to=' + encodeURIComponent(fTo) +
+        '&compare=' + encodeURIComponent(cmp) + '&bds=' + encodeURIComponent(bds));
+      if (!r4.ok){ portalReportTables['focus'].setError(); return; }
+      portalReportTables['focus'].setData(r4.data.rows);
+      var bsel = document.getElementById('prt-focus-bds');
+      var keep = bsel.value;
+      bsel.innerHTML = '<option value="">Everyone</option>' +
+        (r4.data.bdsOptions || []).map(function(b){ return '<option value="' + esc(b) + '">' + esc(b) + '</option>'; }).join('');
+      bsel.value = keep;
+      document.getElementById('prt-focus-note').textContent = r4.data.splitNote || '';
     } else if (key === 'pipedrive-cleanup'){
       await renderPortalCleanup();
     } else if (key === 'past-due'){

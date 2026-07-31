@@ -66,6 +66,13 @@ import {
   scopeBreakdownToAssignee,
 } from "./financials-store.js";
 import {
+  defaultFrom as focusDefaultFrom,
+  getFocusReport,
+  parseYmd as focusParseYmd,
+  refreshFocusData,
+  ymd as focusYmd,
+} from "./focus-store.js";
+import {
   createTemplate,
   deleteTemplate,
   getTemplate,
@@ -3134,6 +3141,64 @@ export async function handleAdminHttpRequest(
         ]),
       ],
     });
+    return true;
+  }
+
+  // GET /api/admin/reports/focus — the sales Focus report. Gated by the report
+  // grant like every other report, so a BDS can be given this and nothing else.
+  if (subPath === "/reports/focus" && req.method === "GET") {
+    if (!(await hasReportAccess("focus"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const to = normalizeString(url.searchParams.get("to")) ?? focusYmd(Date.now());
+    const from =
+      normalizeString(url.searchParams.get("from")) ?? focusDefaultFrom(focusParseYmd(to));
+    const compareRaw = normalizeString(url.searchParams.get("compare"));
+    const compare = compareRaw === "previous" ? "previous" : "yoy";
+    try {
+      sendJson(
+        res,
+        200,
+        await getFocusReport({
+          from,
+          to,
+          compare,
+          bds: normalizeString(url.searchParams.get("bds")),
+        }),
+      );
+    } catch (err) {
+      sendBadRequest(res, err instanceof Error ? err.message : String(err));
+    }
+    return true;
+  }
+
+  // POST /api/admin/reports/focus/refresh — sweep Spiro for the window and its
+  // comparison period. Dozens of requests, so admin-only and never automatic.
+  if (subPath === "/reports/focus/refresh" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const to = typeof data.to === "string" ? data.to : focusYmd(Date.now());
+    const from = typeof data.from === "string" ? data.from : focusDefaultFrom(focusParseYmd(to));
+    try {
+      const counts = await refreshFocusData({
+        from,
+        to,
+        compare: data.compare === "previous" ? "previous" : "yoy",
+        manual: true,
+      });
+      sendJson(res, 200, { ok: true, ...counts });
+    } catch (err) {
+      sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 
