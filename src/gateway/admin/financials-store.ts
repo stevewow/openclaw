@@ -7,6 +7,8 @@ import {
   type PastDueCase,
   type PastDueCaseStatus,
 } from "./past-due-cases-store.js";
+import { lastContactByAccount, type LastContact } from "./past-due-contacts-store.js";
+import { type ContactIndex, loadContactIndex, lookupContact } from "./pipedrive-contacts-store.js";
 import { getAdminDb } from "./user-store.js";
 
 // ── Collections policy ────────────────────────────────────────────────────
@@ -105,6 +107,21 @@ export type PastDueAccount = {
   action: { label: string; detail: string };
   paymentPlan: { requiredDown: number; maxMonths: number };
   case: PastDueCase;
+  /**
+   * When anyone last reached this client. A contact logged by a collector wins
+   * over Pipedrive activity: it is about this debt, not about any dealing with
+   * the client, and `source` says which one is being shown.
+   */
+  lastContact: {
+    at: number;
+    source: "logged" | "pipedrive";
+    channel: string | null;
+    byName: string | null;
+    /** Who we matched in Pipedrive, so a wrong name match is visible. */
+    matchedName: string | null;
+  } | null;
+  /** Whole days since that contact, or null when nobody has reached them. */
+  daysSinceContact: number | null;
 };
 
 export type PastDueBreakdown = {
@@ -434,6 +451,44 @@ function daysBetween(fromMs: number, toMs: number): number {
 }
 
 // ── Queries ──────────────────────────────────────────────────────────────
+/**
+ * Pick which "last contact" to show. A logged contact always wins when it is at
+ * least as recent as Pipedrive's: it was made about this debt, by someone whose
+ * name we can show, on a channel we know.
+ */
+export function resolveLastContact(params: {
+  logged: LastContact | null;
+  pipedrive: ContactIndex | null;
+  name: string;
+  type: "company" | "agent" | "unknown";
+}): PastDueAccount["lastContact"] {
+  const match = params.pipedrive
+    ? lookupContact(params.pipedrive, { name: params.name, type: params.type })
+    : null;
+  const crmAt = match?.lastActivityAt ?? null;
+  const logged = params.logged;
+
+  if (logged && (crmAt === null || logged.at >= crmAt)) {
+    return {
+      at: logged.at,
+      source: "logged",
+      channel: logged.channel,
+      byName: logged.byName,
+      matchedName: null,
+    };
+  }
+  if (crmAt !== null && match) {
+    return {
+      at: crmAt,
+      source: "pipedrive",
+      channel: null,
+      byName: null,
+      matchedName: match.matchedName,
+    };
+  }
+  return null;
+}
+
 export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBreakdown> {
   const db = getAdminDb();
   const rows = await db
@@ -480,10 +535,25 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
   }
 
   const cases = await listPastDueCases();
+  const logged = await lastContactByAccount();
+  // The CRM directory is optional: unconfigured or never swept simply means the
+  // column falls back to what collectors logged themselves.
+  let pipedrive: ContactIndex | null = null;
+  try {
+    pipedrive = await loadContactIndex();
+  } catch {
+    pipedrive = null;
+  }
 
   const accounts: PastDueAccount[] = Array.from(byAccount.entries())
     .map(([accountKey, v]) => {
       const bucket = bucketForDays(v.oldest);
+      const lastContact = resolveLastContact({
+        logged: logged.get(accountKey) ?? null,
+        pipedrive,
+        name: v.name,
+        type: v.type,
+      });
       return {
         accountKey,
         accountName: v.name,
@@ -499,6 +569,8 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
         action: policyAction(bucket),
         paymentPlan: paymentPlanTerms(v.balance),
         case: cases.get(accountKey) ?? defaultCase(accountKey, v.name, now),
+        lastContact,
+        daysSinceContact: lastContact ? Math.max(0, daysBetween(lastContact.at, now)) : null,
       };
     })
     .sort((a, b) => b.oldestDaysPastDue - a.oldestDaysPastDue || b.balance - a.balance);

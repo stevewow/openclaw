@@ -1391,3 +1391,102 @@ describe("board columns — readable by members, writable by admins", () => {
     expect(sets[hiddenId]).toBeUndefined();
   });
 });
+
+describe("outreach scripts — read by the queue, written by admins", () => {
+  it("lets an admin write a script and hands it back on the list", async () => {
+    const created = await call("POST", "/financials/templates", {
+      token: adminToken,
+      body: { title: "First reminder", kind: "call", body: "Hi {{account}}, {{balance}} is due." },
+    });
+    expect(created.status).toBe(201);
+    const list = await call("GET", "/financials/templates", { token: adminToken });
+    expect(list.status).toBe(200);
+    const titles = (list.json?.templates as Array<{ title: string }>).map((t) => t.title);
+    expect(titles).toContain("First reminder");
+    expect(list.json?.canEdit).toBe(true);
+  });
+
+  it("refuses a script write from someone who only works the queue", async () => {
+    // Wording is collections policy: a collector uses scripts, they do not edit them.
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "past-due" }]);
+    const r = await call("POST", "/financials/templates", {
+      token: userToken,
+      body: { title: "Rogue", kind: "call", body: "..." },
+    });
+    expect(r.status).toBe(403);
+  });
+
+  it("still lets that person read the scripts they have to use", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "past-due" }]);
+    const r = await call("GET", "/financials/templates", { token: userToken });
+    expect(r.status).toBe(200);
+    expect(r.json?.canEdit).toBe(false);
+  });
+
+  it("denies the scripts entirely to someone without the report", async () => {
+    await userStore.setUserPermissions(userId, []);
+    const r = await call("GET", "/financials/templates", { token: userToken });
+    expect(r.status).toBe(403);
+  });
+
+  it("rejects a channel it does not know rather than storing it", async () => {
+    const r = await call("POST", "/financials/templates", {
+      token: adminToken,
+      body: { title: "Bad", kind: "smoke_signal", body: "..." },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("404s when rendering a script that does not exist", async () => {
+    const r = await call("GET", "/financials/accounts/agent:nobody/script?templateId=missing", {
+      token: adminToken,
+    });
+    expect(r.status).toBe(404);
+  });
+
+  it("asks for a templateId rather than guessing one", async () => {
+    const r = await call("GET", "/financials/accounts/agent:nobody/script", { token: adminToken });
+    expect(r.status).toBe(400);
+  });
+});
+
+describe("past-due contact log", () => {
+  it("records a contact and lists it back", async () => {
+    const posted = await call("POST", "/financials/accounts/agent:abc/contacts", {
+      token: adminToken,
+      body: { channel: "call", note: "Left a voicemail" },
+    });
+    expect(posted.status).toBe(201);
+    const list = await call("GET", "/financials/accounts/agent:abc/contacts", {
+      token: adminToken,
+    });
+    expect(list.status).toBe(200);
+    expect((list.json?.contacts as unknown[]).length).toBe(1);
+  });
+
+  it("rejects a channel it does not know", async () => {
+    const r = await call("POST", "/financials/accounts/agent:abc/contacts", {
+      token: adminToken,
+      body: { channel: "carrier_pigeon" },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("denies the log to someone the account is not assigned to", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "past-due" }]);
+    const r = await call("GET", "/financials/accounts/agent:abc/contacts", { token: userToken });
+    expect(r.status).toBe(403);
+  });
+
+  it("reports the CRM directory as unconfigured rather than failing", async () => {
+    const r = await call("GET", "/financials/pipedrive/status", { token: adminToken });
+    expect(r.status).toBe(200);
+    expect(r.json?.configured).toBe(false);
+  });
+
+  it("keeps the CRM sweep to admins", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "past-due" }]);
+    const r = await call("POST", "/financials/pipedrive/refresh", { token: userToken });
+    expect(r.status).toBe(403);
+  });
+});

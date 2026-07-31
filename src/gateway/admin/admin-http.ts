@@ -66,6 +66,19 @@ import {
   scopeBreakdownToAssignee,
 } from "./financials-store.js";
 import {
+  createTemplate,
+  deleteTemplate,
+  getTemplate,
+  isOutreachKind,
+  listTemplates,
+  MERGE_FIELDS,
+  mergeContextFor,
+  OUTREACH_KINDS,
+  renderTemplate,
+  unresolvedFields,
+  updateTemplate,
+} from "./outreach-templates-store.js";
+import {
   assignPastDueCase,
   defaultCase,
   getPastDueCase,
@@ -76,6 +89,14 @@ import {
   setPastDueCaseStatus,
 } from "./past-due-cases-store.js";
 import {
+  CONTACT_CHANNELS,
+  deleteContact,
+  getContact,
+  isContactChannel,
+  listContacts,
+  logContact,
+} from "./past-due-contacts-store.js";
+import {
   type CleanupImportItem,
   decideCleanupItem,
   getCleanupSummary,
@@ -84,6 +105,11 @@ import {
   setCleanupItemDone,
   setCleanupItemNote,
 } from "./pipedrive-cleanup-store.js";
+import {
+  ensurePipedriveContactsScheduler,
+  getPipedriveContactStatus,
+  refreshPipedriveContacts,
+} from "./pipedrive-contacts-store.js";
 import {
   canAccessProject,
   canAccessTask,
@@ -482,6 +508,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   ensureFinancialsScheduler();
   ensureClevelandScheduler();
   ensurePhotographersScheduler();
+  ensurePipedriveContactsScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -2910,6 +2937,226 @@ export async function handleAdminHttpRequest(
       statuses: PAST_DUE_CASE_STATUSES,
       canAssign: isAdmin,
     });
+    return true;
+  }
+
+  // GET/POST /api/admin/financials/accounts/:accountKey/contacts — the log of
+  // contacts actually made on this account. Same access as working the account.
+  const contactsMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/contacts$/);
+  if (contactsMatch && (req.method === "GET" || req.method === "POST")) {
+    const accountKey = decodeURIComponent(contactsMatch[1]!);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    if (req.method === "GET") {
+      sendJson(res, 200, { contacts: await listContacts(accountKey), channels: CONTACT_CHANNELS });
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    if (!isContactChannel(data.channel)) {
+      sendBadRequest(
+        res,
+        "channel must be one of: call, voicemail, email, text, letter, in_person",
+      );
+      return true;
+    }
+    const contactedAt = typeof data.contactedAt === "number" ? data.contactedAt : undefined;
+    if (contactedAt !== undefined && !Number.isFinite(contactedAt)) {
+      sendBadRequest(res, "contactedAt must be a timestamp");
+      return true;
+    }
+    const contact = await logContact({
+      accountKey,
+      contactedAt,
+      channel: data.channel,
+      note: typeof data.note === "string" ? data.note : null,
+      userId: sessionUser.id,
+      userName: sessionUser.username,
+    });
+    sendJson(res, 201, { contact });
+    return true;
+  }
+
+  // DELETE /api/admin/financials/contacts/:id — admins, or whoever logged it.
+  const contactDeleteMatch = subPath.match(/^\/financials\/contacts\/([^/]+)$/);
+  if (contactDeleteMatch && req.method === "DELETE") {
+    const contact = await getContact(contactDeleteMatch[1]!);
+    if (!contact) {
+      sendNotFound(res);
+      return true;
+    }
+    const own = contact.createdBy === sessionUser.id;
+    if (!isAdmin && !(own && (await canWorkPastDueAccount(contact.accountKey)))) {
+      sendForbidden(res);
+      return true;
+    }
+    await deleteContact(contact.id);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET/POST /api/admin/financials/templates — outreach scripts. Anyone working
+  // the queue reads them; only an admin writes, because the wording is policy.
+  if (subPath === "/financials/templates" && req.method === "GET") {
+    if (!(await hasReportAccess("past-due"))) {
+      sendForbidden(res);
+      return true;
+    }
+    sendJson(res, 200, {
+      templates: await listTemplates({ includeInactive: isAdmin }),
+      kinds: OUTREACH_KINDS,
+      mergeFields: MERGE_FIELDS,
+      canEdit: isAdmin,
+    });
+    return true;
+  }
+
+  if (subPath === "/financials/templates" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    if (!isOutreachKind(data.kind)) {
+      sendBadRequest(res, "kind must be one of: call, email, letter, text");
+      return true;
+    }
+    try {
+      const template = await createTemplate({
+        title: typeof data.title === "string" ? data.title : "",
+        kind: data.kind,
+        subject: typeof data.subject === "string" ? data.subject : null,
+        body: typeof data.body === "string" ? data.body : "",
+        buckets: Array.isArray(data.buckets) ? (data.buckets as string[]) : [],
+        active: data.active !== false,
+        sortOrder: typeof data.sortOrder === "number" ? data.sortOrder : 0,
+        userId: sessionUser.id,
+        userName: sessionUser.username,
+      });
+      sendJson(res, 201, { template });
+    } catch (err) {
+      sendBadRequest(res, err instanceof Error ? err.message : String(err));
+    }
+    return true;
+  }
+
+  const templateMatch = subPath.match(/^\/financials\/templates\/([^/]+)$/);
+  if (templateMatch && (req.method === "PUT" || req.method === "DELETE")) {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const id = templateMatch[1]!;
+    if (!(await getTemplate(id))) {
+      sendNotFound(res);
+      return true;
+    }
+    if (req.method === "DELETE") {
+      await deleteTemplate(id);
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    if (!isOutreachKind(data.kind)) {
+      sendBadRequest(res, "kind must be one of: call, email, letter, text");
+      return true;
+    }
+    try {
+      const template = await updateTemplate(id, {
+        title: typeof data.title === "string" ? data.title : "",
+        kind: data.kind,
+        subject: typeof data.subject === "string" ? data.subject : null,
+        body: typeof data.body === "string" ? data.body : "",
+        buckets: Array.isArray(data.buckets) ? (data.buckets as string[]) : [],
+        active: data.active !== false,
+        sortOrder: typeof data.sortOrder === "number" ? data.sortOrder : 0,
+      });
+      sendJson(res, 200, { template });
+    } catch (err) {
+      sendBadRequest(res, err instanceof Error ? err.message : String(err));
+    }
+    return true;
+  }
+
+  // GET /api/admin/financials/accounts/:accountKey/script?templateId= — one
+  // script filled in for this account, ready to copy. Rendered server-side so
+  // the numbers in it are the same numbers the report is showing.
+  const scriptMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/script$/);
+  if (scriptMatch && req.method === "GET") {
+    const accountKey = decodeURIComponent(scriptMatch[1]!);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const templateId = normalizeString(url.searchParams.get("templateId"));
+    if (!templateId) {
+      sendBadRequest(res, "templateId required");
+      return true;
+    }
+    const template = await getTemplate(templateId);
+    if (!template) {
+      sendNotFound(res);
+      return true;
+    }
+    const breakdown = await getPastDueBreakdown();
+    const account = breakdown.accounts.find((a) => a.accountKey === accountKey);
+    if (!account) {
+      sendNotFound(res);
+      return true;
+    }
+    const ctx = mergeContextFor({ account, senderName: sessionUser.username });
+    sendJson(res, 200, {
+      title: template.title,
+      kind: template.kind,
+      subject: template.subject ? renderTemplate(template.subject, ctx) : null,
+      body: renderTemplate(template.body, ctx),
+      // Named so the collector can see a gap rather than send a blank.
+      unresolved: [
+        ...new Set([
+          ...unresolvedFields(template.body, ctx),
+          ...(template.subject ? unresolvedFields(template.subject, ctx) : []),
+        ]),
+      ],
+    });
+    return true;
+  }
+
+  // GET /api/admin/financials/pipedrive/status — is the CRM directory usable,
+  // and how fresh is it. Readable by anyone who can see the report.
+  if (subPath === "/financials/pipedrive/status" && req.method === "GET") {
+    sendJson(res, 200, await getPipedriveContactStatus());
+    return true;
+  }
+
+  // POST /api/admin/financials/pipedrive/refresh — re-sweep the CRM directory.
+  // ~40 requests to Pipedrive, so admin-only and never automatic on a page load.
+  if (subPath === "/financials/pipedrive/refresh" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    try {
+      const counts = await refreshPipedriveContacts({ manual: true });
+      sendJson(res, 200, { ok: true, ...counts });
+    } catch (err) {
+      sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 

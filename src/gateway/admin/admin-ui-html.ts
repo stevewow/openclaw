@@ -213,6 +213,20 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .fin-flag { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
   .fin-flag-clear { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
   .fin-owner { font-size: 0.72rem; color: var(--text-muted); }
+  /* Last contact: silence is the signal, so "Never" and a stale date carry it. */
+  .fin-contact { font-weight: 600; }
+  .fin-contact-stale { color: #b45309; }
+  .fin-contact-never { font-weight: 700; color: #991b1b; }
+  #fin-table-head th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+  #fin-table-head th[data-sort]:hover { color: var(--text); }
+  .fin-contact-log { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .fin-contact-log select, .fin-contact-log input { padding: 0.35rem 0.5rem; font-size: 0.8rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+  .fin-contact-log input[type=text] { flex: 1 1 12rem; min-width: 8rem; }
+  .fin-contact-row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+  .fin-contact-row:last-child { border-bottom: none; }
+  .fin-contact-when { font-weight: 600; white-space: nowrap; }
+  .fin-contact-del { margin-left: auto; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; font-family: inherit; }
+  .fin-contact-del:hover { color: var(--danger, #c0000a); }
 
   /* Past Due board */
   .fin-toolbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
@@ -1071,6 +1085,7 @@ ${MY_WORK_CSS}
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
               <span class="text-muted" id="fin-refreshed-at" style="font-size:0.8rem"></span>
               <button class="btn btn-primary btn-sm admin-only" id="fin-refresh-btn">↻ Refresh now</button>
+              <button class="btn btn-ghost btn-sm admin-only" id="fin-pd-refresh-btn" title="Re-read last-activity dates from Pipedrive">↻ Pipedrive</button>
             </div>
           </div>
         </div>
@@ -1103,20 +1118,22 @@ ${MY_WORK_CSS}
         <div class="card" id="fin-table-card" style="padding:0;display:none">
           <div class="table-wrap">
             <table>
+              <!-- Sortable: click a header to sort, click again to reverse. -->
               <thead>
-                <tr>
-                  <th>Account</th>
-                  <th>Stage</th>
-                  <th>Owner</th>
-                  <th>Outstanding</th>
-                  <th>Invoices</th>
-                  <th>Oldest Past Due</th>
-                  <th>Aging</th>
+                <tr id="fin-table-head">
+                  <th data-sort="name">Account</th>
+                  <th data-sort="stage">Stage</th>
+                  <th data-sort="owner">Owner</th>
+                  <th data-sort="balance">Outstanding</th>
+                  <th data-sort="invoices">Invoices</th>
+                  <th data-sort="oldest">Oldest Past Due</th>
+                  <th data-sort="bucket">Aging</th>
+                  <th data-sort="contact">Last Contact</th>
                   <th>Next Action</th>
                 </tr>
               </thead>
               <tbody id="fin-table-body">
-                <tr><td colspan="8" class="empty-state">Loading...</td></tr>
+                <tr><td colspan="9" class="empty-state">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1468,6 +1485,37 @@ ${MY_WORK_CSS}
   </div>
 </div>
 
+<!-- Outreach scripts manager. Admin-only: the wording is collections policy. -->
+<div id="scripts-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:760px;overflow-y:auto;max-height:calc(100dvh - 48px)">
+    <div class="modal-title">Outreach Scripts</div>
+    <div class="text-muted" style="font-size:0.8rem;margin-bottom:0.75rem">
+      Text a collector can pick on an account. Merge fields are filled in from that account when the script is used.
+    </div>
+    <div id="scripts-list" style="margin-bottom:1rem"></div>
+    <div style="font-weight:700;margin-bottom:0.5rem" id="script-form-title">New script</div>
+    <form id="script-form">
+      <input type="hidden" id="script-id" />
+      <div class="fin-contact-log">
+        <input type="text" id="script-title" placeholder="Name, e.g. First reminder call" style="flex:1 1 14rem" />
+        <select id="script-kind"></select>
+        <label class="tool-menu-item" style="padding:0"><input type="checkbox" id="script-active" checked /> Active</label>
+      </div>
+      <input type="text" id="script-subject" placeholder="Email subject" class="hidden" style="width:100%;margin-bottom:0.4rem" />
+      <textarea id="script-body" rows="7" placeholder="Hi {{account}}, our records show {{balance}} outstanding…" style="width:100%;resize:vertical;font-family:inherit"></textarea>
+      <div class="text-muted" style="font-size:0.75rem;margin:0.4rem 0">
+        Merge fields — click to insert: <span id="script-fields"></span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm hidden" id="script-cancel-edit">Cancel edit</button>
+        <div style="flex:1"></div>
+        <button type="button" class="btn btn-ghost" id="scripts-close">Close</button>
+        <button type="submit" class="btn btn-primary" id="script-save">Save script</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Board Columns Modal. Edits the selected project's columns, or the default
      set every uncustomised board shares when no project is selected. -->
 <div id="columns-modal" class="modal-backdrop hidden">
@@ -1550,6 +1598,28 @@ ${MY_WORK_CSS}
         <tbody id="fin-modal-invoices"></tbody>
       </table>
     </div>
+    <div style="font-weight:700;margin-bottom:0.5rem">Outreach script</div>
+    <div class="fin-contact-log">
+      <select id="fin-script-select" style="flex:1 1 14rem"><option value="">Pick a script…</option></select>
+      <button type="button" class="btn btn-ghost btn-sm" id="fin-script-copy" disabled>Copy</button>
+      <button type="button" class="btn btn-ghost btn-sm admin-only" id="fin-script-manage">Manage scripts</button>
+    </div>
+    <div id="fin-script-out" class="hidden" style="margin-bottom:1.25rem">
+      <div id="fin-script-warn" class="alert alert-error hidden" style="margin-bottom:0.4rem"></div>
+      <div id="fin-script-subject" class="hidden" style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem"></div>
+      <textarea id="fin-script-body" rows="8" style="width:100%;resize:vertical;font-family:inherit;font-size:0.85rem"></textarea>
+    </div>
+
+    <div style="font-weight:700;margin-bottom:0.5rem">Contact log</div>
+    <div class="text-muted" style="font-size:0.78rem;margin-bottom:0.5rem" id="fin-contact-hint"></div>
+    <form id="fin-contact-form" class="fin-contact-log">
+      <select id="fin-contact-channel" title="How you reached them"></select>
+      <input type="date" id="fin-contact-date" title="When (defaults to today)" />
+      <input type="text" id="fin-contact-note" placeholder="What came of it (optional)" autocomplete="off" />
+      <button type="submit" class="btn btn-primary btn-sm">Log contact</button>
+    </form>
+    <div id="fin-contact-list" style="margin-bottom:1.25rem"></div>
+
     <div style="font-weight:700;margin-bottom:0.5rem">Notes &amp; follow-ups</div>
     <form id="fin-note-form" style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
       <input type="text" id="fin-note-input" placeholder="Add a note…" autocomplete="off" style="flex:1" />
@@ -3798,13 +3868,81 @@ ${MY_WORK_COMPONENT_JS}
     return true;
   }
 
+  // ── Last contact ───────────────────────────────────────────────────────────
+  const FIN_CHANNEL_LABELS = { call: 'Call', voicemail: 'Voicemail', email: 'Email', text: 'Text', letter: 'Letter', in_person: 'In person' };
+
+  function finChannelLabel(key) { return FIN_CHANNEL_LABELS[key] || key; }
+
+  /**
+   * "14d ago · Call" with the source behind a tooltip. Silence is the signal
+   * here, so an account nobody has reached says so loudly rather than blankly.
+   */
+  function finLastContactCell(a) {
+    const lc = a.lastContact;
+    if (!lc) return '<span class="fin-contact-never">Never</span>';
+    const days = a.daysSinceContact;
+    const age = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days + 'd ago';
+    const stale = days != null && days >= 14 ? ' fin-contact-stale' : '';
+    const detail = lc.source === 'logged'
+      ? finChannelLabel(lc.channel) + (lc.byName ? ' · ' + lc.byName : '')
+      : 'Pipedrive' + (lc.matchedName ? ' · ' + lc.matchedName : '');
+    const title = lc.source === 'logged'
+      ? 'Logged in the dashboard on ' + new Date(lc.at).toLocaleDateString()
+      : 'Last Pipedrive activity on ' + new Date(lc.at).toLocaleDateString() + ' (matched by name)';
+    return '<span class="fin-contact' + stale + '" title="' + esc(title) + '">' + esc(age) +
+      '</span><span class="fin-owner"> · ' + esc(detail) + '</span>';
+  }
+
+  // Sort state for the table view. Aging and last contact are the two people
+  // actually re-sort by, so both are real sorts rather than a fixed order.
+  let finSort = { key: 'oldest', dir: 'desc' };
+
+  function finSortValue(a, key) {
+    const c = a.case || {};
+    switch (key) {
+      case 'name': return (a.accountName || '').toLowerCase();
+      case 'stage': return finStatusLabel(c.status).toLowerCase();
+      case 'owner': return finOwnerLabel(c).toLowerCase();
+      case 'balance': return a.balance || 0;
+      case 'invoices': return a.invoiceCount || 0;
+      case 'bucket': return a.oldestDaysPastDue || 0;
+      // Never-contacted sorts as the most urgent, not as "zero days ago".
+      case 'contact': return a.daysSinceContact == null ? Number.MAX_SAFE_INTEGER : a.daysSinceContact;
+      default: return a.oldestDaysPastDue || 0;
+    }
+  }
+
+  function finSortAccounts(accounts) {
+    const sign = finSort.dir === 'asc' ? 1 : -1;
+    return accounts.slice().sort((x, y) => {
+      const xv = finSortValue(x, finSort.key);
+      const yv = finSortValue(y, finSort.key);
+      if (xv < yv) return -1 * sign;
+      if (xv > yv) return 1 * sign;
+      return (y.balance || 0) - (x.balance || 0);
+    });
+  }
+
+  document.getElementById('fin-table-head').addEventListener('click', e => {
+    const th = e.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (finSort.key === key) finSort.dir = finSort.dir === 'asc' ? 'desc' : 'asc';
+    else finSort = { key: key, dir: key === 'name' || key === 'stage' || key === 'owner' ? 'asc' : 'desc' };
+    renderFinViews();
+  });
+
   function renderFinTable(accounts) {
     const tbody = document.getElementById('fin-table-body');
+    document.querySelectorAll('#fin-table-head th[data-sort]').forEach(th => {
+      const on = th.dataset.sort === finSort.key;
+      th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (on ? (finSort.dir === 'asc' ? ' ▲' : ' ▼') : '');
+    });
     if (accounts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No past-due accounts match this filter. If that looks wrong, click Refresh now to pull the latest invoices from Spiro.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No past-due accounts match this filter. If that looks wrong, click Refresh now to pull the latest invoices from Spiro.</td></tr>';
       return;
     }
-    tbody.innerHTML = accounts.map(a => {
+    tbody.innerHTML = finSortAccounts(accounts).map(a => {
       const c = a.case || {};
       const flag = finReviewOpen(a) ? ' <span class="badge fin-flag">Review</span>' : '';
       return \`
@@ -3816,6 +3954,7 @@ ${MY_WORK_COMPONENT_JS}
         <td>\${a.invoiceCount}\${a.partiallyPaidCount ? ' (' + a.partiallyPaidCount + ' partial)' : ''}</td>
         <td>\${a.oldestDaysPastDue} days</td>
         <td><span class="\${bucketClass(a.bucket)}">\${esc(a.bucket)}</span></td>
+        <td>\${finLastContactCell(a)}</td>
         <td>\${esc(a.action.label)}</td>
       </tr>\`;
     }).join('');
@@ -3884,6 +4023,30 @@ ${MY_WORK_COMPONENT_JS}
       </tr>\`).join('') || '<tr><td colspan="7" class="empty-state">No past-due invoices.</td></tr>';
 
     renderFinNotes(r.data.notes || []);
+    // Say where the date in the table came from, so nobody reads a Pipedrive
+    // touch as "we chased them about this bill".
+    const lc = acct && acct.lastContact;
+    document.getElementById('fin-contact-hint').textContent = !lc
+      ? 'Nobody has contacted this account yet.'
+      : lc.source === 'logged'
+        ? 'Last logged contact ' + new Date(lc.at).toLocaleDateString() + ' by ' + (lc.byName || 'someone') + '.'
+        : 'No contact logged here. Pipedrive last shows activity on ' + new Date(lc.at).toLocaleDateString() +
+          (lc.matchedName ? ' for "' + lc.matchedName + '".' : '.');
+    document.getElementById('fin-contact-date').value = '';
+    document.getElementById('fin-contact-note').value = '';
+    const cr = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey) + '/contacts');
+    if (cr.ok) {
+      const sel = document.getElementById('fin-contact-channel');
+      sel.innerHTML = (cr.data.channels || []).map(c =>
+        '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>').join('');
+      renderFinContacts(cr.data.contacts || []);
+    }
+    // Scripts are per-account (the merge fields resolve against this one), so
+    // the picker resets rather than carrying the last account's draft over.
+    document.getElementById('fin-script-select').value = '';
+    document.getElementById('fin-script-out').classList.add('hidden');
+    document.getElementById('fin-script-copy').disabled = true;
+    await loadFinScripts();
     const followBtn = document.getElementById('fin-followup-btn');
     followBtn.disabled = false;
     followBtn.textContent = '+ Create follow-up task';
@@ -3984,6 +4147,237 @@ ${MY_WORK_COMPONENT_JS}
     applyFinCase(r.data.case);
   });
 
+  // ── Outreach scripts ───────────────────────────────────────────────────────
+  // Scripts are written once by a manager and picked per account, so the wording
+  // and the numbers are the same whoever is working the queue.
+  let finScripts = [];
+  let finScriptFields = [];
+  let finScriptKinds = [];
+  let finScriptsCanEdit = false;
+
+  async function loadFinScripts() {
+    const r = await api('GET', '/financials/templates');
+    if (!r.ok) return;
+    finScripts = r.data.templates || [];
+    finScriptFields = r.data.mergeFields || [];
+    finScriptKinds = r.data.kinds || [];
+    finScriptsCanEdit = !!r.data.canEdit;
+    const sel = document.getElementById('fin-script-select');
+    // Scripts tagged with aging buckets surface for the matching account first.
+    const bucket = finAccount && finAccount.bucket;
+    const fits = t => !t.buckets || !t.buckets.length || (bucket && t.buckets.indexOf(bucket) !== -1);
+    const ordered = finScripts.filter(t => t.active !== false).slice().sort((a, b) => (fits(b) ? 1 : 0) - (fits(a) ? 1 : 0));
+    sel.innerHTML = '<option value="">Pick a script…</option>' + ordered.map(t =>
+      '<option value="' + esc(t.id) + '">' + esc(t.title) +
+        (t.buckets && t.buckets.length ? ' (' + esc(t.buckets.join(', ')) + ')' : '') + '</option>').join('');
+    document.getElementById('fin-script-manage').classList.toggle('hidden', !finScriptsCanEdit);
+  }
+
+  document.getElementById('fin-script-select').addEventListener('change', async e => {
+    const out = document.getElementById('fin-script-out');
+    const copyBtn = document.getElementById('fin-script-copy');
+    if (!e.target.value || !finAccount) {
+      out.classList.add('hidden');
+      copyBtn.disabled = true;
+      return;
+    }
+    const r = await api('GET', '/financials/accounts/' + encodeURIComponent(finAccount.accountKey) +
+      '/script?templateId=' + encodeURIComponent(e.target.value));
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not build that script.'); return; }
+    out.classList.remove('hidden');
+    copyBtn.disabled = false;
+    const subj = document.getElementById('fin-script-subject');
+    subj.classList.toggle('hidden', !r.data.subject);
+    subj.textContent = r.data.subject ? 'Subject: ' + r.data.subject : '';
+    document.getElementById('fin-script-body').value = r.data.body || '';
+    // A field the account cannot fill stays visible in the text; say so rather
+    // than let someone send a draft with {{plan_down}} still in it.
+    const warn = document.getElementById('fin-script-warn');
+    const missing = r.data.unresolved || [];
+    warn.classList.toggle('hidden', missing.length === 0);
+    warn.textContent = missing.length
+      ? 'Unknown merge field' + (missing.length === 1 ? '' : 's') + ' left in the text: ' + missing.map(f => '{{' + f + '}}').join(', ')
+      : '';
+  });
+
+  document.getElementById('fin-script-copy').addEventListener('click', async () => {
+    const subj = document.getElementById('fin-script-subject');
+    const body = document.getElementById('fin-script-body').value;
+    const text = (subj.classList.contains('hidden') ? '' : subj.textContent + '\\n\\n') + body;
+    const btn = document.getElementById('fin-script-copy');
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'Copied';
+    } catch (err) {
+      // Clipboard access needs a secure context; selecting the text still works.
+      document.getElementById('fin-script-body').select();
+      btn.textContent = 'Press ⌘/Ctrl+C';
+    }
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+
+  // ── Scripts manager (admin) ────────────────────────────────────────────────
+  function renderScriptsList() {
+    const el = document.getElementById('scripts-list');
+    if (!finScripts.length) {
+      el.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No scripts yet. Write the first one below.</div>';
+      return;
+    }
+    el.innerHTML = finScripts.map(t =>
+      '<div class="fin-contact-row">' +
+        '<span class="fin-contact-when">' + esc(t.title) + '</span>' +
+        '<span class="text-muted">' + esc((finScriptKinds.find(k => k.key === t.kind) || {}).label || t.kind) + '</span>' +
+        (t.buckets && t.buckets.length ? '<span class="fin-owner">' + esc(t.buckets.join(', ')) + '</span>' : '') +
+        (t.active === false ? '<span class="badge fin-flag">Inactive</span>' : '') +
+        '<button type="button" class="fin-contact-del" data-edit="' + esc(t.id) + '">Edit</button>' +
+        '<button type="button" class="fin-contact-del" data-del="' + esc(t.id) + '">Delete</button>' +
+      '</div>').join('');
+    el.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => editScript(b.dataset.edit)));
+    el.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Delete this script?')) return;
+      const r = await api('DELETE', '/financials/templates/' + encodeURIComponent(b.dataset.del));
+      if (!r.ok) { alert((r.data && r.data.error) || 'Could not delete that script.'); return; }
+      await loadFinScripts();
+      renderScriptsList();
+    }));
+  }
+
+  function scriptFormReset() {
+    document.getElementById('script-id').value = '';
+    document.getElementById('script-title').value = '';
+    document.getElementById('script-subject').value = '';
+    document.getElementById('script-body').value = '';
+    document.getElementById('script-active').checked = true;
+    document.getElementById('script-form-title').textContent = 'New script';
+    document.getElementById('script-cancel-edit').classList.add('hidden');
+    syncScriptKind();
+  }
+
+  function editScript(id) {
+    const t = finScripts.find(x => x.id === id);
+    if (!t) return;
+    document.getElementById('script-id').value = t.id;
+    document.getElementById('script-title').value = t.title;
+    document.getElementById('script-kind').value = t.kind;
+    document.getElementById('script-subject').value = t.subject || '';
+    document.getElementById('script-body').value = t.body;
+    document.getElementById('script-active').checked = t.active !== false;
+    document.getElementById('script-form-title').textContent = 'Editing "' + t.title + '"';
+    document.getElementById('script-cancel-edit').classList.remove('hidden');
+    syncScriptKind();
+  }
+
+  /** A subject line only means anything on an email. */
+  function syncScriptKind() {
+    const isEmail = document.getElementById('script-kind').value === 'email';
+    document.getElementById('script-subject').classList.toggle('hidden', !isEmail);
+  }
+
+  document.getElementById('fin-script-manage').addEventListener('click', async () => {
+    await loadFinScripts();
+    document.getElementById('script-kind').innerHTML = finScriptKinds.map(k =>
+      '<option value="' + esc(k.key) + '">' + esc(k.label) + '</option>').join('');
+    document.getElementById('script-fields').innerHTML = finScriptFields.map(f =>
+      '<button type="button" class="fin-contact-del" data-token="' + esc(f.token) + '" title="' + esc(f.describes) + '" style="margin-left:0">{{' + esc(f.token) + '}}</button>').join(' ');
+    document.getElementById('script-fields').querySelectorAll('[data-token]').forEach(b => {
+      b.addEventListener('click', () => {
+        // Insert at the caret so a field lands where the author is typing.
+        const ta = document.getElementById('script-body');
+        const token = '{{' + b.dataset.token + '}}';
+        const at = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
+        ta.value = ta.value.slice(0, at) + token + ta.value.slice(ta.selectionEnd == null ? at : ta.selectionEnd);
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = at + token.length;
+      });
+    });
+    scriptFormReset();
+    renderScriptsList();
+    document.getElementById('scripts-modal').classList.remove('hidden');
+  });
+
+  document.getElementById('script-kind').addEventListener('change', syncScriptKind);
+  document.getElementById('script-cancel-edit').addEventListener('click', scriptFormReset);
+  document.getElementById('scripts-close').addEventListener('click', () => {
+    document.getElementById('scripts-modal').classList.add('hidden');
+  });
+
+  document.getElementById('script-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const id = document.getElementById('script-id').value;
+    const payload = {
+      title: document.getElementById('script-title').value,
+      kind: document.getElementById('script-kind').value,
+      subject: document.getElementById('script-subject').value,
+      body: document.getElementById('script-body').value,
+      active: document.getElementById('script-active').checked,
+    };
+    const r = id
+      ? await api('PUT', '/financials/templates/' + encodeURIComponent(id), payload)
+      : await api('POST', '/financials/templates', payload);
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not save that script.'); return; }
+    await loadFinScripts();
+    scriptFormReset();
+    renderScriptsList();
+  });
+
+  // ── Contact log (drawer) ───────────────────────────────────────────────────
+  function renderFinContacts(contacts) {
+    const el = document.getElementById('fin-contact-list');
+    if (!contacts.length) {
+      el.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No contact logged yet.</div>';
+      return;
+    }
+    const me = currentUser ? currentUser.id : null;
+    el.innerHTML = contacts.map(c => {
+      const canDelete = isAdmin() || (c.createdBy && c.createdBy === me);
+      return '<div class="fin-contact-row">' +
+        '<span class="fin-contact-when">' + esc(new Date(c.contactedAt).toLocaleDateString()) + '</span>' +
+        '<span>' + esc(finChannelLabel(c.channel)) + '</span>' +
+        (c.note ? '<span class="text-muted">' + esc(c.note) + '</span>' : '') +
+        '<span class="fin-owner">' + esc(c.createdByName || 'Unknown') + '</span>' +
+        (canDelete ? '<button type="button" class="fin-contact-del" data-id="' + esc(c.id) + '">Remove</button>' : '') +
+      '</div>';
+    }).join('');
+    el.querySelectorAll('.fin-contact-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Remove this contact from the log?')) return;
+        const rr = await api('DELETE', '/financials/contacts/' + encodeURIComponent(btn.dataset.id));
+        if (rr.ok) await reloadFinContacts();
+      });
+    });
+  }
+
+  async function reloadFinContacts() {
+    if (!finAccount) return;
+    const r = await api('GET', '/financials/accounts/' + encodeURIComponent(finAccount.accountKey) + '/contacts');
+    if (!r.ok) return;
+    const sel = document.getElementById('fin-contact-channel');
+    if (!sel.options.length) {
+      sel.innerHTML = (r.data.channels || []).map(c =>
+        '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>').join('');
+    }
+    renderFinContacts(r.data.contacts || []);
+    // The table reads from the breakdown, so refresh it after a log or removal.
+    await loadFinancials();
+  }
+
+  document.getElementById('fin-contact-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!finAccount) return;
+    const channel = document.getElementById('fin-contact-channel').value;
+    const dateVal = document.getElementById('fin-contact-date').value;
+    const noteEl = document.getElementById('fin-contact-note');
+    // A bare YYYY-MM-DD read at local noon lands on the day that was picked in
+    // every timezone.
+    const contactedAt = dateVal ? new Date(dateVal + 'T12:00:00').getTime() : undefined;
+    const r = await api('POST', '/financials/accounts/' + encodeURIComponent(finAccount.accountKey) + '/contacts',
+      { channel: channel, contactedAt: contactedAt, note: noteEl.value.trim() || null });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not log that contact.'); return; }
+    noteEl.value = '';
+    document.getElementById('fin-contact-date').value = '';
+    await reloadFinContacts();
+  });
+
   function renderFinNotes(notes) {
     const el = document.getElementById('fin-notes-list');
     if (!notes.length) { el.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No notes yet.</div>'; return; }
@@ -4076,6 +4470,22 @@ ${MY_WORK_COMPONENT_JS}
     await loadFinancials();
   }
   document.getElementById('fin-refresh-btn').addEventListener('click', refreshFinancials);
+
+  // The CRM directory is ~40 requests, so it is swept on demand and on a slow
+  // timer — never on a page load.
+  document.getElementById('fin-pd-refresh-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('fin-pd-refresh-btn');
+    btn.disabled = true;
+    btn.textContent = 'Reading Pipedrive…';
+    const r = await api('POST', '/financials/pipedrive/refresh');
+    btn.disabled = false;
+    btn.innerHTML = '↻ Pipedrive';
+    if (!r.ok) {
+      alert((r.data && r.data.error) || 'Could not read Pipedrive.');
+      return;
+    }
+    await loadFinancials();
+  });
 
   // Shared handler for any "Reconnect Spiro" button (Past Due + Cleveland pages).
   document.addEventListener('click', async (e) => {

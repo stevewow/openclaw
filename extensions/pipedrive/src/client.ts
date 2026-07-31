@@ -31,6 +31,68 @@ async function pipedriveGet(
   return json.data;
 }
 
+/**
+ * Like pipedriveGet but keeps the envelope, because paging lives in
+ * `additional_data.pagination` rather than in `data`.
+ */
+async function pipedriveGetPage(
+  path: string,
+  params: Record<string, string | number | boolean | undefined> = {},
+): Promise<{ data: unknown[]; moreItems: boolean; nextStart: number | null }> {
+  const token = getToken();
+  const qs = new URLSearchParams({ api_token: token });
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) {
+      qs.set(k, String(v));
+    }
+  }
+  const res = await fetch(`${PIPEDRIVE_BASE_URL}${path}?${qs}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Pipedrive API error: ${res.status} ${await res.text()}`);
+  }
+  const json = (await res.json()) as {
+    success: boolean;
+    data: unknown;
+    additional_data?: { pagination?: Record<string, unknown> };
+  };
+  if (!json.success) {
+    throw new Error(`Pipedrive API returned success=false for ${path}`);
+  }
+  const pagination = json.additional_data?.pagination ?? {};
+  const nextStart = pagination.next_start;
+  return {
+    // A collection with nothing in it comes back as null, not [].
+    data: Array.isArray(json.data) ? json.data : [],
+    moreItems: pagination.more_items_in_collection === true,
+    nextStart: typeof nextStart === "number" ? nextStart : null,
+  };
+}
+
+export type ListPageParams = { start?: number; limit?: number };
+
+/** One page of the person directory, newest paging metadata included. */
+export async function listPersons(params: ListPageParams = {}) {
+  return pipedriveGetPage("/persons", {
+    start: params.start ?? 0,
+    limit: params.limit ?? 500,
+  });
+}
+
+/** One page of the organization directory. */
+export async function listOrganizations(params: ListPageParams = {}) {
+  return pipedriveGetPage("/organizations", {
+    start: params.start ?? 0,
+    limit: params.limit ?? 500,
+  });
+}
+
+/** Whether a token is configured at all, so callers can degrade rather than throw. */
+export function isConfigured(): boolean {
+  return !!loadPipedriveConfig()?.apiToken;
+}
+
 async function pipedrivePost(path: string, body: Record<string, unknown>): Promise<unknown> {
   const token = getToken();
   const url = `${PIPEDRIVE_BASE_URL}${path}?api_token=${token}`;

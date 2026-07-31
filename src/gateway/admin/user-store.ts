@@ -174,6 +174,61 @@ type SpiroPhotographerRefreshLogTable = {
   manual: number;
 };
 
+// Cached Pipedrive directory, swept wholesale. `name_key` is the normalized
+// form both reports join on; the raw name is kept so a bad match is visible.
+type PipedrivePersonsTable = {
+  person_id: number;
+  name: string;
+  name_key: string;
+  email: string | null;
+  org_name: string | null;
+  last_activity_at: number | null;
+  cached_at: number;
+};
+
+type PipedriveOrgsTable = {
+  org_id: number;
+  name: string;
+  name_key: string;
+  last_activity_at: number | null;
+  cached_at: number;
+};
+
+type PipedriveRefreshLogTable = {
+  id: string;
+  refreshed_at: number;
+  manual: number;
+};
+
+// Reusable outreach scripts with merge fields, picked on an account.
+type OutreachTemplatesTable = {
+  id: string;
+  title: string;
+  kind: string;
+  subject: string | null;
+  body: string;
+  buckets: string;
+  active: number;
+  sort_order: number;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+// A contact somebody actually made, logged from the Past Due drawer. Distinct
+// from Pipedrive activity: this is the collections record, and it wins.
+type PastDueContactsTable = {
+  id: string;
+  account_key: string;
+  contacted_at: number;
+  channel: string;
+  note: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: number;
+};
+
 type PipedriveCleanupItemsTable = {
   id: string;
   item_key: string;
@@ -375,6 +430,11 @@ export type AdminDb = {
   admin_spiro_photographer_shoots: SpiroPhotographerShootsTable;
   admin_spiro_photographer_refresh_log: SpiroPhotographerRefreshLogTable;
   admin_pipedrive_cleanup_items: PipedriveCleanupItemsTable;
+  admin_pipedrive_persons: PipedrivePersonsTable;
+  admin_pipedrive_orgs: PipedriveOrgsTable;
+  admin_pipedrive_refresh_log: PipedriveRefreshLogTable;
+  admin_past_due_contacts: PastDueContactsTable;
+  admin_outreach_templates: OutreachTemplatesTable;
   admin_churn_dismissals: ChurnDismissalsTable;
   admin_churn_notes: ChurnNotesTable;
   admin_financial_notes: FinancialNotesTable;
@@ -664,6 +724,55 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       id TEXT PRIMARY KEY,
       refreshed_at INTEGER NOT NULL,
       manual INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS admin_pipedrive_persons (
+      person_id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      name_key TEXT NOT NULL,
+      email TEXT,
+      org_name TEXT,
+      last_activity_at INTEGER,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_pipedrive_persons_key ON admin_pipedrive_persons(name_key);
+    CREATE INDEX IF NOT EXISTS admin_pipedrive_persons_email ON admin_pipedrive_persons(email);
+    CREATE TABLE IF NOT EXISTS admin_pipedrive_orgs (
+      org_id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      name_key TEXT NOT NULL,
+      last_activity_at INTEGER,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_pipedrive_orgs_key ON admin_pipedrive_orgs(name_key);
+    CREATE TABLE IF NOT EXISTS admin_pipedrive_refresh_log (
+      id TEXT PRIMARY KEY,
+      refreshed_at INTEGER NOT NULL,
+      manual INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS admin_past_due_contacts (
+      id TEXT PRIMARY KEY,
+      account_key TEXT NOT NULL,
+      contacted_at INTEGER NOT NULL,
+      channel TEXT NOT NULL,
+      note TEXT,
+      created_by TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+      created_by_name TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_past_due_contacts_account ON admin_past_due_contacts(account_key, contacted_at DESC);
+    CREATE TABLE IF NOT EXISTS admin_outreach_templates (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'call',
+      subject TEXT,
+      body TEXT NOT NULL,
+      buckets TEXT NOT NULL DEFAULT '[]',
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+      created_by_name TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS admin_pipedrive_cleanup_items (
       id TEXT PRIMARY KEY,
