@@ -18,6 +18,19 @@ export const TASK_STATUS_CSS = `
   .board-col-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.4rem; vertical-align: middle; }
   .board-col-count.over-wip { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
   .board-col-wip { font-size: 0.68rem; color: var(--text-muted); font-weight: 600; }
+
+  /* Column editor (project modal). */
+  .col-editor { display: flex; flex-direction: column; gap: 0.35rem; }
+  .col-editor-note { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+  .col-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.45rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); }
+  .col-row input[type=text] { flex: 1 1 6rem; min-width: 5rem; padding: 0.3rem 0.45rem; font-size: 0.8rem; font-family: inherit; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); }
+  .col-row input[type=color] { width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: none; cursor: pointer; flex-shrink: 0; }
+  .col-row input[type=number] { width: 4rem; padding: 0.3rem 0.35rem; font-size: 0.8rem; font-family: inherit; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); }
+  .col-row label { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; text-transform: none; letter-spacing: 0; margin: 0; }
+  .col-row .col-btn { background: none; border: 1px solid transparent; border-radius: 5px; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; line-height: 1; padding: 0.25rem 0.35rem; font-family: inherit; }
+  .col-row .col-btn:hover:not(:disabled) { border-color: var(--border); background: var(--surface); color: var(--text); }
+  .col-row .col-btn:disabled { opacity: 0.3; cursor: default; }
+  .col-editor-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; }
 `;
 
 export const TASK_STATUS_COMPONENT_JS = `

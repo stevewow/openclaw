@@ -644,6 +644,7 @@ ${TASK_STATUS_CSS}
             <input type="checkbox" id="show-closed-projects"> Show closed
           </label>
           <div style="margin-left:auto;display:flex;gap:0.5rem;flex-shrink:0">
+            <button class="btn btn-ghost btn-sm" id="board-columns-btn" title="Edit this board's columns">⚙ Columns</button>
             <button class="btn btn-ghost btn-sm" id="add-project-btn">+ New Project</button>
             <button class="btn btn-primary btn-sm" id="add-task-btn">+ New Task</button>
           </div>
@@ -1440,6 +1441,25 @@ ${TASK_STATUS_CSS}
         <button type="submit" class="btn btn-primary" id="proj-modal-submit">Save Project</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Board Columns Modal. Edits the selected project's columns, or the default
+     set every uncustomised board shares when no project is selected. -->
+<div id="columns-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title" id="columns-modal-title">Board Columns</div>
+    <div class="col-editor-note" id="columns-note"></div>
+    <div id="columns-list" class="col-editor"></div>
+    <div class="col-editor-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="columns-add">+ Add Column</button>
+      <div style="flex:1"></div>
+      <button type="button" class="btn btn-ghost btn-sm hidden" id="columns-reset">Reset to Default</button>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="columns-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="columns-save">Save Columns</button>
+    </div>
   </div>
 </div>
 
@@ -5245,6 +5265,159 @@ ${TASK_STATUS_COMPONENT_JS}
     document.getElementById('proj-modal').classList.remove('hidden');
     document.getElementById('proj-name').focus();
   }
+
+  // ── Board column editor ────────────────────────────────────────────────────
+  // One editor for both cases: a project's own columns, and the default set that
+  // every uncustomised board shares. A project starts out borrowing the default
+  // set; saving a change here gives it its own copy, and Reset drops it back to
+  // sharing. Admin-only, because rewriting columns moves other people's cards.
+  let colEditTarget = '';   // project id, or '' for the default set
+  let colEditRows = [];
+  let colEditCustom = false;
+
+  function openColumnsEditor() {
+    colEditTarget = projectsFilter || '';
+    const proj = colEditTarget ? allProjects.find(function(p) { return p.id === colEditTarget; }) : null;
+    document.getElementById('columns-modal-title').textContent = proj
+      ? 'Board Columns — ' + proj.title
+      : 'Default Board Columns';
+    document.getElementById('columns-list').innerHTML = '<div class="text-muted">Loading…</div>';
+    document.getElementById('columns-modal').classList.remove('hidden');
+    loadColumnsEditor();
+  }
+
+  async function loadColumnsEditor() {
+    const qs = colEditTarget ? '?projectId=' + encodeURIComponent(colEditTarget) : '';
+    const r = await api('GET', '/task-statuses' + qs);
+    if (!r.ok) {
+      document.getElementById('columns-list').innerHTML = '<div class="text-muted">Could not load these columns.</div>';
+      return;
+    }
+    colEditCustom = !!r.data.custom;
+    colEditRows = (r.data.statuses || []).map(function(s) {
+      return { key: s.key, label: s.label, color: s.color, isDone: !!s.isDone, wipLimit: s.wipLimit };
+    });
+    renderColumnsEditor();
+  }
+
+  function renderColumnsEditor() {
+    document.getElementById('columns-note').textContent = !colEditTarget
+      ? 'These columns apply to every board that has not set up its own.'
+      : (colEditCustom
+        ? 'This project has its own columns.'
+        : 'Borrowing the default columns. Saving gives this project its own set.');
+    // Only a project can be reset; the default set has nothing to fall back to.
+    document.getElementById('columns-reset').classList.toggle('hidden', !colEditTarget || !colEditCustom);
+    document.getElementById('columns-list').innerHTML = colEditRows.map(function(c, i) {
+      return '<div class="col-row" data-i="' + i + '">' +
+        '<input type="color" value="' + esc(c.color || '#6b7280') + '" data-field="color" title="Column colour">' +
+        '<input type="text" value="' + esc(c.label) + '" data-field="label" placeholder="Column name" maxlength="60">' +
+        '<label title="Tasks in this column count as finished"><input type="checkbox" data-field="isDone"' + (c.isDone ? ' checked' : '') + '> Done</label>' +
+        '<input type="number" min="1" step="1" value="' + (c.wipLimit == null ? '' : c.wipLimit) + '" data-field="wipLimit" placeholder="WIP" title="Warn past this many cards. Blank means no limit.">' +
+        '<button type="button" class="col-btn" data-act="up"' + (i === 0 ? ' disabled' : '') + ' title="Move earlier">&#8593;</button>' +
+        '<button type="button" class="col-btn" data-act="down"' + (i === colEditRows.length - 1 ? ' disabled' : '') + ' title="Move later">&#8595;</button>' +
+        '<button type="button" class="col-btn" data-act="del"' + (colEditRows.length < 2 ? ' disabled' : '') + ' title="Remove column">&#10005;</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  /** Read the inputs back into state so edits survive a reorder repaint. */
+  function syncColumnsFromDom() {
+    document.querySelectorAll('#columns-list .col-row').forEach(function(row) {
+      const c = colEditRows[Number(row.dataset.i)];
+      if (!c) return;
+      c.label = row.querySelector('[data-field=label]').value;
+      c.color = row.querySelector('[data-field=color]').value;
+      c.isDone = row.querySelector('[data-field=isDone]').checked;
+      const wip = row.querySelector('[data-field=wipLimit]').value.trim();
+      const n = Math.trunc(Number(wip));
+      c.wipLimit = wip === '' || !Number.isFinite(n) || n < 1 ? null : n;
+    });
+  }
+
+  document.getElementById('board-columns-btn').addEventListener('click', openColumnsEditor);
+  document.getElementById('columns-cancel').addEventListener('click', function() {
+    document.getElementById('columns-modal').classList.add('hidden');
+  });
+
+  document.getElementById('columns-list').addEventListener('click', function(e) {
+    const btn = e.target.closest('.col-btn');
+    if (!btn) return;
+    syncColumnsFromDom();
+    const i = Number(btn.closest('.col-row').dataset.i);
+    const act = btn.dataset.act;
+    if (act === 'del') colEditRows.splice(i, 1);
+    else if (act === 'up' && i > 0) colEditRows.splice(i - 1, 0, colEditRows.splice(i, 1)[0]);
+    else if (act === 'down' && i < colEditRows.length - 1) colEditRows.splice(i + 1, 0, colEditRows.splice(i, 1)[0]);
+    renderColumnsEditor();
+  });
+
+  document.getElementById('columns-add').addEventListener('click', function() {
+    syncColumnsFromDom();
+    // No key: the server derives one from the label, so a new column cannot
+    // silently adopt an existing task's status.
+    colEditRows.push({ key: '', label: '', color: '#6b7280', isDone: false, wipLimit: null });
+    renderColumnsEditor();
+    const rows = document.querySelectorAll('#columns-list .col-row');
+    const last = rows[rows.length - 1];
+    if (last) last.querySelector('[data-field=label]').focus();
+  });
+
+  /** Tasks this edit would strand — the ones a save has to move somewhere. */
+  function columnsStrandedCount(keptKeys) {
+    return allTasks.filter(function(t) {
+      const board = t.projectId || '';
+      if (colEditTarget) {
+        if (board !== colEditTarget) return false;
+      } else if (board && statusRegistry.isCustom(board)) {
+        // Projects with their own columns are untouched by a default-set edit.
+        return false;
+      }
+      return keptKeys.indexOf(t.status) === -1;
+    }).length;
+  }
+
+  document.getElementById('columns-save').addEventListener('click', async function() {
+    syncColumnsFromDom();
+    const cleaned = colEditRows.filter(function(c) { return c.label.trim(); });
+    if (!cleaned.length) { alert('A board needs at least one column.'); return; }
+    if (!cleaned.some(function(c) { return c.isDone; })) {
+      // The server would pick the last column itself; say so rather than let it
+      // happen silently, since it decides what "finished" means here.
+      if (!confirm('No column is marked Done, so "' + cleaned[cleaned.length - 1].label.trim() + '" will be treated as finished. Continue?')) return;
+    }
+    const keptKeys = cleaned.map(function(c) { return c.key; }).filter(Boolean);
+    const stranded = columnsStrandedCount(keptKeys);
+    if (stranded && !confirm(stranded + (stranded === 1 ? ' task sits' : ' tasks sit') + ' on a column you are removing, and will move to "' + cleaned[0].label.trim() + '". Continue?')) return;
+
+    const qs = colEditTarget ? '?projectId=' + encodeURIComponent(colEditTarget) : '';
+    const r = await api('PUT', '/task-statuses' + qs, {
+      statuses: cleaned.map(function(c) {
+        return { key: c.key || c.label, label: c.label.trim(), color: c.color, isDone: c.isDone, wipLimit: c.wipLimit };
+      }),
+    });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not save these columns.'); return; }
+    // A default-set edit changes every borrowing board, so drop the whole cache.
+    statusRegistry.invalidate(colEditTarget || undefined);
+    if (r.data.remapped) {
+      alert(r.data.remapped + (r.data.remapped === 1 ? ' task was' : ' tasks were') + ' moved to "' + cleaned[0].label.trim() + '".');
+    }
+    document.getElementById('columns-modal').classList.add('hidden');
+    await loadProjects();
+  });
+
+  document.getElementById('columns-reset').addEventListener('click', async function() {
+    if (!colEditTarget) return;
+    if (!confirm('Drop this project\\'s own columns and use the default set again?')) return;
+    const r = await api('DELETE', '/task-statuses?projectId=' + encodeURIComponent(colEditTarget));
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not reset these columns.'); return; }
+    statusRegistry.invalidate(colEditTarget);
+    if (r.data.remapped) {
+      alert(r.data.remapped + (r.data.remapped === 1 ? ' task was' : ' tasks were') + ' moved onto the default columns.');
+    }
+    await loadColumnsEditor();
+    await loadProjects();
+  });
 
   function setProjColor(color) {
     document.getElementById('proj-color-val').value = color;
