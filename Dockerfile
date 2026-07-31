@@ -110,7 +110,12 @@ RUN pnpm_config_verify_deps_before_run=false pnpm canvas:a2ui:bundle || \
      echo "/* A2UI bundle unavailable in this build */" > extensions/canvas/src/host/a2ui/a2ui.bundle.js && \
      echo "stub" > extensions/canvas/src/host/a2ui/.bundle.hash && \
      rm -rf vendor/a2ui apps/shared/OpenClawKit/Tools/CanvasA2UI)
-RUN NODE_OPTIONS=--max-old-space-size=8192 pnpm_config_verify_deps_before_run=false pnpm build:docker
+# No --max-old-space-size here on purpose. scripts/tsdown-build.mjs picks its
+# own ceiling for the tsdown child (6144), but only when the caller has not set
+# one — an override here silently replaces that tuned value, and 8192 on a host
+# with less RAM than that just lets V8 grow until the kernel kills it (SIGKILL,
+# exit 137). Leaving it unset is what `pnpm build` does, and that works.
+RUN pnpm_config_verify_deps_before_run=false pnpm build:docker
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm_config_verify_deps_before_run=false pnpm ui:build

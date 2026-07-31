@@ -24,6 +24,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Docker: the image build no longer forces `NODE_OPTIONS=--max-old-space-size=8192`. `scripts/tsdown-build.mjs` already chooses a ceiling for the tsdown child (6144) and deliberately yields to a caller-supplied one, so the Dockerfile's override was replacing that tuned value rather than adding headroom — and on any host with less RAM than 8 GB it let V8 grow until the kernel killed the build (SIGKILL, exit 137). Leaving it unset is what `pnpm build` does, and builds now succeed on small hosts.
 - Admin: Past Due Accounts no longer overstates what is owed — Spiro reports `amountPaid`/`amountDue` per invoice, so balances now net off partial payments and credits instead of counting the full invoice total.
 - Admin: Churn & Retention report carries the shared "Reconnect Spiro" banner, so an expired Spiro session can be re-authorized from the report instead of leaving the refresh failing.
 - Spiro: request `offline_access` so the authorization server issues a refresh token; without it every connection died at access-token expiry and only a hand-run `/spiro-auth` brought it back.
