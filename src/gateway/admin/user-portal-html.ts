@@ -1,3 +1,4 @@
+import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
   PROJECT_CALENDAR_COMPONENT_JS,
   PROJECT_CALENDAR_CSS,
@@ -172,6 +173,17 @@ ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${TASK_STATUS_CSS}
+${MY_WORK_CSS}
+  /* One filter row: project picker, the shared filter bar, and an overflow menu
+     holding what used to sit loose in the toolbar. */
+  .board-tools { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .board-tools .tl-bar { margin-bottom: 0; }
+  .tool-menu { position: relative; flex-shrink: 0; }
+  .tool-menu-pop { position: absolute; right: 0; top: calc(100% + 0.3rem); z-index: 30; min-width: 12rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.3rem; display: flex; flex-direction: column; gap: 0.1rem; }
+  .tool-menu-item { display: flex; align-items: center; gap: 0.4rem; width: 100%; text-align: left; padding: 0.4rem 0.5rem; font-size: 0.8rem; font-family: inherit; font-weight: 500; color: var(--text); background: none; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  .tool-menu-item:hover:not(:disabled) { background: var(--surface2); }
+  .tool-menu-item:disabled { opacity: 0.4; cursor: default; }
+  @media (max-width: 720px) { .board-tools { flex-wrap: wrap; } }
   /* A board can have any number of columns now, so they scroll sideways rather
      than being squeezed into a fixed four-up grid. */
   .board-wrap { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(200px, 1fr); gap: 0.875rem; align-items: start; overflow-x: auto; padding-bottom: 0.5rem; }
@@ -298,17 +310,28 @@ ${TASK_STATUS_CSS}
         </div>
       </div>
       <div class="page-scroll">
+        <!-- Same two-row shape as the dashboard: what you are looking at, then
+             one filter row with the project picker and an overflow menu. -->
         <div class="tasks-toolbar">
           <div class="pt-view-toggle">
-            <button type="button" class="pt-view-btn active" id="pt-view-board">⊞ Board</button>
+            <button type="button" class="pt-view-btn active" id="pt-view-mywork">🙋 My Work</button>
+            <button type="button" class="pt-view-btn" id="pt-view-board">⊞ Board</button>
             <button type="button" class="pt-view-btn" id="pt-view-cal">📅 Calendar</button>
             <button type="button" class="pt-view-btn" id="pt-view-list">☰ List</button>
           </div>
-          <select id="pt-project-filter" style="max-width:260px"><option value="all">All Projects</option></select>
-          <button class="btn btn-ghost btn-sm" id="pt-edit-project" disabled>Edit Project</button>
         </div>
-        <div id="pt-filter-bar">${TASK_LIST_MARKUP}</div>
-        <div id="pt-board"></div>
+        <div class="board-tools">
+          <select id="pt-project-filter" style="max-width:220px"><option value="all">All Projects</option></select>
+          <div id="pt-filter-bar" style="flex:1 1 20rem;min-width:0">${TASK_LIST_MARKUP}</div>
+          <div class="tool-menu">
+            <button type="button" class="btn btn-ghost btn-sm" id="pt-tool-menu-btn" title="More">⚙</button>
+            <div class="tool-menu-pop hidden" id="pt-tool-menu-pop">
+              <button type="button" class="tool-menu-item" id="pt-edit-project" disabled>✎ Edit project</button>
+            </div>
+          </div>
+        </div>
+        <div id="pt-mywork"></div>
+        <div id="pt-board" class="hidden"></div>
         <div id="pt-calendar" class="hidden">${PROJECT_CALENDAR_MARKUP}</div>
         <div id="pt-tasklist" class="hidden"></div>
       </div>
@@ -533,6 +556,7 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
+${MY_WORK_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -1104,29 +1128,108 @@ ${TASK_STATUS_COMPONENT_JS}
     onDay: function(ms) { ptOpenTask(null, ms); },
   });
 
-  let ptView = 'board'; // 'board' | 'calendar'
+  /**
+   * Tasks My Work may show. Unlike the board this keeps subtasks — a subtask
+   * assigned to you is still your work.
+   */
+  function ptMyWorkScope() {
+    return ptTasks.filter(function(t) {
+      return ptFilter === 'all' || t.projectId === ptFilter;
+    });
+  }
+
+  // The same personal list the dashboard lands on, over this member's own tasks.
+  const ptMyWork = createMyWork({
+    rootId: 'pt-mywork',
+    tasks: function() { return ptFilterBar.apply(ptMyWorkScope()); },
+    currentUserId: function() { return currentUser ? currentUser.id : null; },
+    isDone: function(t) { return ptStatuses.isDoneTask(t); },
+    projectFor: function(t) {
+      return t.projectId ? ptProjects.find(function(p) { return p.id === t.projectId; }) || null : null;
+    },
+    onOpen: function(id) {
+      const t = ptTasks.find(function(x) { return x.id === id; });
+      if (t) ptOpenTask(t);
+    },
+    onToggleDone: async function(id, done) {
+      const t = ptTasks.find(function(x) { return x.id === id; });
+      const board = t ? t.projectId || '' : '';
+      const next = done ? ptStatuses.doneKey(board) : ptStatuses.defaultKey(board);
+      const r = await api('PUT', '/tasks/' + id, { status: next });
+      if (r.ok) await loadTasksPage();
+    },
+  });
+
+  // My Work is the landing view here too — a member opening the portal wants
+  // their own list, not the whole board.
+  let ptView = 'mywork'; // 'mywork' | 'board' | 'calendar' | 'list'
+
+  const PT_VIEW_BUTTONS = [
+    ['pt-view-mywork', 'mywork'],
+    ['pt-view-board', 'board'],
+    ['pt-view-cal', 'calendar'],
+    ['pt-view-list', 'list'],
+  ];
 
   function ptSwitchView(view) {
     ptView = view;
+    document.getElementById('pt-mywork').classList.toggle('hidden', view !== 'mywork');
     document.getElementById('pt-board').classList.toggle('hidden', view !== 'board');
     document.getElementById('pt-calendar').classList.toggle('hidden', view !== 'calendar');
     document.getElementById('pt-tasklist').classList.toggle('hidden', view !== 'list');
-    document.getElementById('pt-view-board').classList.toggle('active', view === 'board');
-    document.getElementById('pt-view-cal').classList.toggle('active', view === 'calendar');
-    document.getElementById('pt-view-list').classList.toggle('active', view === 'list');
+    PT_VIEW_BUTTONS.forEach(function(pair) {
+      document.getElementById(pair[0]).classList.toggle('active', view === pair[1]);
+    });
+    try { localStorage.setItem('oc_portal_view', view); } catch (e) { /* private mode */ }
     ptRenderView();
   }
-  document.getElementById('pt-view-board').addEventListener('click', function() { ptSwitchView('board'); });
-  document.getElementById('pt-view-cal').addEventListener('click', function() { ptSwitchView('calendar'); });
-  document.getElementById('pt-view-list').addEventListener('click', function() { ptSwitchView('list'); });
+
+  PT_VIEW_BUTTONS.forEach(function(pair) {
+    document.getElementById(pair[0]).addEventListener('click', function() { ptSwitchView(pair[1]); });
+  });
+
+  (function ptRestoreView() {
+    let saved = null;
+    try { saved = localStorage.getItem('oc_portal_view'); } catch (e) { /* private mode */ }
+    if (saved && PT_VIEW_BUTTONS.some(function(pair) { return pair[1] === saved; })) ptView = saved;
+    PT_VIEW_BUTTONS.forEach(function(pair) {
+      document.getElementById(pair[0]).classList.toggle('active', ptView === pair[1]);
+    });
+    document.getElementById('pt-mywork').classList.toggle('hidden', ptView !== 'mywork');
+    document.getElementById('pt-board').classList.toggle('hidden', ptView !== 'board');
+    document.getElementById('pt-calendar').classList.toggle('hidden', ptView !== 'calendar');
+    document.getElementById('pt-tasklist').classList.toggle('hidden', ptView !== 'list');
+  })();
+
+  document.getElementById('pt-tool-menu-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    document.getElementById('pt-tool-menu-pop').classList.toggle('hidden');
+  });
+  document.addEventListener('click', function(e) {
+    const pop = document.getElementById('pt-tool-menu-pop');
+    if (!pop || pop.classList.contains('hidden')) return;
+    if (e.target.closest('#pt-tool-menu-pop') || e.target.closest('#pt-tool-menu-btn')) return;
+    pop.classList.add('hidden');
+  });
 
   /** Draw whichever view is on. Called after every load and mutation. */
   function ptRenderView() {
     ptFilterBar.refreshOptions();
-    if (ptView === 'calendar') ptCalendar.render();
+    if (ptView === 'mywork') ptMyWork.render();
+    else if (ptView === 'calendar') ptCalendar.render();
     else if (ptView === 'list') ptTaskList.render();
     else ptRenderBoard();
-    ptFilterBar.setCount(ptVisibleTasks().length, ptTasksInScope().length);
+    if (ptView === 'mywork') {
+      // Counting every task here would be misleading — this view is only ever
+      // the member's own.
+      const uid = currentUser ? currentUser.id : null;
+      ptFilterBar.setCount(
+        myWorkTasks(ptFilterBar.apply(ptMyWorkScope()), uid).length,
+        myWorkTasks(ptMyWorkScope(), uid).length,
+      );
+    } else {
+      ptFilterBar.setCount(ptVisibleTasks().length, ptTasksInScope().length);
+    }
   }
 
   function ptRenderBoard() {

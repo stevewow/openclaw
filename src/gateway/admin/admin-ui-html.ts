@@ -1,3 +1,4 @@
+import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
   PROJECT_CALENDAR_COMPONENT_JS,
   PROJECT_CALENDAR_CSS,
@@ -401,6 +402,18 @@ ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${TASK_STATUS_CSS}
+${MY_WORK_CSS}
+  /* One filter row: project picker, the shared filter bar, and an overflow
+     menu holding what used to be loose buttons in the toolbar. */
+  .board-tools { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .board-tools .tl-bar { margin-bottom: 0; }
+  .board-tools .project-select { flex-shrink: 0; }
+  .tool-menu { position: relative; flex-shrink: 0; }
+  .tool-menu-pop { position: absolute; right: 0; top: calc(100% + 0.3rem); z-index: 30; min-width: 13rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.3rem; display: flex; flex-direction: column; gap: 0.1rem; }
+  .tool-menu-item { display: flex; align-items: center; gap: 0.4rem; width: 100%; text-align: left; padding: 0.4rem 0.5rem; font-size: 0.8rem; font-family: inherit; font-weight: 500; color: var(--text); background: none; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  .tool-menu-item:hover:not(:disabled) { background: var(--surface2); }
+  .tool-menu-item:disabled { opacity: 0.4; cursor: default; }
+  @media (max-width: 720px) { .board-tools { flex-wrap: wrap; } }
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
   .color-swatch:hover { transform: scale(1.15); }
@@ -626,39 +639,50 @@ ${TASK_STATUS_CSS}
 
       <!-- Projects page -->
       <div id="page-projects" class="page hidden">
+        <!-- Two rows, not four: what you are looking at plus the actions, then
+             one filter row. Everything that used to sit loose in the toolbar
+             (edit/duplicate project, columns, show closed) is behind ⚙. -->
         <div class="projects-toolbar">
           <div class="view-toggle">
-            <button class="view-btn active" id="view-board-btn">⊞ Board</button>
+            <button class="view-btn active" id="view-mywork-btn">🙋 My Work</button>
+            <button class="view-btn" id="view-board-btn">⊞ Board</button>
             <button class="view-btn" id="view-cal-btn">📅 Calendar</button>
             <button class="view-btn" id="view-tasklist-btn">☰ List</button>
             <button class="view-btn" id="view-projects-btn">📁 Projects</button>
           </div>
-          <div class="proj-filter-wrap">
-            <select class="project-select" id="project-filter-sel">
-              <option value="all">All Projects</option>
-            </select>
-            <button class="btn btn-ghost btn-sm" id="edit-project-btn" style="padding:0.4rem 0.6rem" title="Edit selected project" disabled>✎</button>
-            <button class="btn btn-ghost btn-sm" id="dup-project-btn" style="padding:0.4rem 0.6rem" title="Duplicate selected project" disabled>⧉</button>
-          </div>
-          <label class="show-closed-toggle" title="Include completed and archived projects">
-            <input type="checkbox" id="show-closed-projects"> Show closed
-          </label>
           <div style="margin-left:auto;display:flex;gap:0.5rem;flex-shrink:0">
-            <button class="btn btn-ghost btn-sm" id="board-columns-btn" title="Edit this board's columns">⚙ Columns</button>
             <button class="btn btn-ghost btn-sm" id="add-project-btn">+ New Project</button>
             <button class="btn btn-primary btn-sm" id="add-task-btn">+ New Task</button>
           </div>
         </div>
 
-        <!-- Filter bar. Applies to the board, calendar and list alike, so a
-             filtered view stays filtered when you switch how you look at it. -->
-        <div id="task-filter-bar">${TASK_LIST_MARKUP}</div>
+        <!-- One filter row, shared by every view, so a filtered view stays
+             filtered when you switch how you look at it. -->
+        <div class="board-tools">
+          <select class="project-select" id="project-filter-sel">
+            <option value="all">All Projects</option>
+          </select>
+          <div id="task-filter-bar" style="flex:1 1 20rem;min-width:0">${TASK_LIST_MARKUP}</div>
+          <div class="tool-menu">
+            <button type="button" class="btn btn-ghost btn-sm" id="tool-menu-btn" title="More">⚙</button>
+            <div class="tool-menu-pop hidden" id="tool-menu-pop">
+              <button type="button" class="tool-menu-item" id="edit-project-btn" disabled>✎ Edit project</button>
+              <button type="button" class="tool-menu-item" id="dup-project-btn" disabled>⧉ Duplicate project</button>
+              <button type="button" class="tool-menu-item" id="board-columns-btn">⊞ Board columns…</button>
+              <label class="tool-menu-item" title="Include completed and archived projects">
+                <input type="checkbox" id="show-closed-projects"> Show closed projects
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div id="projects-mywork"></div>
 
         <div id="projects-tasklist" class="hidden"></div>
 
         <!-- Columns are per-project data, so the board is drawn from the status
              registry rather than written out here. -->
-        <div id="projects-board"><div class="board-wrap" id="board-cols"></div></div>
+        <div id="projects-board" class="hidden"><div class="board-wrap" id="board-cols"></div></div>
 
         <div id="projects-calendar" class="hidden">${PROJECT_CALENDAR_MARKUP}</div>
 
@@ -2764,6 +2788,7 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
+${MY_WORK_COMPONENT_JS}
   var cancelCols = [
     { key: 'client', label: 'Client', value: function(r){ return r.client; } },
     { key: 'totalOrders', label: 'Total Orders', type: 'num', value: function(r){ return r.totalOrders; } },
@@ -4258,7 +4283,9 @@ ${TASK_STATUS_COMPONENT_JS}
   // ── Projects ──────────────────────────────────────────────────────────────
   let allProjects = [];
   let allTasks = [];
-  let projectsView = 'board'; // 'board' | 'calendar' | 'list'
+  // My Work is the landing view: a board answers "where does everything stand?",
+  // which is the wrong first question for someone who wants to know what to do.
+  let projectsView = 'mywork'; // 'mywork' | 'board' | 'calendar' | 'tasks' | 'list'
   let projectsFilter = ''; // project id or ''
   let projectsStatusFilter = 'all'; // 'all' | ProjectStatus
   // Completed/archived projects stay out of the board, calendar, and pickers
@@ -4401,7 +4428,42 @@ ${TASK_STATUS_COMPONENT_JS}
     groupBy: function() { return ''; },
   });
 
+  // Your own open work, grouped by when it is due. The filter bar and project
+  // picker still apply, so "my work on this project" is one selection away.
+  const myWork = createMyWork({
+    rootId: 'projects-mywork',
+    tasks: function() { return taskFilterBar.apply(myWorkScope()); },
+    currentUserId: function() { return currentUser ? currentUser.id : null; },
+    isDone: function(t) { return statusRegistry.isDoneTask(t); },
+    projectFor: function(t) {
+      return t.projectId ? allProjects.find(function(p) { return p.id === t.projectId; }) || null : null;
+    },
+    onOpen: openEditTask,
+    onToggleDone: async function(id, done) {
+      const t = allTasks.find(function(x) { return x.id === id; });
+      const board = t ? t.projectId || '' : '';
+      const next = done ? statusRegistry.doneKey(board) : statusRegistry.defaultKey(board);
+      const r = await api('PUT', '/tasks/' + id, { status: next });
+      if (r.ok) await loadProjects();
+    },
+  });
+
+  /**
+   * Tasks My Work may show. Unlike the board this keeps subtasks — a subtask
+   * assigned to you is still your work — but it follows the same project
+   * visibility rules.
+   */
+  function myWorkScope() {
+    const visible = new Set(selectableProjects().map(function(p) { return p.id; }));
+    return allTasks.filter(function(t) {
+      if (!t.projectId) return true;
+      if (projectsFilter) return t.projectId === projectsFilter;
+      return visible.has(t.projectId);
+    });
+  }
+
   function renderProjectsPage() {
+    document.getElementById('projects-mywork').classList.toggle('hidden', projectsView !== 'mywork');
     document.getElementById('projects-board').classList.toggle('hidden', projectsView !== 'board');
     document.getElementById('projects-calendar').classList.toggle('hidden', projectsView !== 'calendar');
     document.getElementById('projects-tasklist').classList.toggle('hidden', projectsView !== 'tasks');
@@ -4410,11 +4472,17 @@ ${TASK_STATUS_COMPONENT_JS}
     // nothing to act on there.
     document.getElementById('task-filter-bar').classList.toggle('hidden', projectsView === 'list');
     taskFilterBar.refreshOptions();
-    if (projectsView === 'board') renderBoard();
+    if (projectsView === 'mywork') myWork.render();
+    else if (projectsView === 'board') renderBoard();
     else if (projectsView === 'calendar') renderCalendar();
     else if (projectsView === 'tasks') projectsTaskList.render();
     else renderProjectsList();
-    if (projectsView !== 'list') {
+    if (projectsView === 'mywork') {
+      // Counting the whole board here would be misleading — this view is only
+      // ever your own tasks.
+      const mine = myWorkTasks(myWorkScope(), currentUser ? currentUser.id : null);
+      taskFilterBar.setCount(myWorkTasks(taskFilterBar.apply(myWorkScope()), currentUser ? currentUser.id : null).length, mine.length);
+    } else if (projectsView !== 'list') {
       taskFilterBar.setCount(getFilteredTasks().length, tasksInScope().length);
     }
     document.getElementById('edit-project-btn').disabled = !projectsFilter;
@@ -4427,19 +4495,50 @@ ${TASK_STATUS_COMPONENT_JS}
     renderProjectsPage();
   });
 
-  // View toggle
+  // View toggle. The chosen view is remembered per browser: someone who lives on
+  // the board should not land on My Work every morning.
+  const VIEW_BUTTONS = [
+    ['view-mywork-btn', 'mywork'],
+    ['view-board-btn', 'board'],
+    ['view-cal-btn', 'calendar'],
+    ['view-tasklist-btn', 'tasks'],
+    ['view-projects-btn', 'list'],
+  ];
+
   function switchProjectsView(view) {
     projectsView = view;
-    document.getElementById('view-board-btn').classList.toggle('active', view === 'board');
-    document.getElementById('view-cal-btn').classList.toggle('active', view === 'calendar');
-    document.getElementById('view-tasklist-btn').classList.toggle('active', view === 'tasks');
-    document.getElementById('view-projects-btn').classList.toggle('active', view === 'list');
+    VIEW_BUTTONS.forEach(function(pair) {
+      document.getElementById(pair[0]).classList.toggle('active', view === pair[1]);
+    });
+    try { localStorage.setItem('oc_projects_view', view); } catch (e) { /* private mode */ }
     renderProjectsPage();
   }
-  document.getElementById('view-board-btn').addEventListener('click', function() { switchProjectsView('board'); });
-  document.getElementById('view-cal-btn').addEventListener('click', function() { switchProjectsView('calendar'); });
-  document.getElementById('view-tasklist-btn').addEventListener('click', function() { switchProjectsView('tasks'); });
-  document.getElementById('view-projects-btn').addEventListener('click', function() { switchProjectsView('list'); });
+
+  VIEW_BUTTONS.forEach(function(pair) {
+    document.getElementById(pair[0]).addEventListener('click', function() { switchProjectsView(pair[1]); });
+  });
+
+  (function restoreProjectsView() {
+    let saved = null;
+    try { saved = localStorage.getItem('oc_projects_view'); } catch (e) { /* private mode */ }
+    if (saved && VIEW_BUTTONS.some(function(pair) { return pair[1] === saved; })) projectsView = saved;
+    VIEW_BUTTONS.forEach(function(pair) {
+      document.getElementById(pair[0]).classList.toggle('active', projectsView === pair[1]);
+    });
+  })();
+
+  // ── Toolbar overflow menu ──────────────────────────────────────────────────
+  document.getElementById('tool-menu-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    document.getElementById('tool-menu-pop').classList.toggle('hidden');
+  });
+  document.addEventListener('click', function(e) {
+    const pop = document.getElementById('tool-menu-pop');
+    if (!pop || pop.classList.contains('hidden')) return;
+    // The checkbox lives in the menu, so a click on it must not close it.
+    if (e.target.closest('#tool-menu-pop') || e.target.closest('#tool-menu-btn')) return;
+    pop.classList.add('hidden');
+  });
 
   function renderProjectsList() {
     const grid = document.getElementById('projects-list-grid');

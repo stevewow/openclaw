@@ -61,11 +61,14 @@ function loadVisibilityModel(opts: {
       };
     }
     function createTaskList() { return { render: function () {} }; }
+    function createMyWork() { return { render: function () {} }; }
+    function myWorkTasks(t) { return t; }
     function userLabel(id) { return id; }
     function openEditTask() {}
     function api() {}
     function loadProjects() {}
     function renderProjectsPage() {}
+    var statusRegistry = { isDoneTask: function () { return false; }, doneKey: function () { return 'done'; }, defaultKey: function () { return 'todo'; } };
   `;
   // Evaluating the shipped block is the point of this suite; the input is our
   // own source file, not user data.
