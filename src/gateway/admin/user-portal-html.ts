@@ -6,6 +6,7 @@ import {
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
 import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
 import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
+import { TASK_STATUS_COMPONENT_JS, TASK_STATUS_CSS } from "./task-status-ui.js";
 
 export const USER_PORTAL_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -170,9 +171,11 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
-  .board-wrap { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 0.875rem; align-items: start; }
-  @media (max-width: 900px) { .board-wrap { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 560px) { .board-wrap { grid-template-columns: 1fr; } }
+${TASK_STATUS_CSS}
+  /* A board can have any number of columns now, so they scroll sideways rather
+     than being squeezed into a fixed four-up grid. */
+  .board-wrap { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(200px, 1fr); gap: 0.875rem; align-items: start; overflow-x: auto; padding-bottom: 0.5rem; }
+  @media (max-width: 900px) { .board-wrap { grid-auto-columns: minmax(180px, 70vw); } }
   .board-col { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.625rem; }
   .board-col-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0 0.15rem; }
   .board-col-count { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0 0.45rem; font-size: 0.7rem; color: var(--text-muted); }
@@ -385,12 +388,8 @@ ${TASK_LIST_CSS}
       <div class="grid-2">
         <div class="form-group">
           <label for="pt-t-status">Status</label>
-          <select id="pt-t-status">
-            <option value="todo">Todo</option>
-            <option value="in_progress">In Progress</option>
-            <option value="review">Review</option>
-            <option value="done">Done</option>
-          </select>
+          <!-- Options track the task's project board; see ptSyncStatusOptions. -->
+          <select id="pt-t-status"></select>
         </div>
         <div class="form-group">
           <label for="pt-t-priority">Priority</label>
@@ -533,6 +532,7 @@ ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
+${TASK_STATUS_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -949,12 +949,32 @@ ${TASK_LIST_COMPONENT_JS}
   let ptFilter = 'all';
   let ptEditingTask = null;
   let ptEditingProject = null;
-  const PT_STATUSES = [
-    { key: 'todo', label: 'Todo' },
-    { key: 'in_progress', label: 'In Progress' },
-    { key: 'review', label: 'Review' },
-    { key: 'done', label: '✓ Done' },
-  ];
+
+  // Board columns are per-project data served by the API (task-status-ui.ts),
+  // so the portal draws exactly the same columns the dashboard does.
+  const ptStatuses = createStatusRegistry({ api: api });
+  setTaskStatusResolver({
+    isDone: function(status, task) {
+      return ptStatuses.isDone(task ? task.projectId || '' : ptBoardId(), status);
+    },
+    label: function(status, task) {
+      return ptStatuses.labelOf(task ? task.projectId || '' : ptBoardId(), status);
+    },
+    color: function(status, task) {
+      return ptStatuses.colorOf(task ? task.projectId || '' : ptBoardId(), status);
+    },
+    rank: function(status, task) {
+      return ptStatuses.rankOf(task ? task.projectId || '' : ptBoardId(), status);
+    },
+    all: function(tasks) {
+      return ptStatuses.columnsForView(ptBoardId(), tasks || []);
+    },
+  });
+
+  /** The board in view: a chosen project, or '' for the global set. */
+  function ptBoardId() {
+    return ptFilter === 'all' ? '' : ptFilter;
+  }
 
   function ptFullName(u) { return [u && u.firstName, u && u.lastName].filter(Boolean).join(' '); }
   function ptUserLabel(id) {
@@ -999,6 +1019,8 @@ ${TASK_LIST_COMPONENT_JS}
     sel.value = prev && (prev === 'all' || ptProjects.find(function(p) { return p.id === prev; })) ? prev : 'all';
     ptFilter = sel.value;
     document.getElementById('pt-edit-project').disabled = ptFilter === 'all';
+    // Columns before the first paint, or the board draws the seed set and jumps.
+    await ptStatuses.ensure(ptProjects.map(function(p) { return p.id; }));
     ptRenderView();
   }
 
@@ -1110,15 +1132,22 @@ ${TASK_LIST_COMPONENT_JS}
   function ptRenderBoard() {
     const board = document.getElementById('pt-board');
     const tasks = ptVisibleTasks();
-    board.innerHTML = '<div class="board-wrap">' + PT_STATUSES.map(function(st) {
+    board.innerHTML = '<div class="board-wrap">' + ptStatuses.columnsForView(ptBoardId(), tasks).map(function(st) {
       const matching = tasks
         .filter(function(t) { return t.status === st.key; })
         .sort(function(a, b) { return a.position - b.position || a.createdAt - b.createdAt; });
       const cards = matching.length
         ? matching.map(ptTaskCard).join('')
         : '<div class="board-empty">No tasks</div>';
-      return '<div class="board-col" data-status="' + esc(st.key) + '">' +
-        '<div class="board-col-head"><span>' + st.label + '</span><span class="board-col-count">' + matching.length + '</span></div>' +
+      // A WIP limit colours the count; it never blocks a drop.
+      const overWip = st.wipLimit != null && matching.length > st.wipLimit;
+      return '<div class="board-col" data-status="' + esc(st.key) + '" style="border-top:2px solid ' + esc(st.color) + '">' +
+        '<div class="board-col-head">' +
+          '<span><span class="board-col-dot" style="background:' + esc(st.color) + '"></span>' + esc(st.label) + '</span>' +
+          '<span class="board-col-count' + (overWip ? ' over-wip' : '') + '">' +
+            matching.length + (st.wipLimit != null ? ' / ' + st.wipLimit : '') +
+          '</span>' +
+        '</div>' +
         cards +
       '</div>';
     }).join('') + '</div>';
@@ -1232,7 +1261,7 @@ ${TASK_LIST_COMPONENT_JS}
       return;
     }
     // A recurring task completed on drop spawns its next occurrence server-side.
-    if (status === 'done' && task.recurrence) await loadTasksPage();
+    if (ptStatuses.isDone(task.projectId || '', status) && task.recurrence) await loadTasksPage();
   }
 
   // ── Attachments on a task ──────────────────────────────────────────────────
@@ -1354,6 +1383,23 @@ ${TASK_LIST_COMPONENT_JS}
       ptProjects.map(function(p) { return '<option value="' + esc(p.id) + '"' + (p.id === selectedId ? ' selected' : '') + '>' + esc(p.title) + '</option>'; }).join('');
   }
 
+  /**
+   * Fill the status picker from the chosen project's board, keeping the current
+   * value when that board has the column and falling back to its first one.
+   */
+  function ptSyncStatusOptions(preferred) {
+    const sel = document.getElementById('pt-t-status');
+    const projectId = document.getElementById('pt-t-project').value || '';
+    const want = preferred || sel.value;
+    const cols = ptStatuses.columnsFor(projectId);
+    sel.innerHTML = cols.map(function(c) {
+      return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>';
+    }).join('');
+    sel.value = cols.some(function(c) { return c.key === want; }) ? want : ptStatuses.defaultKey(projectId);
+  }
+
+  document.getElementById('pt-t-project').addEventListener('change', function() { ptSyncStatusOptions(); });
+
   // Task modal
   document.getElementById('pt-new-task').addEventListener('click', function() { ptOpenTask(null); });
   // Comment thread + activity history, the same component the dashboard uses.
@@ -1380,7 +1426,12 @@ ${TASK_LIST_COMPONENT_JS}
         const n = Number(value);
         return Number.isFinite(n) ? new Date(n).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : null;
       }
-      if (field === 'status') return TF_STATUS_LABELS[value] || value;
+      // History can name a column that has since been renamed or dropped, so
+      // this falls through to the raw key rather than inventing a label.
+      if (field === 'status') {
+        const t = ptTasks.find(function(x) { return x.id === ptEditingTask; });
+        return ptStatuses.labelOf(t ? t.projectId || '' : '', value) || TF_STATUS_LABELS[value] || value;
+      }
       return null;
     },
   });
@@ -1392,9 +1443,9 @@ ${TASK_LIST_COMPONENT_JS}
     document.getElementById('pt-task-error').classList.add('hidden');
     document.getElementById('pt-t-title').value = task ? task.title : '';
     document.getElementById('pt-t-desc').value = task ? (task.description || '') : '';
-    document.getElementById('pt-t-status').value = task ? task.status : 'todo';
     document.getElementById('pt-t-priority').value = task ? task.priority : 'medium';
     ptPopulateProjectSelect(task ? (task.projectId || '') : (ptFilter !== 'all' ? ptFilter : ''));
+    ptSyncStatusOptions(task ? task.status : ptStatuses.defaultKey(ptBoardId()));
     document.getElementById('pt-t-due').value = task && task.dueDate
       ? calDateInputValue(task.dueDate)
       : (presetDueMs ? calDateInputValue(presetDueMs) : '');

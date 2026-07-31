@@ -1345,4 +1345,49 @@ describe("board columns — readable by members, writable by admins", () => {
     });
     expect(r.status).toBe(404);
   });
+
+  it("serves every board in one call so a mixed view paints once", async () => {
+    await resetGlobal();
+    const a = await call("POST", "/projects", { token: adminToken, body: { title: "Plain" } });
+    const b = await call("POST", "/projects", { token: adminToken, body: { title: "Shoots" } });
+    const plainId = (a.json?.project as { id: string }).id;
+    const shootsId = (b.json?.project as { id: string }).id;
+    await call("PUT", `/task-statuses?projectId=${shootsId}`, {
+      token: adminToken,
+      body: {
+        statuses: [
+          { key: "booked", label: "Booked" },
+          { key: "delivered", label: "Delivered", isDone: true },
+        ],
+      },
+    });
+
+    const r = await call("GET", `/task-statuses/sets?projectIds=${plainId},${shootsId}`, {
+      token: adminToken,
+    });
+    expect(r.status).toBe(200);
+    const sets = r.json?.sets as Record<string, Array<{ key: string }>>;
+    const custom = r.json?.custom as Record<string, boolean>;
+    expect(sets[""].map((s) => s.key)).toEqual(["todo", "in_progress", "review", "done"]);
+    // A project with no columns of its own reports the global set, not custom.
+    expect(sets[plainId].map((s) => s.key)).toEqual(["todo", "in_progress", "review", "done"]);
+    expect(custom[plainId]).toBe(false);
+    expect(sets[shootsId].map((s) => s.key)).toEqual(["booked", "delivered"]);
+    expect(custom[shootsId]).toBe(true);
+  });
+
+  it("drops boards the caller cannot see rather than failing the whole view", async () => {
+    await resetGlobal();
+    const hidden = await call("POST", "/projects", {
+      token: adminToken,
+      body: { title: "Secret" },
+    });
+    const hiddenId = (hidden.json?.project as { id: string }).id;
+    const r = await call("GET", `/task-statuses/sets?projectIds=${hiddenId}`, { token: userToken });
+    expect(r.status).toBe(200);
+    const sets = r.json?.sets as Record<string, unknown>;
+    // The global set still comes back, so the member's board renders.
+    expect(sets[""]).toBeTruthy();
+    expect(sets[hiddenId]).toBeUndefined();
+  });
 });

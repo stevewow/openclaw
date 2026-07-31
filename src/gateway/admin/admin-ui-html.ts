@@ -6,6 +6,7 @@ import {
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
 import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
 import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
+import { TASK_STATUS_COMPONENT_JS, TASK_STATUS_CSS } from "./task-status-ui.js";
 import { PORTAL_FEATURES } from "./types.js";
 
 export const ADMIN_UI_HTML = `<!DOCTYPE html>
@@ -399,6 +400,7 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
+${TASK_STATUS_CSS}
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
   .color-swatch:hover { transform: scale(1.15); }
@@ -653,42 +655,9 @@ ${TASK_LIST_CSS}
 
         <div id="projects-tasklist" class="hidden"></div>
 
-        <div id="projects-board">
-          <div class="board-wrap">
-            <div class="board-column">
-              <div class="board-col-header">
-                <span class="board-col-title">Todo</span>
-                <span class="board-col-count" id="col-count-todo">0</span>
-              </div>
-              <div class="board-col-body" id="col-todo"><div class="board-empty">No tasks yet</div></div>
-              <button class="board-add-btn" data-status="todo">+ Add Task</button>
-            </div>
-            <div class="board-column">
-              <div class="board-col-header">
-                <span class="board-col-title" style="color:#3b82f6">In Progress</span>
-                <span class="board-col-count" id="col-count-in_progress">0</span>
-              </div>
-              <div class="board-col-body" style="border-top-color:#3b82f6" id="col-in_progress"><div class="board-empty">No tasks yet</div></div>
-              <button class="board-add-btn" data-status="in_progress">+ Add Task</button>
-            </div>
-            <div class="board-column">
-              <div class="board-col-header">
-                <span class="board-col-title" style="color:#f59e0b">Review</span>
-                <span class="board-col-count" id="col-count-review">0</span>
-              </div>
-              <div class="board-col-body" style="border-top-color:#f59e0b" id="col-review"><div class="board-empty">No tasks yet</div></div>
-              <button class="board-add-btn" data-status="review">+ Add Task</button>
-            </div>
-            <div class="board-column">
-              <div class="board-col-header">
-                <span class="board-col-title" style="color:var(--success)">✓ Done</span>
-                <span class="board-col-count" id="col-count-done">0</span>
-              </div>
-              <div class="board-col-body" style="border-top-color:var(--success)" id="col-done"><div class="board-empty">No tasks yet</div></div>
-              <button class="board-add-btn" data-status="done">+ Add Task</button>
-            </div>
-          </div>
-        </div>
+        <!-- Columns are per-project data, so the board is drawn from the status
+             registry rather than written out here. -->
+        <div id="projects-board"><div class="board-wrap" id="board-cols"></div></div>
 
         <div id="projects-calendar" class="hidden">${PROJECT_CALENDAR_MARKUP}</div>
 
@@ -1321,12 +1290,8 @@ ${TASK_LIST_CSS}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
         <div class="form-group" style="margin-bottom:0">
           <label>Status</label>
-          <select id="task-status">
-            <option value="todo">Todo</option>
-            <option value="in_progress">In Progress</option>
-            <option value="review">Review</option>
-            <option value="done">Done</option>
-          </select>
+          <!-- Options track the chosen project's board; see syncTaskStatusOptions. -->
+          <select id="task-status"></select>
         </div>
         <div class="form-group" style="margin-bottom:0">
           <label>Priority</label>
@@ -2028,7 +1993,10 @@ ${TASK_LIST_CSS}
     if (isSuperAdmin()) calls.push(api('GET', '/agents'));
     const [usersR, tasksR, agentsR] = await Promise.all(calls);
     const tasks = tasksR.ok ? (tasksR.data.tasks || []).filter(function(t) { return !t.parentTaskId; }) : [];
-    const openTasks = tasks.filter(function(t) { return t.status !== 'done'; });
+    // "Open" is per board: a project whose last column is "Delivered" must not
+    // report every delivered task as still open.
+    await statusRegistry.ensure(tasks.map(function(t) { return t.projectId; }));
+    const openTasks = tasks.filter(function(t) { return !statusRegistry.isDoneTask(t); });
     const now = new Date(); now.setHours(0, 0, 0, 0);
     const overdue = openTasks.filter(function(t) { return t.dueDate && t.dueDate < now.getTime(); });
 
@@ -2775,6 +2743,7 @@ ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
+${TASK_STATUS_COMPONENT_JS}
   var cancelCols = [
     { key: 'client', label: 'Client', value: function(r){ return r.client; } },
     { key: 'totalOrders', label: 'Total Orders', type: 'num', value: function(r){ return r.totalOrders; } },
@@ -4280,6 +4249,35 @@ ${TASK_LIST_COMPONENT_JS}
   let editingTaskId = null;
   let editingProjectId = null;
 
+  // Board columns come from the API per project (task-status-ui.ts). The list
+  // view and every "is this finished?" test read through it, so a project whose
+  // last column is "Delivered" behaves exactly like one that says "Done".
+  const statusRegistry = createStatusRegistry({ api: api });
+  setTaskStatusResolver({
+    isDone: function(status, task) {
+      return statusRegistry.isDone(task ? task.projectId || '' : projectsFilter, status);
+    },
+    label: function(status, task) {
+      return statusRegistry.labelOf(task ? task.projectId || '' : projectsFilter, status);
+    },
+    color: function(status, task) {
+      return statusRegistry.colorOf(task ? task.projectId || '' : projectsFilter, status);
+    },
+    rank: function(status, task) {
+      return statusRegistry.rankOf(task ? task.projectId || '' : projectsFilter, status);
+    },
+    all: function(tasks) {
+      return statusRegistry.columnsForView(projectsFilter, tasks || []);
+    },
+  });
+
+  /** Column sets for every board in view — the filter plus each task's project. */
+  function boardProjectIds() {
+    const ids = allProjects.map(function(p) { return p.id; });
+    allTasks.forEach(function(t) { if (t.projectId) ids.push(t.projectId); });
+    return ids;
+  }
+
   // Reusable checkbox picker of users, used for project members & task assignees.
   function renderMemberPicker(containerId, selectedIds) {
     const box = document.getElementById(containerId);
@@ -4315,6 +4313,9 @@ ${TASK_LIST_COMPONENT_JS}
     const [pr, tr] = await Promise.all([api('GET', '/projects'), api('GET', '/tasks')]);
     if (pr.ok) allProjects = pr.data.projects || [];
     if (tr.ok) allTasks = tr.data.tasks || [];
+    // Columns before the first paint, or the board would draw the seed set and
+    // then jump when the real one lands.
+    await statusRegistry.ensure(boardProjectIds());
     populateProjectFilter();
     renderProjectsPage();
   }
@@ -4431,7 +4432,7 @@ ${TASK_LIST_COMPONENT_JS}
     }
     grid.innerHTML = filtered.map(function(p) {
       const tasksForProj = allTasks.filter(function(t) { return t.projectId === p.id && !t.parentTaskId; });
-      const doneCount = tasksForProj.filter(function(t) { return t.status === 'done'; }).length;
+      const doneCount = tasksForProj.filter(function(t) { return statusRegistry.isDoneTask(t); }).length;
       return '<div class="project-list-card">' +
         '<div class="project-list-card-bar" style="background:' + esc(p.color) + '"></div>' +
         '<div class="project-list-card-body">' +
@@ -4518,7 +4519,7 @@ ${TASK_LIST_COMPONENT_JS}
 
   // New project / task buttons
   document.getElementById('add-project-btn').addEventListener('click', function() { openAddProject(); });
-  document.getElementById('add-task-btn').addEventListener('click', function() { openAddTask('todo', null); });
+  document.getElementById('add-task-btn').addEventListener('click', function() { openAddTask(statusRegistry.defaultKey(projectsFilter), null); });
 
   // Board add-task buttons (event delegation on board container)
   document.getElementById('projects-board').addEventListener('click', function(e) {
@@ -4531,28 +4532,43 @@ ${TASK_LIST_COMPONENT_JS}
   // Calendar month navigation and click targets live in the shared component;
   // see the createProjectCalendar wiring below.
 
-  const BOARD_STATUSES = ['todo', 'in_progress', 'review', 'done'];
-
   function renderBoard() {
     const tasks = getFilteredTasks();
-    BOARD_STATUSES.forEach(function(status) {
-      const col = document.getElementById('col-' + status);
-      const countEl = document.getElementById('col-count-' + status);
+    const cols = statusRegistry.columnsForView(projectsFilter, tasks);
+    document.getElementById('board-cols').innerHTML = cols.map(function(col) {
       const matching = tasks
-        .filter(function(t) { return t.status === status; })
+        .filter(function(t) { return t.status === col.key; })
         .sort(function(a, b) { return a.position - b.position || a.createdAt - b.createdAt; });
-      if (countEl) countEl.textContent = matching.length;
-      if (col) col.innerHTML = matching.length ? matching.map(renderTaskCard).join('') : '<div class="board-empty">No tasks yet</div>';
-    });
+      // A WIP limit is advisory: it colours the count rather than blocking a
+      // drop, because the work is already real by the time anyone notices.
+      const overWip = col.wipLimit != null && matching.length > col.wipLimit;
+      return '<div class="board-column">' +
+        '<div class="board-col-header">' +
+          '<span class="board-col-title" style="color:' + esc(col.color) + '">' +
+            '<span class="board-col-dot" style="background:' + esc(col.color) + '"></span>' +
+            esc(col.label) +
+          '</span>' +
+          '<span class="board-col-count' + (overWip ? ' over-wip' : '') + '">' +
+            matching.length + (col.wipLimit != null ? ' / ' + col.wipLimit : '') +
+          '</span>' +
+        '</div>' +
+        '<div class="board-col-body" style="border-top-color:' + esc(col.color) + '" data-status="' + esc(col.key) + '">' +
+          (matching.length ? matching.map(renderTaskCard).join('') : '<div class="board-empty">No tasks yet</div>') +
+        '</div>' +
+        '<button class="board-add-btn" data-status="' + esc(col.key) + '">+ Add Task</button>' +
+      '</div>';
+    }).join('');
   }
 
   // ── Board drag & drop ──────────────────────────────────────────────────────
   // Cards carry their status/position; dropping writes both back so a move
   // across columns and a reorder within one column are the same operation.
+  // Columns are rebuilt on every render, so the listeners live on the board root
+  // rather than on the columns themselves.
   let dragTaskId = null;
 
   function boardColumns() {
-    return BOARD_STATUSES.map(function(s) { return document.getElementById('col-' + s); }).filter(Boolean);
+    return Array.prototype.slice.call(document.querySelectorAll('#projects-board .board-col-body'));
   }
 
   function clearDropMarkers() {
@@ -4586,58 +4602,52 @@ ${TASK_LIST_COMPONENT_JS}
     dragTaskId = null;
   });
 
-  boardColumns().forEach(function(col) {
-    col.addEventListener('dragover', function(e) {
-      if (!dragTaskId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      col.classList.add('drag-over');
-      const empty = col.querySelector('.board-empty');
-      if (empty) empty.remove();
-      let slot = col.querySelector('.task-drop-slot');
-      if (!slot) {
-        slot = document.createElement('div');
-        slot.className = 'task-drop-slot';
-      }
-      const before = cardAfterPoint(col, e.clientY);
-      if (before) col.insertBefore(slot, before);
-      else col.appendChild(slot);
-    });
+  document.getElementById('projects-board').addEventListener('dragover', function(e) {
+    if (!dragTaskId) return;
+    const col = e.target.closest('.board-col-body');
+    if (!col) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    boardColumns().forEach(function(c) { c.classList.toggle('drag-over', c === col); });
+    const empty = col.querySelector('.board-empty');
+    if (empty) empty.remove();
+    let slot = document.querySelector('#projects-board .task-drop-slot');
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.className = 'task-drop-slot';
+    }
+    const before = cardAfterPoint(col, e.clientY);
+    if (before) col.insertBefore(slot, before);
+    else col.appendChild(slot);
+  });
 
-    col.addEventListener('dragleave', function(e) {
-      // Ignore moves onto a child element inside the same column.
-      if (col.contains(e.relatedTarget)) return;
-      col.classList.remove('drag-over');
-      const slot = col.querySelector('.task-drop-slot');
-      if (slot) slot.remove();
+  document.getElementById('projects-board').addEventListener('drop', async function(e) {
+    if (!dragTaskId) return;
+    const col = e.target.closest('.board-col-body');
+    if (!col) return;
+    e.preventDefault();
+    const status = col.dataset.status;
+    const slot = col.querySelector('.task-drop-slot');
+    // Index among the cards already in this column, ignoring the dragged one.
+    const siblings = Array.prototype.slice.call(col.children).filter(function(el) {
+      return el.classList.contains('task-card') && el.dataset.id !== dragTaskId;
     });
-
-    col.addEventListener('drop', async function(e) {
-      if (!dragTaskId) return;
-      e.preventDefault();
-      const status = col.id.replace('col-', '');
-      const slot = col.querySelector('.task-drop-slot');
-      // Index among the cards already in this column, ignoring the dragged one.
-      const siblings = Array.prototype.slice.call(col.children).filter(function(el) {
-        return el.classList.contains('task-card') && el.dataset.id !== dragTaskId;
-      });
-      let index = siblings.length;
-      if (slot) {
-        const nextCard = (function() {
-          let n = slot.nextElementSibling;
-          while (n && !n.classList.contains('task-card')) n = n.nextElementSibling;
-          return n;
-        })();
-        if (nextCard) {
-          const found = siblings.indexOf(nextCard);
-          if (found >= 0) index = found;
-        }
+    let index = siblings.length;
+    if (slot) {
+      const nextCard = (function() {
+        let n = slot.nextElementSibling;
+        while (n && !n.classList.contains('task-card')) n = n.nextElementSibling;
+        return n;
+      })();
+      if (nextCard) {
+        const found = siblings.indexOf(nextCard);
+        if (found >= 0) index = found;
       }
-      const movedId = dragTaskId;
-      dragTaskId = null;
-      clearDropMarkers();
-      await moveTask(movedId, status, index);
-    });
+    }
+    const movedId = dragTaskId;
+    dragTaskId = null;
+    clearDropMarkers();
+    await moveTask(movedId, status, index);
   });
 
   /**
@@ -4676,7 +4686,10 @@ ${TASK_LIST_COMPONENT_JS}
       return;
     }
     // A recurring task completed on drop spawns its next occurrence server-side.
-    if (status === 'done' && prevStatus !== 'done' && task.recurrence) await loadProjects();
+    const board = task.projectId || '';
+    if (statusRegistry.isDone(board, status) && !statusRegistry.isDone(board, prevStatus) && task.recurrence) {
+      await loadProjects();
+    }
   }
 
   // ── Attachments (links & files on a task or project) ───────────────────────
@@ -4844,7 +4857,7 @@ ${TASK_LIST_COMPONENT_JS}
     const prio = prioMap[task.priority] || prioMap.medium;
     const proj = task.projectId ? allProjects.find(function(p) { return p.id === task.projectId; }) : null;
     const subtasks = allTasks.filter(function(t) { return t.parentTaskId === task.id; });
-    const doneSubs = subtasks.filter(function(t) { return t.status === 'done'; });
+    const doneSubs = subtasks.filter(function(t) { return statusRegistry.isDoneTask(t); });
     const color = proj ? proj.color : '#94a3b8';
 
     let html = '<div class="task-card" draggable="true" data-id="' + esc(task.id) + '" data-status="' + esc(task.status) + '">';
@@ -4928,7 +4941,7 @@ ${TASK_LIST_COMPONENT_JS}
     },
     onTask: openEditTask,
     onProject: openEditProject,
-    onDay: function(ms) { openAddTask('todo', ms); },
+    onDay: function(ms) { openAddTask(statusRegistry.defaultKey(projectsFilter), ms); },
   });
 
   function renderCalendar() { projectsCalendar.render(); }
@@ -4947,12 +4960,12 @@ ${TASK_LIST_COMPONENT_JS}
     document.getElementById('task-attach-section').classList.add('hidden');
     document.getElementById('task-feed-section').classList.add('hidden');
     taskFeed.clear();
-    document.getElementById('task-status').value = status || 'todo';
     document.getElementById('task-priority').value = 'medium';
     if (dateMs) {
       document.getElementById('task-due').value = calDateInputValue(dateMs);
     }
     populateTaskProjectSelect(projectsFilter || '');
+    syncTaskStatusOptions(status || statusRegistry.defaultKey(projectsFilter));
     renderTaskModalTags();
     renderMemberPicker('task-assignees-list', []);
     document.getElementById('task-modal').classList.remove('hidden');
@@ -4968,11 +4981,11 @@ ${TASK_LIST_COMPONENT_JS}
     document.getElementById('task-modal-error').classList.add('hidden');
     document.getElementById('task-title').value = task.title;
     document.getElementById('task-desc').value = task.description || '';
-    document.getElementById('task-status').value = task.status;
     document.getElementById('task-priority').value = task.priority;
     document.getElementById('task-due').value = task.dueDate ? new Date(task.dueDate).toISOString().slice(0,10) : '';
     document.getElementById('task-recurrence').value = task.recurrence || '';
     populateTaskProjectSelect(task.projectId || '');
+    syncTaskStatusOptions(task.status);
     renderTaskModalTags();
     renderMemberPicker('task-assignees-list', task.assigneeIds || []);
     document.getElementById('task-modal-delete').classList.remove('hidden');
@@ -4986,6 +4999,29 @@ ${TASK_LIST_COMPONENT_JS}
     document.getElementById('task-modal').classList.remove('hidden');
     document.getElementById('task-title').focus();
   }
+
+  /**
+   * Fill the modal's status picker from the board the task belongs to, keeping
+   * the current value when that board has the column. Moving a task to a project
+   * with different columns lands it on that board's first column rather than
+   * leaving it on a status the new board cannot show.
+   */
+  function syncTaskStatusOptions(preferred) {
+    const sel = document.getElementById('task-status');
+    const projectId = document.getElementById('task-project').value || '';
+    const want = preferred || sel.value;
+    const cols = statusRegistry.columnsFor(projectId);
+    sel.innerHTML = cols.map(function(c) {
+      return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>';
+    }).join('');
+    sel.value = cols.some(function(c) { return c.key === want; })
+      ? want
+      : statusRegistry.defaultKey(projectId);
+  }
+
+  document.getElementById('task-project').addEventListener('change', function() {
+    syncTaskStatusOptions();
+  });
 
   function populateTaskProjectSelect(selectedId) {
     const sel = document.getElementById('task-project');
@@ -5023,7 +5059,12 @@ ${TASK_LIST_COMPONENT_JS}
         const n = Number(value);
         return Number.isFinite(n) ? new Date(n).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : null;
       }
-      if (field === 'status') return TF_STATUS_LABELS[value] || value;
+      // History can name a column a board has since renamed or dropped, so this
+      // falls through to the raw key rather than inventing a label.
+      if (field === 'status') {
+        const task = allTasks.find(function(t) { return t.id === editingTaskId; });
+        return statusRegistry.labelOf(task ? task.projectId || '' : '', value) || TF_STATUS_LABELS[value] || value;
+      }
       return null;
     },
   });
@@ -5032,9 +5073,10 @@ ${TASK_LIST_COMPONENT_JS}
     const subs = allTasks.filter(function(t) { return t.parentTaskId === parentId; });
     const list = document.getElementById('subtasks-list');
     list.innerHTML = subs.map(function(s) {
+      const isDone = statusRegistry.isDoneTask(s);
       return '<div class="subtask-item" data-id="' + esc(s.id) + '">' +
-        '<input type="checkbox" class="subtask-check"' + (s.status === 'done' ? ' checked' : '') + ' data-id="' + esc(s.id) + '">' +
-        '<span class="subtask-label' + (s.status === 'done' ? ' done' : '') + '">' + esc(s.title) + '</span>' +
+        '<input type="checkbox" class="subtask-check"' + (isDone ? ' checked' : '') + ' data-id="' + esc(s.id) + '">' +
+        '<span class="subtask-label' + (isDone ? ' done' : '') + '">' + esc(s.title) + '</span>' +
         '<button type="button" class="btn btn-ghost btn-xs subtask-del" data-id="' + esc(s.id) + '">✕</button>' +
         '</div>';
     }).join('');
@@ -5047,9 +5089,13 @@ ${TASK_LIST_COMPONENT_JS}
   }
 
   async function toggleSubtaskDone(id, done) {
-    await api('PUT', '/tasks/' + id, { status: done ? 'done' : 'todo' });
     const t = allTasks.find(function(t) { return t.id === id; });
-    if (t) t.status = done ? 'done' : 'todo';
+    // A subtask ticks over to its own board's done/first column, not to whatever
+    // the four original keys happened to be called.
+    const board = t ? t.projectId || '' : '';
+    const next = done ? statusRegistry.doneKey(board) : statusRegistry.defaultKey(board);
+    await api('PUT', '/tasks/' + id, { status: next });
+    if (t) t.status = next;
     if (editingTaskId) renderSubtasks(editingTaskId);
     renderProjectsPage();
   }
@@ -5066,7 +5112,13 @@ ${TASK_LIST_COMPONENT_JS}
     const title = inp.value.trim();
     if (!title || !editingTaskId) return;
     inp.value = '';
-    const r = await api('POST', '/tasks', { title: title, parentTaskId: editingTaskId, status: 'todo', priority: 'medium' });
+    const parent = allTasks.find(function(t) { return t.id === editingTaskId; });
+    const r = await api('POST', '/tasks', {
+      title: title,
+      parentTaskId: editingTaskId,
+      status: statusRegistry.defaultKey(parent ? parent.projectId || '' : ''),
+      priority: 'medium',
+    });
     if (r.ok) {
       allTasks.push(r.data.task);
       renderSubtasks(editingTaskId);

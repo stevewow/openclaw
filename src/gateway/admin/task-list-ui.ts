@@ -76,6 +76,36 @@ export const TASK_LIST_COMPONENT_JS = `
   var TL_STATUS_COLORS = { todo: '#6b7280', in_progress: '#3b82f6', review: '#f59e0b', done: '#16a34a' };
   var TL_PRIORITY_LABELS = { urgent: 'Urgent', high: 'High', medium: 'Medium', low: 'Low' };
 
+  /**
+   * How a status reads. Board columns are per-project data (task-status-ui.ts),
+   * and a task's project decides what its status means — so the list asks the
+   * host rather than assuming the four keys every board started with. The
+   * defaults below are those four, which keeps this component working on its
+   * own before a host installs a registry.
+   */
+  var TL_STATUS = {
+    isDone: function(status) { return status === 'done'; },
+    label: function(status) { return TL_STATUS_LABELS[status] || status; },
+    color: function(status) { return TL_STATUS_COLORS[status] || '#6b7280'; },
+    rank: function(status) {
+      var r = TL_STATUS_RANK[status];
+      return r === undefined ? 99 : r;
+    },
+    /** Ordered columns to offer or group by, given the tasks in view. */
+    all: function() {
+      return Object.keys(TL_STATUS_LABELS).map(function(k) {
+        return { key: k, label: TL_STATUS_LABELS[k] };
+      });
+    }
+  };
+
+  /** Install per-project status resolution. Partial overrides are fine. */
+  function setTaskStatusResolver(r) {
+    Object.keys(r || {}).forEach(function(k) {
+      if (typeof r[k] === 'function') TL_STATUS[k] = r[k];
+    });
+  }
+
   /** A fresh, empty filter. Everything off means "show me everything". */
   function makeTaskFilter() {
     return { text: '', assignee: '', priority: '', due: '', tag: '', mine: false };
@@ -93,12 +123,13 @@ export const TASK_LIST_COMPONENT_JS = `
   }
 
   /**
-   * How a due date should read, relative to now. 'done' short-circuits: a
-   * finished task is not overdue no matter when it was due, and colouring it red
-   * is just noise on the board.
+   * How a due date should read, relative to now. A finished status
+   * short-circuits: a done task is not overdue no matter when it was due, and
+   * colouring it red is just noise on the board. The task argument is optional
+   * and only needed so the resolver can tell which board the status belongs to.
    */
-  function dueState(dueDate, status, now) {
-    if (status === 'done') return dueDate ? 'done' : 'none';
+  function dueState(dueDate, status, now, task) {
+    if (TL_STATUS.isDone(status, task)) return dueDate ? 'done' : 'none';
     if (!dueDate) return 'none';
     var today = tlStartOfDay(now === undefined ? Date.now() : now);
     var due = tlStartOfDay(dueDate);
@@ -108,8 +139,8 @@ export const TASK_LIST_COMPONENT_JS = `
     return 'later';
   }
 
-  function dueLabel(dueDate, status, now) {
-    var state = dueState(dueDate, status, now);
+  function dueLabel(dueDate, status, now, task) {
+    var state = dueState(dueDate, status, now, task);
     if (state === 'none') return '';
     var d = new Date(dueDate);
     var text = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -122,9 +153,9 @@ export const TASK_LIST_COMPONENT_JS = `
   }
 
   function dueChip(task, now) {
-    var state = dueState(task.dueDate, task.status, now);
+    var state = dueState(task.dueDate, task.status, now, task);
     if (state === 'none') return '';
-    return '<span class="due-chip due-' + state + '">' + esc(dueLabel(task.dueDate, task.status, now)) + '</span>';
+    return '<span class="due-chip due-' + state + '">' + esc(dueLabel(task.dueDate, task.status, now, task)) + '</span>';
   }
 
   /**
@@ -152,7 +183,7 @@ export const TASK_LIST_COMPONENT_JS = `
       if (f.priority && t.priority !== f.priority) return false;
       if (f.tag && (t.tags || []).indexOf(f.tag) === -1) return false;
       if (f.due) {
-        var state = dueState(t.dueDate, t.status, ctx.now);
+        var state = dueState(t.dueDate, t.status, ctx.now, t);
         if (f.due === 'none' && state !== 'none') return false;
         if (f.due === 'overdue' && state !== 'overdue') return false;
         if (f.due === 'today' && state !== 'today') return false;
@@ -170,7 +201,7 @@ export const TASK_LIST_COMPONENT_JS = `
       var av, bv;
       switch (key) {
         case 'title': av = (a.title || '').toLowerCase(); bv = (b.title || '').toLowerCase(); break;
-        case 'status': av = TL_STATUS_RANK[a.status]; bv = TL_STATUS_RANK[b.status]; break;
+        case 'status': av = TL_STATUS.rank(a.status, a); bv = TL_STATUS.rank(b.status, b); break;
         case 'priority': av = TL_PRIORITY_RANK[a.priority]; bv = TL_PRIORITY_RANK[b.priority]; break;
         case 'due':
           // Undated tasks sort last in both directions: "no date" is not later
@@ -293,15 +324,17 @@ export const TASK_LIST_COMPONENT_JS = `
       var names = (t.assigneeIds || []).map(function(id) {
         return cfg.userLabel ? cfg.userLabel(id) : id;
       });
-      var statusOpts = Object.keys(TL_STATUS_LABELS).map(function(k) {
-        return '<option value="' + k + '"' + (t.status === k ? ' selected' : '') + '>' + TL_STATUS_LABELS[k] + '</option>';
+      // Options come from this task's own board, so a row never offers a column
+      // its project does not have.
+      var statusOpts = TL_STATUS.all([t]).map(function(c) {
+        return '<option value="' + esc(c.key) + '"' + (t.status === c.key ? ' selected' : '') + '>' + esc(c.label) + '</option>';
       }).join('');
       var prioOpts = Object.keys(TL_PRIORITY_LABELS).map(function(k) {
         return '<option value="' + k + '"' + (t.priority === k ? ' selected' : '') + '>' + TL_PRIORITY_LABELS[k] + '</option>';
       }).join('');
       return '<tr data-id="' + esc(t.id) + '">'
         + '<td class="tl-title-cell" data-open="' + esc(t.id) + '">'
-          + '<span class="tl-dot" style="background:' + esc(TL_STATUS_COLORS[t.status] || '#6b7280') + '"></span>'
+          + '<span class="tl-dot" style="background:' + esc(TL_STATUS.color(t.status, t)) + '"></span>'
           + esc(t.title)
           + (t.description ? '<span class="tl-sub">' + esc(String(t.description).slice(0, 90)) + '</span>' : '')
         + '</td>'
@@ -324,12 +357,16 @@ export const TASK_LIST_COMPONENT_JS = `
       } else {
         var groupBy = cfg.groupBy ? cfg.groupBy() : '';
         if (groupBy === 'status' || groupBy === 'priority') {
-          var labels = groupBy === 'status' ? TL_STATUS_LABELS : TL_PRIORITY_LABELS;
-          body = Object.keys(labels).map(function(k) {
-            var inGroup = sorted.filter(function(t) { return t[groupBy] === k; });
+          var groups = groupBy === 'status'
+            ? TL_STATUS.all(sorted)
+            : Object.keys(TL_PRIORITY_LABELS).map(function(k) {
+                return { key: k, label: TL_PRIORITY_LABELS[k] };
+              });
+          body = groups.map(function(g) {
+            var inGroup = sorted.filter(function(t) { return t[groupBy] === g.key; });
             if (!inGroup.length) return '';
             return '<tr class="tl-group-row"><td colspan="' + COLUMNS.length + '">'
-              + esc(labels[k]) + ' · ' + inGroup.length + '</td></tr>'
+              + esc(g.label) + ' · ' + inGroup.length + '</td></tr>'
               + inGroup.map(row).join('');
           }).join('');
         } else {

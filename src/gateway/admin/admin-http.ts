@@ -142,7 +142,9 @@ import {
   isDoneStatus,
   listProjectStatuses,
   resolveStatuses,
+  resolveStatusesForProjects,
   setStatuses,
+  type TaskStatusDef,
 } from "./task-status-store.js";
 import {
   TICKET_CATEGORIES,
@@ -208,6 +210,8 @@ const MAX_BODY_BYTES_RESOURCE = 20 * 1024 * 1024; // 20 MB for file uploads (bas
 
 const ADMIN_PATH_PREFIX = "/api/admin";
 const MAX_BODY_BYTES = 64 * 1024;
+/** Boards in one view. Well above any real project count, below a DoS. */
+const MAX_STATUS_SETS_PER_REQUEST = 200;
 
 function isAdminPath(pathname: string): boolean {
   return pathname === ADMIN_PATH_PREFIX || pathname.startsWith(`${ADMIN_PATH_PREFIX}/`);
@@ -1548,6 +1552,38 @@ export async function handleAdminHttpRequest(
       // the editor can offer "reset to default" only when there is one.
       custom: projectId ? (await listProjectStatuses(projectId)).length > 0 : true,
     });
+    return true;
+  }
+
+  // A board that spans several projects needs all their column sets at once.
+  // Asking per project would be one request per card colour on first paint.
+  if (subPath === "/task-statuses/sets" && req.method === "GET") {
+    const raw = normalizeString(url.searchParams.get("projectIds")) ?? "";
+    const requested = Array.from(
+      new Set(
+        raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, MAX_STATUS_SETS_PER_REQUEST);
+    // Silently drop projects this viewer cannot see rather than failing the
+    // whole board: the ids come from their own task list, which may lag.
+    const allowed: string[] = [];
+    for (const id of requested) {
+      if (await canAccessProject(taskEditViewer, id)) {
+        allowed.push(id);
+      }
+    }
+    const resolved = await resolveStatusesForProjects(allowed);
+    const sets: Record<string, TaskStatusDef[]> = {};
+    const custom: Record<string, boolean> = {};
+    for (const [key, statuses] of resolved) {
+      sets[key] = statuses;
+      // Global rows carry a null projectId, so an own set identifies itself.
+      custom[key] = key === "" ? true : statuses[0]?.projectId != null;
+    }
+    sendJson(res, 200, { sets, custom });
     return true;
   }
 

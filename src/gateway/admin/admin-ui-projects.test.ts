@@ -1,5 +1,7 @@
+import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
+import { TASK_STATUS_COMPONENT_JS } from "./task-status-ui.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
 /**
@@ -197,5 +199,135 @@ describe("closed projects stay off the board", () => {
   it("narrows to one project when a filter is set", () => {
     const m = loadVisibilityModel({ projects: PROJECTS, tasks: TASKS, projectsFilter: "p-active" });
     expect(m.getFilteredTasks().map((t) => t.id)).toEqual(["t-active"]);
+  });
+});
+
+/**
+ * Board columns are data now, so the shipped renderBoard is lifted out of the
+ * SPA and run against a real DOM. Parsing alone would not catch a board that
+ * draws the wrong columns — or silently drops a card whose status the column
+ * set in view does not define.
+ */
+function renderBoardWith(opts: {
+  columns: Array<Record<string, unknown>>;
+  tasks: Array<Record<string, unknown>>;
+  projectsFilter?: string;
+}) {
+  const script = inlineScripts(ADMIN_UI_HTML)[0];
+  if (!script) {
+    throw new Error("no inline script found in ADMIN_UI_HTML");
+  }
+  const start = script.indexOf("function renderBoard() {");
+  const end = script.indexOf("// ── Board drag & drop");
+  if (start === -1 || end === -1) {
+    throw new Error("renderBoard block not found — did the SPA change?");
+  }
+
+  const dom = new JSDOM(
+    `<!DOCTYPE html><div id="projects-board"><div class="board-wrap" id="board-cols"></div></div>`,
+    { runScripts: "outside-only" },
+  );
+  const escape = (v: string | number | null | undefined) =>
+    String(v ?? "").replace(
+      /[&<>"']/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
+    );
+  // The board only needs the columns and the tasks; cards and the filter bar
+  // have their own coverage, so both are stubbed down to what it reads.
+  const preamble = `
+    var esc = ${escape.toString()};
+    var projectsFilter = ${JSON.stringify(opts.projectsFilter ?? "")};
+    function getFilteredTasks() { return ${JSON.stringify(opts.tasks)}; }
+    function renderTaskCard(t) { return '<div class="task-card" data-id="' + esc(t.id) + '"></div>'; }
+    var statusRegistry = createStatusRegistry({ api: function() {
+      return Promise.resolve({ ok: true, data: { sets: { '': ${JSON.stringify(opts.columns)} }, custom: {} } });
+    } });
+  `;
+  dom.window.eval(`${TASK_STATUS_COMPONENT_JS}\n${preamble}\n${script.slice(start, end)}`);
+  return {
+    async render() {
+      await (dom.window.eval("statusRegistry.ensure([])") as Promise<void>);
+      (dom.window.eval("renderBoard") as () => void)();
+      return dom.window.document;
+    },
+  };
+}
+
+const COLS = [
+  { key: "booked", label: "Booked", color: "#6b7280", isDone: false, wipLimit: null },
+  { key: "shot", label: "Shot", color: "#3b82f6", isDone: false, wipLimit: 2 },
+  { key: "delivered", label: "Delivered", color: "#16a34a", isDone: true, wipLimit: null },
+];
+
+describe("the board draws whatever columns its project defines", () => {
+  it("renders one column per status, in order, with its own label and colour", async () => {
+    const doc = await renderBoardWith({ columns: COLS, tasks: [] }).render();
+    const titles = Array.from(doc.querySelectorAll(".board-col-title")).map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(titles).toEqual(["Booked", "Shot", "Delivered"]);
+    const bodies = Array.from(doc.querySelectorAll(".board-col-body"));
+    expect(bodies.map((b) => (b as HTMLElement).dataset.status)).toEqual([
+      "booked",
+      "shot",
+      "delivered",
+    ]);
+  });
+
+  it("places each card in its own column and counts it", async () => {
+    const doc = await renderBoardWith({
+      columns: COLS,
+      tasks: [
+        { id: "a", status: "booked", position: 0, createdAt: 0 },
+        { id: "b", status: "delivered", position: 0, createdAt: 0 },
+        { id: "c", status: "delivered", position: 1, createdAt: 0 },
+      ],
+    }).render();
+    const bodies = Array.from(doc.querySelectorAll(".board-col-body"));
+    expect(bodies[0]!.querySelectorAll(".task-card")).toHaveLength(1);
+    expect(bodies[1]!.querySelectorAll(".task-card")).toHaveLength(0);
+    expect(bodies[2]!.querySelectorAll(".task-card")).toHaveLength(2);
+    const counts = Array.from(doc.querySelectorAll(".board-col-count")).map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(counts).toEqual(["1", "0 / 2", "2"]);
+  });
+
+  it("flags a column over its WIP limit without blocking anything", async () => {
+    const doc = await renderBoardWith({
+      columns: COLS,
+      tasks: [
+        { id: "a", status: "shot", position: 0, createdAt: 0 },
+        { id: "b", status: "shot", position: 1, createdAt: 0 },
+        { id: "c", status: "shot", position: 2, createdAt: 0 },
+      ],
+    }).render();
+    const over = doc.querySelectorAll(".board-col-count.over-wip");
+    expect(over).toHaveLength(1);
+    expect(over[0]!.textContent?.trim()).toBe("3 / 2");
+    // The cards are still drawn: the limit is a signal, not a gate.
+    expect(doc.querySelectorAll(".task-card")).toHaveLength(3);
+  });
+
+  it("keeps a card whose status the visible column set does not define", async () => {
+    const doc = await renderBoardWith({
+      columns: COLS,
+      tasks: [{ id: "stray", status: "awaiting_edit", position: 0, createdAt: 0 }],
+    }).render();
+    const titles = Array.from(doc.querySelectorAll(".board-col-title")).map((el) =>
+      el.textContent?.trim(),
+    );
+    // An extra column appears rather than the card vanishing from the board
+    // while still counting in every total.
+    expect(titles).toEqual(["Booked", "Shot", "Delivered", "Awaiting Edit"]);
+    expect(doc.querySelectorAll(".task-card")).toHaveLength(1);
+  });
+
+  it("offers Add Task on every column, carrying that column's key", async () => {
+    const doc = await renderBoardWith({ columns: COLS, tasks: [] }).render();
+    const keys = Array.from(doc.querySelectorAll(".board-add-btn")).map(
+      (el) => (el as HTMLElement).dataset.status,
+    );
+    expect(keys).toEqual(["booked", "shot", "delivered"]);
   });
 });
