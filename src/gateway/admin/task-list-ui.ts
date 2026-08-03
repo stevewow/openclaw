@@ -10,7 +10,10 @@ export const TASK_LIST_CSS = `
   .tl-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   .tl-search { flex: 1 1 12rem; min-width: 9rem; max-width: 22rem; padding: 0.4rem 0.65rem; font-size: 0.82rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
   .tl-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.09); }
-  .tl-bar select { padding: 0.38rem 0.5rem; font-size: 0.8rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+  /* width:auto matters: the host page styles every select as width:100%, which
+     makes a select in a flex row swallow the whole line. The popover's selects
+     opt back into 100% below, where filling the panel is what you want. */
+  .tl-bar select { flex: 0 1 auto; width: auto; max-width: 12rem; padding: 0.38rem 0.5rem; font-size: 0.8rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
   .tl-mine { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
   .tl-mine input { cursor: pointer; }
   .tl-clear { background: none; border: none; font-size: 0.78rem; color: var(--text-muted); text-decoration: underline; cursor: pointer; font-family: inherit; }

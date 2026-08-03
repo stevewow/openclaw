@@ -456,7 +456,12 @@ ${MY_WORK_CSS}
      menu holding what used to be loose buttons in the toolbar. */
   .board-tools { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 1rem; }
   .board-tools .tl-bar { margin-bottom: 0; }
-  .board-tools .project-select { flex-shrink: 0; }
+  /* The global "input, select, textarea { width: 100% }" rule applies here too,
+     so without an explicit width this select claims the whole row — and with
+     flex-shrink:0 it never gave the space back, squeezing the filter bar to
+     zero and pushing search and Filters off the clipped right edge. Sized to
+     its content, allowed to shrink, floored so it stays readable. */
+  .board-tools .project-select { flex: 0 1 auto; width: auto; min-width: 8rem; max-width: 15rem; }
   .tool-menu { position: relative; flex-shrink: 0; }
   #tool-menu-btn { font-size: 1rem; line-height: 1; padding: 0.4rem 0.7rem; }
   /* Lit while a view that lives in this menu is the one on screen. */

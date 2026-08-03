@@ -301,3 +301,25 @@ describe("project detail", () => {
     expect(doc.querySelector("#proj-detail-modal")?.classList.contains("hidden")).toBe(true);
   });
 });
+
+describe("the projects filter row fits its container", () => {
+  const css = ADMIN_UI_HTML.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
+
+  it("styles every select full-width by default — the rule the row must defend against", () => {
+    expect(css).toMatch(/input,\s*select,\s*textarea\s*\{[^}]*width:\s*100%/);
+  });
+
+  it("gives the project picker its own width and lets it shrink", () => {
+    // With width:100% inherited and flex-shrink:0 it claimed the entire row,
+    // squeezed the filter bar to zero, and pushed search and Filters past the
+    // clipped right edge of .main.
+    const rule = css.match(/\.board-tools \.project-select\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rule).toMatch(/width:\s*auto/);
+    expect(rule).toMatch(/max-width:/);
+    expect(rule).not.toMatch(/flex-shrink:\s*0/);
+  });
+
+  it("keeps .main clipping, so an overflowing row is a bug and not a scrollbar", () => {
+    expect(css).toMatch(/\.main\s*\{[^}]*overflow-x:\s*hidden/);
+  });
+});

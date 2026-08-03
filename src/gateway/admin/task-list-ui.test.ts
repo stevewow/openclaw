@@ -490,3 +490,22 @@ describe("the filters popover stays on screen", () => {
     ).not.toThrow();
   });
 });
+
+describe("controls in the filter bar keep their own width", () => {
+  it("gives selects an explicit width, so the host's width:100% cannot swallow the row", () => {
+    // The admin page styles every select as width:100%. In a flex row that
+    // makes one select take the whole line and push the rest off the clipped
+    // edge, which is exactly the bug this pins.
+    expect(TASK_LIST_CSS).toMatch(/\.tl-bar select\s*\{[^}]*width:\s*auto/);
+    expect(TASK_LIST_CSS).toMatch(/\.tl-bar select\s*\{[^}]*max-width:/);
+  });
+
+  it("still lets the popover's selects fill the panel", () => {
+    // Declared after `.tl-bar select`, so the popover keeps full-width fields.
+    const barAt = TASK_LIST_CSS.indexOf(".tl-bar select");
+    const popAt = TASK_LIST_CSS.indexOf(".tl-more-pop select");
+    expect(barAt).toBeGreaterThan(-1);
+    expect(popAt).toBeGreaterThan(barAt);
+    expect(TASK_LIST_CSS).toMatch(/\.tl-more-pop select\s*\{[^}]*width:\s*100%/);
+  });
+});
