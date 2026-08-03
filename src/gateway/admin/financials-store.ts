@@ -9,29 +9,38 @@ import {
 } from "./past-due-cases-store.js";
 import { lastContactByAccount, type LastContact } from "./past-due-contacts-store.js";
 import { type ContactIndex, loadContactIndex, lookupContact } from "./pipedrive-contacts-store.js";
+import { spiroInvoiceUrl } from "./spiro-links.js";
 import { getAdminDb } from "./user-store.js";
 
 // ── Collections policy ────────────────────────────────────────────────────
 // Buckets and next-actions mirror WOW Video Tours' written collection process.
 // A bucket is chosen by an account's OLDEST past-due invoice (worst case).
-export type PastDueBucket = "1-44" | "45-59" | "60-89" | "90-119" | "120+";
+export type PastDueBucket = "45-59" | "60-89" | "90-119" | "120+";
 
-export const PAST_DUE_BUCKETS: PastDueBucket[] = ["1-44", "45-59", "60-89", "90-119", "120+"];
+export const PAST_DUE_BUCKETS: PastDueBucket[] = ["45-59", "60-89", "90-119", "120+"];
+
+/**
+ * The report starts where the collections process does. Nothing is owed to a
+ * collector before the 45-day billing email, so an invoice younger than this is
+ * left out of every figure on the report — balances, counts and tiles included —
+ * rather than being shown and then filtered in the UI.
+ */
+export const PAST_DUE_MIN_DAYS = 45;
 
 // Policy action surfaced per bucket. Kept declarative so the UI and any future
 // automation read the same source of truth.
-export function bucketForDays(daysPastDue: number): PastDueBucket {
+export function bucketForDays(daysPastDue: number): PastDueBucket | null {
   if (daysPastDue >= 120) return "120+";
   if (daysPastDue >= 90) return "90-119";
   if (daysPastDue >= 60) return "60-89";
-  if (daysPastDue >= 45) return "45-59";
-  return "1-44";
+  if (daysPastDue >= PAST_DUE_MIN_DAYS) {
+    return "45-59";
+  }
+  return null;
 }
 
 export function policyAction(bucket: PastDueBucket): { label: string; detail: string } {
   switch (bucket) {
-    case "1-44":
-      return { label: "Monitor", detail: "First billing email is due at 45 days past due." };
     case "45-59":
       return {
         label: "Send billing email",
@@ -81,6 +90,8 @@ export type PastDueInvoice = {
   dateDue: number;
   daysPastDue: number;
   orderCount: number;
+  /** Deep link into Spiro, or null when the id is not a linkable UUID. */
+  spiroUrl: string | null;
 };
 
 export type PastDueAccount = {
@@ -512,7 +523,9 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
   >();
   for (const row of rows) {
     const daysPastDue = daysBetween(row.date_due, now);
-    if (daysPastDue < 1) continue;
+    if (daysPastDue < PAST_DUE_MIN_DAYS) {
+      continue;
+    }
     const entry = byAccount.get(row.account_key) ?? {
       name: row.account_name,
       type: (row.account_type as "company" | "agent" | "unknown") ?? "unknown",
@@ -546,32 +559,40 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
   }
 
   const accounts: PastDueAccount[] = Array.from(byAccount.entries())
-    .map(([accountKey, v]) => {
+    .flatMap(([accountKey, v]) => {
+      // An account only reaches this map once one of its invoices cleared the
+      // floor, and `oldest` is the worst of them, so the bucket always resolves.
+      // The guard keeps that invariant honest rather than asserting it away.
       const bucket = bucketForDays(v.oldest);
+      if (!bucket) {
+        return [];
+      }
       const lastContact = resolveLastContact({
         logged: logged.get(accountKey) ?? null,
         pipedrive,
         name: v.name,
         type: v.type,
       });
-      return {
-        accountKey,
-        accountName: v.name,
-        accountType: v.type,
-        balance: Math.round(v.balance * 100) / 100,
-        invoiced: Math.round(v.invoiced * 100) / 100,
-        paid: Math.round(v.paid * 100) / 100,
-        invoiceCount: v.count,
-        partiallyPaidCount: v.partial,
-        needsManualReview: v.partial > 0,
-        oldestDaysPastDue: v.oldest,
-        bucket,
-        action: policyAction(bucket),
-        paymentPlan: paymentPlanTerms(v.balance),
-        case: cases.get(accountKey) ?? defaultCase(accountKey, v.name, now),
-        lastContact,
-        daysSinceContact: lastContact ? Math.max(0, daysBetween(lastContact.at, now)) : null,
-      };
+      return [
+        {
+          accountKey,
+          accountName: v.name,
+          accountType: v.type,
+          balance: Math.round(v.balance * 100) / 100,
+          invoiced: Math.round(v.invoiced * 100) / 100,
+          paid: Math.round(v.paid * 100) / 100,
+          invoiceCount: v.count,
+          partiallyPaidCount: v.partial,
+          needsManualReview: v.partial > 0,
+          oldestDaysPastDue: v.oldest,
+          bucket,
+          action: policyAction(bucket),
+          paymentPlan: paymentPlanTerms(v.balance),
+          case: cases.get(accountKey) ?? defaultCase(accountKey, v.name, now),
+          lastContact,
+          daysSinceContact: lastContact ? Math.max(0, daysBetween(lastContact.at, now)) : null,
+        },
+      ];
     })
     .sort((a, b) => b.oldestDaysPastDue - a.oldestDaysPastDue || b.balance - a.balance);
 
@@ -680,8 +701,11 @@ export async function getAccountInvoices(
       dateDue: row.date_due,
       daysPastDue: daysBetween(row.date_due, now),
       orderCount: row.order_count,
+      spiroUrl: spiroInvoiceUrl(row.invoice_id),
     }))
-    .filter((i) => i.daysPastDue >= 1)
+    // Same floor the account list uses, so the invoices listed here add up to
+    // the balance shown for the account.
+    .filter((i) => i.daysPastDue >= PAST_DUE_MIN_DAYS)
     .sort((a, b) => b.daysPastDue - a.daysPastDue);
 
   return { accountName: rows[0]?.account_name ?? accountKey, invoices };

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   bucketForDays,
   PAST_DUE_BUCKETS,
+  PAST_DUE_MIN_DAYS,
   paymentPlanTerms,
   policyAction,
 } from "./financials-store.js";
@@ -27,6 +28,7 @@ function invoice(
     amountPaid?: number;
     status?: string;
     agentId?: string;
+    dueDaysAgo?: number;
   } = {},
 ) {
   const total = opts.amount ?? 100;
@@ -36,7 +38,7 @@ function invoice(
     invoiceId: id,
     referenceNumber: id,
     status: opts.status ?? "open",
-    dateDue: new Date(Date.now() - 90 * DAY).toISOString(),
+    dateDue: new Date(Date.now() - (opts.dueDaysAgo ?? 90) * DAY).toISOString(),
     dateFullyPaid: opts.dateFullyPaid ?? null,
     // Mirrors Spiro's InvoiceAmountModel: amountDue is the total less payments.
     amount: { total, amountPaid: paid, amountDue: total - paid },
@@ -52,8 +54,6 @@ function page(invoices: unknown[], hasNextPage: boolean) {
 
 describe("bucketForDays", () => {
   it("maps day counts to the correct collections-policy bucket at each boundary", () => {
-    expect(bucketForDays(1)).toBe("1-44");
-    expect(bucketForDays(44)).toBe("1-44");
     expect(bucketForDays(45)).toBe("45-59");
     expect(bucketForDays(59)).toBe("45-59");
     expect(bucketForDays(60)).toBe("60-89");
@@ -62,6 +62,15 @@ describe("bucketForDays", () => {
     expect(bucketForDays(119)).toBe("90-119");
     expect(bucketForDays(120)).toBe("120+");
     expect(bucketForDays(400)).toBe("120+");
+  });
+
+  it("has no bucket below the 45-day collections floor", () => {
+    expect(bucketForDays(44)).toBeNull();
+    expect(bucketForDays(1)).toBeNull();
+    expect(bucketForDays(0)).toBeNull();
+    expect(bucketForDays(-5)).toBeNull();
+    expect(PAST_DUE_MIN_DAYS).toBe(45);
+    expect(PAST_DUE_BUCKETS).not.toContain("1-44");
   });
 
   it("has a policy action for every bucket", () => {
@@ -75,7 +84,7 @@ describe("bucketForDays", () => {
   it("surfaces BDS + collections referral only in the escalated buckets", () => {
     expect(policyAction("60-89").detail).toMatch(/BDS/);
     expect(policyAction("120+").detail).toMatch(/collections/i);
-    expect(policyAction("1-44").detail).not.toMatch(/BDS/);
+    expect(policyAction("45-59").detail).not.toMatch(/BDS/);
   });
 });
 
@@ -143,6 +152,79 @@ describe("refreshInvoices", () => {
     const breakdown = await getPastDueBreakdown();
     expect(breakdown.invoiceCount).toBe(3);
     expect(breakdown.totalPastDue).toBe(300);
+  });
+
+  describe("the 45-day collections floor", () => {
+    it("leaves out invoices and accounts that have not reached 45 days past due", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page(
+          [
+            invoice("YOUNG", { amount: 500, dueDaysAgo: 44, agentId: "young" }),
+            invoice("RIPE", { amount: 200, dueDaysAgo: 45, agentId: "ripe" }),
+          ],
+          false,
+        ),
+      );
+      await refreshInvoices({ manual: true });
+
+      const breakdown = await getPastDueBreakdown();
+      // The 44-day invoice is stored but contributes nothing to the report.
+      expect(breakdown.accounts.map((a) => a.accountKey)).toEqual(["agent:ripe"]);
+      expect(breakdown.totalPastDue).toBe(200);
+      expect(breakdown.invoiceCount).toBe(1);
+      expect(breakdown.accounts[0]?.bucket).toBe("45-59");
+      expect(await getAccountInvoices("agent:young")).toMatchObject({ invoices: [] });
+    });
+
+    it("counts only the 45+ invoices of an account that qualifies, so the modal reconciles", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page(
+          [
+            invoice("OLD", { amount: 300, dueDaysAgo: 100, agentId: "mixed" }),
+            invoice("NEW", { amount: 700, dueDaysAgo: 10, agentId: "mixed" }),
+          ],
+          false,
+        ),
+      );
+      await refreshInvoices({ manual: true });
+
+      const breakdown = await getPastDueBreakdown();
+      const acct = breakdown.accounts.find((a) => a.accountKey === "agent:mixed");
+      expect(acct?.balance).toBe(300);
+      expect(acct?.invoiceCount).toBe(1);
+      expect(acct?.bucket).toBe("90-119");
+
+      const { invoices } = await getAccountInvoices("agent:mixed");
+      expect(invoices.map((i) => i.referenceNumber)).toEqual(["OLD"]);
+      expect(invoices.reduce((s, i) => s + i.outstanding, 0)).toBe(acct?.balance);
+    });
+
+    it("carries a Spiro deep link when the invoice id is a UUID", async () => {
+      const uuid = "52dfa04c-682e-4dfb-a165-848875809d07";
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page([invoice(uuid, { amount: 150, agentId: "linkable" })], false),
+      );
+      await refreshInvoices({ manual: true });
+
+      const { invoices } = await getAccountInvoices("agent:linkable");
+      expect(invoices[0]?.spiroUrl).toBe(
+        "https://admins.wowvideotours.com/invoices/clients/pending-invoices/52DFA04C-682E-4DFB-A165-848875809D07",
+      );
+    });
+
+    it("leaves the link null when the invoice id is not a UUID", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page([invoice("WVT076170", { amount: 150, agentId: "unlinkable" })], false),
+      );
+      await refreshInvoices({ manual: true });
+
+      const { invoices } = await getAccountInvoices("agent:unlinkable");
+      expect(invoices[0]?.spiroUrl).toBeNull();
+    });
   });
 
   describe("partial payments", () => {

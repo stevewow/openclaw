@@ -850,7 +850,12 @@ ${MY_WORK_COMPONENT_JS}
     var r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey));
     if (!r.ok){ panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem">Could not load this account.</div>'; return; }
     var invoices = (r.data.invoices || []).map(function(i){
-      return '<tr><td>' + esc(i.referenceNumber || i.invoiceId) + (i.partiallyPaid ? ' <strong style="color:#b7791f">partial</strong>' : '') + '</td>' +
+      var ref = esc(i.referenceNumber || i.invoiceId);
+      // Opens the invoice in Spiro when the id is linkable; plain text if not.
+      if (i.spiroUrl){
+        ref = '<a href="' + esc(i.spiroUrl) + '" target="_blank" rel="noopener" title="Open in Spiro">' + ref + '</a>';
+      }
+      return '<tr><td>' + ref + (i.partiallyPaid ? ' <strong style="color:#b7791f">partial</strong>' : '') + '</td>' +
         '<td>' + pdMoney(i.amount) + '</td><td>' + (i.amountPaid === null ? '—' : pdMoney(i.amountPaid)) + '</td>' +
         '<td>' + pdMoney(i.outstanding) + '</td><td>' + esc(pdDate(i.dateDue)) + '</td><td>' + i.daysPastDue + '</td></tr>';
     }).join('');

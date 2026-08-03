@@ -79,11 +79,11 @@ describe("templates CRUD", () => {
       title: "First reminder",
       kind: "call",
       body: "Hi {{account}}",
-      buckets: ["1-44"],
+      buckets: ["45-59"],
       userId: null,
       userName: "Steve",
     });
-    expect(t.buckets).toEqual(["1-44"]);
+    expect(t.buckets).toEqual(["45-59"]);
     const list = await store.listTemplates();
     expect(list.map((x) => x.id)).toContain(t.id);
   });
