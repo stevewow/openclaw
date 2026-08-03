@@ -233,7 +233,7 @@ describe("createTaskFilterBar", () => {
     const search = doc.querySelector(".tl-search") as HTMLInputElement;
     search.value = "oak";
     search.dispatchEvent(
-      new (w as never as { window: Window }).window.Event("input", { bubbles: true }),
+      new (w as never as { window: typeof globalThis }).window.Event("input", { bubbles: true }),
     );
     expect(bar.filter().text).toBe("oak");
     expect(changes).toBeGreaterThan(0);
@@ -254,12 +254,114 @@ describe("createTaskFilterBar", () => {
     const mine = doc.querySelector(".tl-mine-chk") as HTMLInputElement;
     mine.checked = true;
     mine.dispatchEvent(
-      new (w as never as { window: Window }).window.Event("change", { bubbles: true }),
+      new (w as never as { window: typeof globalThis }).window.Event("change", { bubbles: true }),
     );
     expect(bar.filter().mine).toBe(true);
     (doc.querySelector(".tl-clear") as HTMLElement).click();
     expect(bar.filter().mine).toBe(false);
     expect((doc.querySelector(".tl-clear") as HTMLElement).classList.contains("hidden")).toBe(true);
+  });
+
+  describe("the Filters popover", () => {
+    it("keeps search and assignee in the bar and tucks the rest away", () => {
+      const w = load();
+      const doc = w.document;
+      // Visible at a glance: what you type and who it is for.
+      expect(doc.querySelector(".tl-more-pop .tl-search")).toBeNull();
+      expect(doc.querySelector(".tl-more-pop .tl-assignee")).toBeNull();
+      // Behind the button: the four that are usually off.
+      for (const sel of [".tl-priority", ".tl-due", ".tl-tag", ".tl-mine-chk"]) {
+        expect(doc.querySelector(`.tl-more-pop ${sel}`)).not.toBeNull();
+      }
+    });
+
+    it("starts closed and toggles on the button", () => {
+      const w = load();
+      const doc = w.document;
+      w.createTaskFilterBar({ rootId: "bar", people: () => [], tags: () => [] });
+      const pop = doc.querySelector(".tl-more-pop") as HTMLElement;
+      const btn = doc.querySelector(".tl-more-btn") as HTMLElement;
+      expect(pop.classList.contains("hidden")).toBe(true);
+      btn.click();
+      expect(pop.classList.contains("hidden")).toBe(false);
+      btn.click();
+      expect(pop.classList.contains("hidden")).toBe(true);
+    });
+
+    it("stays open while you change a filter inside it", () => {
+      const w = load();
+      const doc = w.document;
+      w.createTaskFilterBar({ rootId: "bar", people: () => [], tags: () => [] });
+      const pop = doc.querySelector(".tl-more-pop") as HTMLElement;
+      (doc.querySelector(".tl-more-btn") as HTMLElement).click();
+      (doc.querySelector(".tl-mine-chk") as HTMLElement).click();
+      expect(pop.classList.contains("hidden")).toBe(false);
+    });
+
+    it("closes on an outside click and on Escape", () => {
+      const w = load();
+      const doc = w.document;
+      w.createTaskFilterBar({ rootId: "bar", people: () => [], tags: () => [] });
+      const pop = doc.querySelector(".tl-more-pop") as HTMLElement;
+      const btn = doc.querySelector(".tl-more-btn") as HTMLElement;
+
+      btn.click();
+      doc.body.click();
+      expect(pop.classList.contains("hidden")).toBe(true);
+
+      btn.click();
+      doc.dispatchEvent(
+        new (w as never as { window: typeof globalThis }).window.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+        }),
+      );
+      expect(pop.classList.contains("hidden")).toBe(true);
+    });
+
+    it("badges how many hidden filters are on, so nothing filters silently", () => {
+      const w = load();
+      const doc = w.document;
+      const bar = w.createTaskFilterBar({
+        rootId: "bar",
+        people: () => [{ id: "u1", name: "steve" }],
+        tags: () => [],
+        currentUserId: () => "u1",
+      });
+      bar.refreshOptions();
+      const btn = doc.querySelector(".tl-more-btn") as HTMLElement;
+      const fire = (el: Element, type: string) =>
+        el.dispatchEvent(
+          new (w as never as { window: typeof globalThis }).window.Event(type, { bubbles: true }),
+        );
+
+      expect(btn.querySelector(".tl-more-badge")).toBeNull();
+      expect(btn.classList.contains("tl-more-on")).toBe(false);
+
+      const prio = doc.querySelector(".tl-priority") as HTMLSelectElement;
+      prio.value = "high";
+      fire(prio, "change");
+      expect(btn.querySelector(".tl-more-badge")?.textContent).toBe("1");
+      expect(btn.classList.contains("tl-more-on")).toBe(true);
+
+      const mine = doc.querySelector(".tl-mine-chk") as HTMLInputElement;
+      mine.checked = true;
+      fire(mine, "change");
+      expect(btn.querySelector(".tl-more-badge")?.textContent).toBe("2");
+
+      // Search and assignee stay visible in the bar, so they are not counted.
+      const search = doc.querySelector(".tl-search") as HTMLInputElement;
+      search.value = "oak";
+      fire(search, "input");
+      const assignee = doc.querySelector(".tl-assignee") as HTMLSelectElement;
+      assignee.value = "u1";
+      fire(assignee, "change");
+      expect(btn.querySelector(".tl-more-badge")?.textContent).toBe("2");
+
+      (doc.querySelector(".tl-clear") as HTMLElement).click();
+      expect(btn.querySelector(".tl-more-badge")).toBeNull();
+      expect(btn.classList.contains("tl-more-on")).toBe(false);
+    });
   });
 });
 
@@ -301,7 +403,7 @@ describe("createTaskList", () => {
     ) as HTMLSelectElement;
     sel.value = "review";
     sel.dispatchEvent(
-      new (w as never as { window: Window }).window.Event("change", { bubbles: true }),
+      new (w as never as { window: typeof globalThis }).window.Event("change", { bubbles: true }),
     );
     expect(patches).toEqual([{ id: "a", patch: { status: "review" } }]);
   });

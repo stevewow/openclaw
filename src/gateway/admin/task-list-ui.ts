@@ -9,12 +9,29 @@
 export const TASK_LIST_CSS = `
   .tl-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   .tl-search { flex: 1 1 12rem; min-width: 9rem; max-width: 22rem; padding: 0.4rem 0.65rem; font-size: 0.82rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+  .tl-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.09); }
   .tl-bar select { padding: 0.38rem 0.5rem; font-size: 0.8rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
   .tl-mine { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
   .tl-mine input { cursor: pointer; }
   .tl-clear { background: none; border: none; font-size: 0.78rem; color: var(--text-muted); text-decoration: underline; cursor: pointer; font-family: inherit; }
   .tl-clear:hover { color: var(--accent); }
   .tl-count { font-size: 0.75rem; color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+
+  /* Priority, due window, tag and "only mine" live behind one button. Four
+     always-visible selects read as a control panel; most sessions use none of
+     them, and the ones in use are named on the button itself. */
+  .tl-more { position: relative; flex-shrink: 0; }
+  .tl-more-btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; font-family: inherit; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; white-space: nowrap; }
+  .tl-more-btn:hover { color: var(--text); }
+  .tl-more-btn.tl-more-on { color: var(--accent); border-color: var(--accent); background: rgba(192,0,10,0.05); }
+  .tl-more-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px; background: var(--accent); color: #fff; font-size: 0.62rem; font-weight: 800; }
+  .tl-more-pop { position: absolute; left: 0; top: calc(100% + 0.35rem); z-index: 30; min-width: 15rem; padding: 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.12); display: flex; flex-direction: column; gap: 0.55rem; }
+  .tl-more-field { display: flex; flex-direction: column; gap: 0.2rem; }
+  .tl-more-field > span { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .tl-more-pop select { width: 100%; }
+  .tl-more-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.15rem; border-top: 1px solid var(--border); }
+  /* The popover anchors to the right edge on narrow screens so it stays on-page. */
+  @media (max-width: 560px) { .tl-more-pop { left: auto; right: 0; } }
 
   /* Due-date signalling, shared by cards and rows. */
   .due-chip { display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
@@ -46,23 +63,39 @@ export const TASK_LIST_MARKUP = `
           <div class="tl-bar">
             <input type="search" class="tl-search" placeholder="Search tasks…">
             <select class="tl-assignee"><option value="">Anyone</option></select>
-            <select class="tl-priority">
-              <option value="">Any priority</option>
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            <select class="tl-due">
-              <option value="">Any due date</option>
-              <option value="overdue">Overdue</option>
-              <option value="today">Due today</option>
-              <option value="week">Due this week</option>
-              <option value="none">No due date</option>
-            </select>
-            <select class="tl-tag"><option value="">Any tag</option></select>
-            <label class="tl-mine"><input type="checkbox" class="tl-mine-chk"> Only mine</label>
-            <button type="button" class="tl-clear hidden">Clear</button>
+            <div class="tl-more">
+              <button type="button" class="tl-more-btn">Filters <span class="tl-more-caret">▾</span></button>
+              <div class="tl-more-pop hidden">
+                <label class="tl-more-field">
+                  <span>Priority</span>
+                  <select class="tl-priority">
+                    <option value="">Any priority</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
+                <label class="tl-more-field">
+                  <span>Due</span>
+                  <select class="tl-due">
+                    <option value="">Any due date</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="today">Due today</option>
+                    <option value="week">Due this week</option>
+                    <option value="none">No due date</option>
+                  </select>
+                </label>
+                <label class="tl-more-field">
+                  <span>Tag</span>
+                  <select class="tl-tag"><option value="">Any tag</option></select>
+                </label>
+                <div class="tl-more-foot">
+                  <label class="tl-mine"><input type="checkbox" class="tl-mine-chk"> Only mine</label>
+                  <button type="button" class="tl-clear hidden">Clear</button>
+                </div>
+              </div>
+            </div>
             <span class="tl-count"></span>
           </div>
 `;
@@ -113,6 +146,15 @@ export const TASK_LIST_COMPONENT_JS = `
 
   function taskFilterIsActive(f) {
     return !!(f.text || f.assignee || f.priority || f.due || f.tag || f.mine);
+  }
+
+  /**
+   * How many of the tucked-away filters are on. Search and assignee stay in the
+   * bar where you can see them, so they are not counted here — the badge is
+   * there to say what the button is hiding.
+   */
+  function tlHiddenFilterCount(f) {
+    return (f.priority ? 1 : 0) + (f.due ? 1 : 0) + (f.tag ? 1 : 0) + (f.mine ? 1 : 0);
   }
 
   /** Local midnight for a timestamp — the boundary humans mean by "today". */
@@ -237,6 +279,8 @@ export const TASK_LIST_COMPONENT_JS = `
     var mineEl = root.querySelector('.tl-mine-chk');
     var clearEl = root.querySelector('.tl-clear');
     var countEl = root.querySelector('.tl-count');
+    var moreBtn = root.querySelector('.tl-more-btn');
+    var morePop = root.querySelector('.tl-more-pop');
 
     function refreshOptions() {
       var people = (cfg.people ? cfg.people() : []) || [];
@@ -253,6 +297,16 @@ export const TASK_LIST_COMPONENT_JS = `
       tagEl.value = keepT;
     }
 
+    /** Say on the button what the popover is hiding, so nothing filters silently. */
+    function paintMoreButton() {
+      if (!moreBtn) return;
+      var n = tlHiddenFilterCount(f);
+      moreBtn.classList.toggle('tl-more-on', n > 0);
+      moreBtn.innerHTML = 'Filters ' + (n > 0
+        ? '<span class="tl-more-badge">' + n + '</span>'
+        : '<span class="tl-more-caret">▾</span>');
+    }
+
     function sync() {
       f.text = searchEl.value;
       f.assignee = assigneeEl.value;
@@ -261,6 +315,7 @@ export const TASK_LIST_COMPONENT_JS = `
       f.tag = tagEl.value;
       f.mine = mineEl.checked;
       clearEl.classList.toggle('hidden', !taskFilterIsActive(f));
+      paintMoreButton();
       if (cfg.onChange) cfg.onChange();
     }
 
@@ -273,6 +328,20 @@ export const TASK_LIST_COMPONENT_JS = `
       dueEl.value = ''; tagEl.value = ''; mineEl.checked = false;
       sync();
     });
+
+    if (moreBtn && morePop) {
+      moreBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        morePop.classList.toggle('hidden');
+      });
+      // Clicks inside the popover are filter edits, not a request to dismiss it.
+      morePop.addEventListener('click', function(e) { e.stopPropagation(); });
+      document.addEventListener('click', function() { morePop.classList.add('hidden'); });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') morePop.classList.add('hidden');
+      });
+      paintMoreButton();
+    }
 
     return {
       filter: function() { return f; },

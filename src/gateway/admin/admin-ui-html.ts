@@ -201,11 +201,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .badge-superadmin { background: var(--accent); color: #ffffff; }
   .badge-admin { background: #fee2e2; color: var(--accent); }
   .badge-user { background: #f4f4f5; color: #52525b; }
-  .bucket-1-44 { background: #64748b; color: #fff; }
   .bucket-45-59 { background: #d97706; color: #fff; }
   .bucket-60-89 { background: #ea580c; color: #fff; }
   .bucket-90-119 { background: #dc2626; color: #fff; }
   .bucket-120plus { background: #7f1d1d; color: #fff; }
+  .fin-inv-link { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .fin-inv-link:hover { text-decoration: underline; }
   .fin-note { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; background: var(--surface2); }
   .fin-note-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; justify-content: space-between; gap: 0.5rem; }
   .fin-row-click { cursor: pointer; }
@@ -360,36 +361,52 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .info-box a { color: var(--accent); font-weight: 600; }
 
   /* Projects & Tasks */
-  .projects-toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
-  .view-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; flex-shrink: 0; }
-  .view-btn { padding: 0.4rem 0.875rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; background: transparent; border: none; color: var(--text-muted); transition: all 0.12s; font-family: inherit; }
-  .view-btn.active { background: var(--accent); color: #fff; }
+  .projects-toolbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
+  /* A quiet inset track with one raised chip, rather than a solid red slab —
+     the view switch should not be the loudest thing on the page. */
+  .view-toggle { display: inline-flex; gap: 0.15rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 0.15rem; flex-shrink: 0; }
+  .view-btn { padding: 0.36rem 0.85rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; background: transparent; border: none; border-radius: 7px; color: var(--text-muted); transition: background 0.12s, color 0.12s; font-family: inherit; }
+  .view-btn:hover { color: var(--text); }
+  .view-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  /* The Projects grid keeps the older solid-tab look; it is a status filter,
+     not a view switch, and the two should not read as the same control. */
+  .proj-status-tabs .view-btn { border-radius: 0; }
+  .proj-status-tabs .view-btn.active { background: var(--accent); color: #fff; box-shadow: none; }
   .proj-filter-wrap { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
   .project-select { padding: 0.4rem 0.75rem; font-size: 0.875rem; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: inherit; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
   .project-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
-  .board-wrap { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; }
-  .board-column { flex: 0 0 320px; display: flex; flex-direction: column; }
-  .board-col-header { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px 8px 0 0; border-bottom: none; }
-  .board-col-title { font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
-  .board-col-count { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.5rem; min-width: 24px; text-align: center; }
-  .board-col-body { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-top: 2px solid var(--border); padding: 0.625rem; min-height: 300px; }
-  .board-add-btn { width: 100%; padding: 0.5rem; background: transparent; border: 1px dashed var(--border); border-top: none; border-radius: 0 0 8px 8px; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; transition: all 0.12s; font-family: inherit; }
-  .board-add-btn:hover { background: var(--surface); color: var(--accent); border-color: var(--accent); }
-  .board-empty { font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1.5rem 0.5rem; }
-  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 0.5rem; cursor: grab; overflow: hidden; transition: box-shadow 0.12s, transform 0.1s; display: flex; }
-  .task-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-1px); }
+  /* One flat column: a header, a body, and a footer that share a single border
+     and radius instead of three stacked boxes with competing edges. */
+  .board-wrap { display: flex; gap: 0.85rem; overflow-x: auto; padding-bottom: 1rem; align-items: flex-start; }
+  .board-column { flex: 0 0 300px; display: flex; flex-direction: column; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .board-col-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.6rem 0.75rem 0.5rem; }
+  .board-col-title { font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); }
+  .board-col-count { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.08rem 0.45rem; min-width: 22px; text-align: center; }
+  .board-col-body { flex: 1; padding: 0 0.5rem; min-height: 120px; }
+  .board-add-btn { width: 100%; padding: 0.5rem; margin: 0.15rem 0 0; background: transparent; border: none; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; transition: color 0.12s, background 0.12s; font-family: inherit; }
+  .board-add-btn:hover { background: var(--surface); color: var(--accent); }
+  .board-empty { font-size: 0.78rem; color: var(--text-muted); text-align: center; padding: 1.25rem 0.5rem; }
+  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; cursor: grab; overflow: hidden; transition: box-shadow 0.12s, border-color 0.12s; display: flex; }
+  .task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); border-color: var(--text-muted); }
   .task-card:active { cursor: grabbing; }
   .task-card.dragging { opacity: 0.45; cursor: grabbing; }
   .board-col-body.drag-over { background: rgba(192,0,10,0.05); border-color: var(--accent); border-style: dashed; }
   /* Placeholder marking where the dragged card lands. */
   .task-drop-slot { height: 2px; background: var(--accent); border-radius: 2px; margin: 0.25rem 0 0.6rem; }
-  .task-card-project-bar { width: 5px; flex-shrink: 0; }
-  .task-card-body { padding: 0.85rem 0.95rem; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+  .task-card-project-bar { width: 3px; flex-shrink: 0; }
+  .task-card-body { padding: 0.65rem 0.75rem; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.4rem; }
   /* Title and priority share the top row, like the project card's title/status row. */
   .task-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
-  .task-card-title { font-weight: 650; font-size: 0.9rem; line-height: 1.35; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-  .task-card-project-badge { display: inline-block; padding: 0.12rem 0.5rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }
-  .task-prio { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.12rem 0.45rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; text-transform: capitalize; white-space: nowrap; }
+  .task-card-title { font-weight: 600; font-size: 0.86rem; line-height: 1.35; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  /* One muted line under the title carrying project, due, and counts. The card
+     used to stack a badge, a 3-line description, a labelled fact per row, a
+     named chip per assignee and a tag row — five blocks competing for the eye. */
+  .task-card-line { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; font-size: 0.71rem; color: var(--text-muted); min-width: 0; }
+  .task-card-line .task-card-sep { opacity: 0.45; }
+  .task-card-proj { display: inline-flex; align-items: center; gap: 0.28rem; min-width: 0; max-width: 100%; }
+  .task-card-proj-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .task-card-proj-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-prio { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.1rem 0.4rem; border-radius: 5px; font-size: 0.62rem; font-weight: 700; text-transform: capitalize; white-space: nowrap; }
   .prio-low { background: var(--surface2); color: var(--text-muted); }
   .prio-med { background: #dbeafe; color: #1d4ed8; }
   .prio-high { background: #ffedd5; color: #c2410c; }
@@ -404,13 +421,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .task-due { font-size: 0.73rem; color: var(--text-muted); font-weight: 500; }
   .task-recurrence { font-size: 0.73rem; color: var(--text-muted); font-weight: 500; text-transform: capitalize; }
   .task-due-overdue { color: #ef4444 !important; font-weight: 700; }
-  .task-assignee-chip { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.5rem 0.1rem 0.15rem; font-size: 0.7rem; color: var(--text); max-width: 100%; }
-  .task-assignee { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.58rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .task-assignee-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .task-assignee-row { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+  /* Assignees are avatars only on the card — names are one click away in the
+     modal, and initials fit however many people are on a task. */
+  .task-assignee { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.56rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1.5px solid var(--surface); }
+  .task-assignee-row { display: inline-flex; flex-shrink: 0; }
+  .task-assignee-row .task-assignee + .task-assignee { margin-left: -6px; }
+  .task-assignee-more { background: var(--surface2); color: var(--text-muted); }
+  .task-card-foot { display: flex; align-items: center; gap: 0.4rem; }
+  .task-card-foot .task-assignee-row { margin-left: auto; }
   .task-subtask-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
-  .task-subtask-bar { display: flex; flex-direction: column; gap: 0.25rem; }
-  .task-subtask-track { height: 4px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+  .task-subtask-bar { display: flex; align-items: center; gap: 0.4rem; flex: 1; min-width: 0; }
+  .task-subtask-track { flex: 1; height: 3px; border-radius: 999px; background: var(--surface2); overflow: hidden; min-width: 2rem; }
   .task-subtask-fill { height: 100%; background: var(--success); }
   .task-attach-count { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
   .task-tags { display: flex; gap: 0.25rem; flex-wrap: wrap; }
@@ -422,14 +443,22 @@ ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
   /* One filter row: project picker, the shared filter bar, and an overflow
      menu holding what used to be loose buttons in the toolbar. */
-  .board-tools { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .board-tools { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 1rem; }
   .board-tools .tl-bar { margin-bottom: 0; }
   .board-tools .project-select { flex-shrink: 0; }
   .tool-menu { position: relative; flex-shrink: 0; }
-  .tool-menu-pop { position: absolute; right: 0; top: calc(100% + 0.3rem); z-index: 30; min-width: 13rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.3rem; display: flex; flex-direction: column; gap: 0.1rem; }
-  .tool-menu-item { display: flex; align-items: center; gap: 0.4rem; width: 100%; text-align: left; padding: 0.4rem 0.5rem; font-size: 0.8rem; font-family: inherit; font-weight: 500; color: var(--text); background: none; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  #tool-menu-btn { font-size: 1rem; line-height: 1; padding: 0.4rem 0.7rem; }
+  /* Lit while a view that lives in this menu is the one on screen. */
+  #tool-menu-btn.tool-menu-btn-on { color: var(--accent); border-color: var(--accent); background: rgba(192,0,10,0.05); }
+  .tool-menu-pop { position: absolute; left: 0; top: calc(100% + 0.3rem); z-index: 30; min-width: 13.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 0.3rem; display: flex; flex-direction: column; gap: 0.05rem; }
+  .tool-menu-label { padding: 0.35rem 0.5rem 0.2rem; font-size: 0.63rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); }
+  .tool-menu-sep { height: 1px; background: var(--border); margin: 0.25rem 0.15rem; }
+  .tool-menu-item { display: flex; align-items: center; gap: 0.4rem; width: 100%; text-align: left; padding: 0.4rem 0.5rem; font-size: 0.82rem; font-family: inherit; font-weight: 500; color: var(--text); background: none; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap; }
   .tool-menu-item:hover:not(:disabled) { background: var(--surface2); }
   .tool-menu-item:disabled { opacity: 0.4; cursor: default; }
+  /* Fixed-width gutter so labels line up whether or not a ✓ is showing. */
+  .tool-menu-tick { display: inline-block; width: 0.85rem; flex-shrink: 0; color: var(--accent); font-weight: 800; }
+  .tool-menu-item.active { color: var(--accent); }
   @media (max-width: 720px) { .board-tools { flex-wrap: wrap; } }
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
@@ -656,19 +685,34 @@ ${MY_WORK_CSS}
 
       <!-- Projects page -->
       <div id="page-projects" class="page hidden">
-        <!-- Two rows, not four: what you are looking at plus the actions, then
-             one filter row. Everything that used to sit loose in the toolbar
-             (edit/duplicate project, columns, show closed) is behind ⚙. -->
+        <!-- Three views in the open — the ones people use daily — and everything
+             else behind ⋯. Calendar and the Projects grid are occasional views,
+             so they sit in the menu and light the ⋯ button while active rather
+             than taking permanent space in the segmented control. -->
         <div class="projects-toolbar">
           <div class="view-toggle">
-            <button class="view-btn active" id="view-mywork-btn">🙋 My Work</button>
-            <button class="view-btn" id="view-board-btn">⊞ Board</button>
-            <button class="view-btn" id="view-cal-btn">📅 Calendar</button>
-            <button class="view-btn" id="view-tasklist-btn">☰ List</button>
-            <button class="view-btn" id="view-projects-btn">📁 Projects</button>
+            <button class="view-btn active" id="view-mywork-btn">My Work</button>
+            <button class="view-btn" id="view-board-btn">Board</button>
+            <button class="view-btn" id="view-tasklist-btn">List</button>
           </div>
-          <div style="margin-left:auto;display:flex;gap:0.5rem;flex-shrink:0">
-            <button class="btn btn-ghost btn-sm" id="add-project-btn">+ New Project</button>
+          <div class="tool-menu">
+            <button type="button" class="btn btn-ghost btn-sm" id="tool-menu-btn" title="More views and project actions" aria-label="More">⋯</button>
+            <div class="tool-menu-pop hidden" id="tool-menu-pop">
+              <div class="tool-menu-label">Views</div>
+              <button type="button" class="tool-menu-item" id="view-cal-btn"><span class="tool-menu-tick"></span>Calendar</button>
+              <button type="button" class="tool-menu-item" id="view-projects-btn"><span class="tool-menu-tick"></span>Projects</button>
+              <div class="tool-menu-sep"></div>
+              <div class="tool-menu-label">Project</div>
+              <button type="button" class="tool-menu-item" id="add-project-btn">New project…</button>
+              <button type="button" class="tool-menu-item" id="edit-project-btn" disabled>Edit project…</button>
+              <button type="button" class="tool-menu-item" id="dup-project-btn" disabled>Duplicate project</button>
+              <button type="button" class="tool-menu-item" id="board-columns-btn">Board columns…</button>
+              <label class="tool-menu-item" title="Include completed and archived projects">
+                <input type="checkbox" id="show-closed-projects"> Show closed projects
+              </label>
+            </div>
+          </div>
+          <div style="margin-left:auto;flex-shrink:0">
             <button class="btn btn-primary btn-sm" id="add-task-btn">+ New Task</button>
           </div>
         </div>
@@ -680,17 +724,6 @@ ${MY_WORK_CSS}
             <option value="all">All Projects</option>
           </select>
           <div id="task-filter-bar" style="flex:1 1 20rem;min-width:0">${TASK_LIST_MARKUP}</div>
-          <div class="tool-menu">
-            <button type="button" class="btn btn-ghost btn-sm" id="tool-menu-btn" title="More">⚙</button>
-            <div class="tool-menu-pop hidden" id="tool-menu-pop">
-              <button type="button" class="tool-menu-item" id="edit-project-btn" disabled>✎ Edit project</button>
-              <button type="button" class="tool-menu-item" id="dup-project-btn" disabled>⧉ Duplicate project</button>
-              <button type="button" class="tool-menu-item" id="board-columns-btn">⊞ Board columns…</button>
-              <label class="tool-menu-item" title="Include completed and archived projects">
-                <input type="checkbox" id="show-closed-projects"> Show closed projects
-              </label>
-            </div>
-          </div>
         </div>
 
         <div id="projects-mywork"></div>
@@ -1113,7 +1146,9 @@ ${MY_WORK_CSS}
             <div>
               <div style="font-weight:700;font-size:1rem">Past Due Accounts</div>
               <div class="text-muted" style="font-size:0.8rem;max-width:700px;margin-top:0.15rem">
-                Unpaid Spiro invoices past their due date, grouped by payee and staged against the collections policy.
+                Unpaid Spiro invoices <strong>45 or more days past due</strong>, grouped by payee and staged against
+                the collections policy. Anything newer than 45 days is left out entirely — it sits before the first
+                billing email, so no figure on this page counts it.
                 Outstanding is what is still owed (invoice total less payments and credits). An account holding a
                 partially paid invoice is flagged <strong>Review</strong>: a plan, dispute or short payment sits behind
                 the balance, so read it before taking the next collections step. Assign an account to hand it to
@@ -1920,6 +1955,19 @@ ${MY_WORK_CSS}
   // kept here instead of being bounced to the portal, which has no ticket UI.
   var ADMIN_SPA_ONLY_FEATURES = ['tickets', 'ticket-departments', 'ticket-categories', 'ticket-form'];
 
+  /**
+   * Split the hash into a page and its query, so a link can name a page *and*
+   * something on it — '#projects?task=<id>' is what the mention emails send.
+   */
+  function parseHash() {
+    const raw = location.hash.replace(/^#/, '');
+    const q = raw.indexOf('?');
+    if (q === -1) return { page: raw, params: {} };
+    const params = {};
+    new URLSearchParams(raw.slice(q + 1)).forEach(function(v, k) { params[k] = v; });
+    return { page: raw.slice(0, q), params: params };
+  }
+
   function grants() { return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f) { return grants().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
   function hasReport(k) { return grants().some(function(p){ return p.permissionType === 'report' && p.value === k; }); }
@@ -1987,7 +2035,18 @@ ${MY_WORK_CSS}
     if (page === 'system') loadSystem();
     if (page === 'dashboard') loadDashboard();
     if (page === 'chat') mountAdminChatFrame();
-    if (page === 'projects') loadProjects();
+    // '#projects?task=<id>' opens that task once the board has loaded — the
+    // link mention and assignment emails send.
+    if (page === 'projects') {
+      const wanted = parseHash().params.task;
+      loadProjects().then(function() {
+        if (!wanted) return;
+        // A task that was deleted, or that this account cannot see, is not in
+        // the list — say so rather than opening nothing and looking broken.
+        if (allTasks.some(function(t) { return t.id === wanted; })) openEditTask(wanted);
+        else alert('That task no longer exists, or you do not have access to it.');
+      });
+    }
     if (page === 'reports') loadReportsHome();
     if (page === 'report-cancellations') loadReports();
     if (page === 'rankings') loadRankings();
@@ -2001,7 +2060,10 @@ ${MY_WORK_CSS}
     if (page === 'form-preview') loadFormPreview();
     if (page === 'financials' || page === 'past-due') loadFinancials();
     if (page === 'cleveland') loadCleveland();
-    location.hash = '#' + page;
+    // Only rewrite the hash when it names a different page — overwriting
+    // '#projects?task=<id>' with '#projects' would fire another hashchange and
+    // drop the target before the page had a chance to open it.
+    if (parseHash().page !== page) location.hash = '#' + page;
     closeSidebar();
   }
 
@@ -2110,7 +2172,7 @@ ${MY_WORK_CSS}
     const cfgRes = await api('GET', '/portal/config');
     if (cfgRes.ok) gatewayConfig = cfgRes.data;
     // Show superadmin role option only for superadmins
-    const requested = location.hash.replace('#', '');
+    const requested = parseHash().page;
     navigate(requested || firstAllowedPage());
   }
 
@@ -4182,9 +4244,17 @@ ${MY_WORK_COMPONENT_JS}
     renderFinCaseControls();
 
     const invBody = document.getElementById('fin-modal-invoices');
+    // The reference number opens the invoice in Spiro. Server-side null means
+    // the id was not linkable, so it falls back to plain text.
+    const invRef = i => {
+      const label = esc(i.referenceNumber || i.invoiceId);
+      return i.spiroUrl
+        ? '<a class="fin-inv-link" href="' + esc(i.spiroUrl) + '" target="_blank" rel="noopener" title="Open in Spiro">' + label + '</a>'
+        : label;
+    };
     invBody.innerHTML = invoices.map(i => \`
       <tr\${i.partiallyPaid ? ' style="background:var(--surface2)"' : ''}>
-        <td>\${esc(i.referenceNumber || i.invoiceId)}\${i.partiallyPaid ? ' <span class="badge fin-flag">Partial</span>' : ''}</td>
+        <td>\${invRef(i)}\${i.partiallyPaid ? ' <span class="badge fin-flag">Partial</span>' : ''}</td>
         <td class="text-muted">\${esc(i.status || '—')}</td>
         <td>\${money(i.amount)}</td>
         <td>\${i.amountPaid === null ? '—' : money(i.amountPaid)}</td>
@@ -5077,20 +5147,38 @@ ${MY_WORK_COMPONENT_JS}
   });
 
   // View toggle. The chosen view is remembered per browser: someone who lives on
-  // the board should not land on My Work every morning.
+  // the board should not land on My Work every morning. The last two live in the
+  // ⋯ menu rather than the segmented control — see the toolbar markup.
   const VIEW_BUTTONS = [
     ['view-mywork-btn', 'mywork'],
     ['view-board-btn', 'board'],
-    ['view-cal-btn', 'calendar'],
     ['view-tasklist-btn', 'tasks'],
+    ['view-cal-btn', 'calendar'],
     ['view-projects-btn', 'list'],
   ];
+  const MENU_VIEWS = ['calendar', 'list'];
+
+  /**
+   * Mark the current view everywhere it is represented: the segmented control,
+   * the ✓ beside a menu view, and the ⋯ button itself — otherwise picking
+   * Calendar would leave the toolbar looking as though nothing were selected.
+   */
+  function paintViewButtons() {
+    VIEW_BUTTONS.forEach(function(pair) {
+      const el = document.getElementById(pair[0]);
+      if (!el) return;
+      const on = projectsView === pair[1];
+      el.classList.toggle('active', on);
+      const tick = el.querySelector('.tool-menu-tick');
+      if (tick) tick.textContent = on ? '✓' : '';
+    });
+    document.getElementById('tool-menu-btn')
+      .classList.toggle('tool-menu-btn-on', MENU_VIEWS.indexOf(projectsView) !== -1);
+  }
 
   function switchProjectsView(view) {
     projectsView = view;
-    VIEW_BUTTONS.forEach(function(pair) {
-      document.getElementById(pair[0]).classList.toggle('active', view === pair[1]);
-    });
+    paintViewButtons();
     try { localStorage.setItem('oc_projects_view', view); } catch (e) { /* private mode */ }
     renderProjectsPage();
   }
@@ -5103,9 +5191,7 @@ ${MY_WORK_COMPONENT_JS}
     let saved = null;
     try { saved = localStorage.getItem('oc_projects_view'); } catch (e) { /* private mode */ }
     if (saved && VIEW_BUTTONS.some(function(pair) { return pair[1] === saved; })) projectsView = saved;
-    VIEW_BUTTONS.forEach(function(pair) {
-      document.getElementById(pair[0]).classList.toggle('active', projectsView === pair[1]);
-    });
+    paintViewButtons();
   })();
 
   // ── Toolbar overflow menu ──────────────────────────────────────────────────
@@ -5116,9 +5202,17 @@ ${MY_WORK_COMPONENT_JS}
   document.addEventListener('click', function(e) {
     const pop = document.getElementById('tool-menu-pop');
     if (!pop || pop.classList.contains('hidden')) return;
-    // The checkbox lives in the menu, so a click on it must not close it.
-    if (e.target.closest('#tool-menu-pop') || e.target.closest('#tool-menu-btn')) return;
+    if (e.target.closest('#tool-menu-btn')) return;
+    // Picking a view or an action is a decision — the menu has done its job and
+    // should get out of the way. "Show closed projects" is a <label>, so it is
+    // deliberately not a button and the menu stays open for a second toggle.
+    if (e.target.closest('#tool-menu-pop') && !e.target.closest('button.tool-menu-item')) return;
     pop.classList.add('hidden');
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    const pop = document.getElementById('tool-menu-pop');
+    if (pop) pop.classList.add('hidden');
   });
 
   function renderProjectsList() {
@@ -5565,56 +5659,56 @@ ${MY_WORK_COMPONENT_JS}
     html += '<div class="task-card-body">';
     html += '<div class="task-card-head">';
     html += '<div class="task-card-title">' + esc(task.title) + '</div>';
-    html += '<span class="task-prio ' + prio.cls + '">' + prio.icon + ' ' + esc(task.priority) + '</span>';
+    // Routine priority says nothing; only what is genuinely hot earns a chip.
+    if (task.priority === 'high' || task.priority === 'urgent') {
+      html += '<span class="task-prio ' + prio.cls + '">' + prio.icon + ' ' + esc(task.priority) + '</span>';
+    }
     html += '</div>';
+
+    // One muted line: project, due, then counts. Everything else — description,
+    // tags, recurrence, per-assignee names — is in the modal, one click away.
+    const bits = [];
     if (proj) {
-      html += '<span class="task-card-project-badge" style="background:' + esc(proj.color) + '1f;color:' + esc(proj.color) + '">' + esc(proj.title) + '</span>';
+      bits.push('<span class="task-card-proj">' +
+        '<span class="task-card-proj-dot" style="background:' + esc(proj.color) + '"></span>' +
+        '<span class="task-card-proj-name">' + esc(proj.title) + '</span></span>');
     }
-    if (task.description) {
-      html += '<div class="task-card-desc">' + esc(task.description) + '</div>';
-    }
-
-    // Dates and recurrence read as labelled facts rather than a cramped chip row.
-    let facts = '';
-    if (task.dueDate) {
-      // Shared due-date chip: overdue / today / this week / later, and never
-      // red once the task is done.
-      facts += '<div class="task-card-fact"><span class="task-card-fact-label">📅</span>' +
-        '<span class="task-card-fact-value">' + dueChip(task) + '</span></div>';
-    }
-    if (task.recurrence) {
-      facts += '<div class="task-card-fact"><span class="task-card-fact-label">🔁</span>' +
-        '<span class="task-card-fact-value task-recurrence">' + esc(task.recurrence) + '</span></div>';
-    }
+    // Shared due-date chip: overdue / today / this week / later, and never red
+    // once the task is done.
+    if (task.dueDate) bits.push(dueChip(task));
+    if (task.recurrence) bits.push('<span class="task-recurrence" title="Repeats ' + esc(task.recurrence) + '">🔁</span>');
     const attachCount = attachmentCountFor('task', task.id);
-    if (attachCount) {
-      facts += '<div class="task-card-fact"><span class="task-card-fact-label">📎</span>' +
-        '<span class="task-card-fact-value task-attach-count">' + attachCount + (attachCount === 1 ? ' attachment' : ' attachments') + '</span></div>';
+    if (attachCount) bits.push('<span title="' + attachCount + (attachCount === 1 ? ' attachment' : ' attachments') + '">📎 ' + attachCount + '</span>');
+    if (task.commentCount) bits.push('<span title="' + task.commentCount + (task.commentCount === 1 ? ' comment' : ' comments') + '">💬 ' + task.commentCount + '</span>');
+    if (bits.length) {
+      html += '<div class="task-card-line">' + bits.join('<span class="task-card-sep">·</span>') + '</div>';
     }
-    if (task.commentCount) {
-      facts += '<div class="task-card-fact"><span class="task-card-fact-label">💬</span>' +
-        '<span class="task-card-fact-value task-attach-count">' + task.commentCount + (task.commentCount === 1 ? ' comment' : ' comments') + '</span></div>';
-    }
-    if (facts) html += '<div class="task-card-facts">' + facts + '</div>';
 
-    // Every assignee gets a named chip — the old card truncated to two names.
+    // Subtask progress and assignee avatars share the last row so a card with
+    // both does not grow two more blocks tall.
     const assigneeNames = (task.assigneeIds || []).map(userLabel);
     if (!assigneeNames.length && task.assignedTo) assigneeNames.push(task.assignedTo);
-    if (assigneeNames.length) {
-      html += '<div class="task-assignee-row">' + assigneeNames.map(function(n) {
-        return '<span class="task-assignee-chip"><span class="task-assignee">' + esc(initials(n)) + '</span>' +
-          '<span class="task-assignee-name">' + esc(n) + '</span></span>';
-      }).join('') + '</div>';
-    }
-    if (subtasks.length) {
-      const pct = Math.round((doneSubs.length / subtasks.length) * 100);
-      html += '<div class="task-subtask-bar">' +
-        '<span class="task-subtask-count">' + doneSubs.length + '/' + subtasks.length + ' subtasks</span>' +
-        '<span class="task-subtask-track"><span class="task-subtask-fill" style="width:' + pct + '%"></span></span>' +
-        '</div>';
-    }
-    if (task.tags && task.tags.length) {
-      html += '<div class="task-tags">' + task.tags.map(function(t) { return '<span class="task-tag">' + esc(t) + '</span>'; }).join('') + '</div>';
+    if (subtasks.length || assigneeNames.length) {
+      html += '<div class="task-card-foot">';
+      if (subtasks.length) {
+        const pct = Math.round((doneSubs.length / subtasks.length) * 100);
+        html += '<span class="task-subtask-bar" title="' + doneSubs.length + ' of ' + subtasks.length + ' subtasks done">' +
+          '<span class="task-subtask-count">' + doneSubs.length + '/' + subtasks.length + '</span>' +
+          '<span class="task-subtask-track"><span class="task-subtask-fill" style="width:' + pct + '%"></span></span>' +
+          '</span>';
+      }
+      if (assigneeNames.length) {
+        // Overlapping initials, capped at three so a busy task stays one row.
+        const shown = assigneeNames.slice(0, 3);
+        const extra = assigneeNames.length - shown.length;
+        html += '<span class="task-assignee-row" title="' + esc(assigneeNames.join(', ')) + '">' +
+          shown.map(function(n) {
+            return '<span class="task-assignee">' + esc(initials(n)) + '</span>';
+          }).join('') +
+          (extra > 0 ? '<span class="task-assignee task-assignee-more">+' + extra + '</span>' : '') +
+          '</span>';
+      }
+      html += '</div>';
     }
     html += '</div></div>';
     return html;
@@ -6734,7 +6828,7 @@ ${MY_WORK_COMPONENT_JS}
     a.addEventListener('click', e => { e.preventDefault(); navigate(a.dataset.page); });
   });
   window.addEventListener('hashchange', () => {
-    const page = location.hash.replace('#', '');
+    const page = parseHash().page;
     if (page && pages[page]) navigate(page);
   });
 
