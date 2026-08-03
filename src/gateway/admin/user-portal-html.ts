@@ -439,7 +439,7 @@ ${MY_WORK_CSS}
       </div>
       <div class="form-group">
         <label>Assigned To</label>
-        <div id="pt-t-assignees" class="member-picker"></div>
+        <select id="pt-t-assignee"></select>
       </div>
       <div id="pt-attach-section" class="form-group hidden">
         <label>Links &amp; Files</label>
@@ -1117,6 +1117,24 @@ ${MY_WORK_COMPONENT_JS}
         '<span>' + esc(label) + (sub ? ' <span class="member-sub">' + esc(sub) + '</span>' : '') + '</span></label>';
     }).join('');
   }
+  /** One owner per task; see the dashboard's renderAssigneeSelect for why. */
+  function ptRenderAssigneeSelect(selectedIds) {
+    const sel = document.getElementById('pt-t-assignee');
+    if (!sel) return;
+    const current = (selectedIds || [])[0] || '';
+    sel.innerHTML = '<option value="">Unassigned</option>' + ptUsers.map(function(u) {
+      const name = ptFullName(u) || u.username;
+      return '<option value="' + esc(u.id) + '"' + (u.id === current ? ' selected' : '') + '>' + esc(name) + '</option>';
+    }).join('');
+    sel.value = current;
+  }
+
+  function ptReadAssigneeSelect() {
+    const sel = document.getElementById('pt-t-assignee');
+    const v = sel ? sel.value : '';
+    return v ? [v] : [];
+  }
+
   function ptReadMemberPicker(containerId) {
     return Array.prototype.slice.call(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(function(cb) { return cb.value; });
   }
@@ -1643,7 +1661,7 @@ ${MY_WORK_COMPONENT_JS}
     document.getElementById('pt-t-due').value = task && task.dueDate
       ? calDateInputValue(task.dueDate)
       : (presetDueMs ? calDateInputValue(presetDueMs) : '');
-    ptRenderMemberPicker('pt-t-assignees', task ? (task.assigneeIds || []) : []);
+    ptRenderAssigneeSelect(task ? (task.assigneeIds || []) : []);
     document.getElementById('pt-task-delete').classList.toggle('hidden', !task);
     // Attachments need a task id to hang off, so they appear once it exists.
     document.getElementById('pt-attach-section').classList.toggle('hidden', !task);
@@ -1674,7 +1692,7 @@ ${MY_WORK_COMPONENT_JS}
       priority: document.getElementById('pt-t-priority').value,
       projectId: document.getElementById('pt-t-project').value || null,
       dueDate: dueVal ? new Date(dueVal).getTime() : null,
-      assigneeIds: ptReadMemberPicker('pt-t-assignees'),
+      assigneeIds: ptReadAssigneeSelect(),
     };
     const r = ptEditingTask
       ? await api('PUT', '/tasks/' + ptEditingTask, body)

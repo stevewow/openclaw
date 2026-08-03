@@ -495,6 +495,33 @@ ${MY_WORK_CSS}
   .show-closed-toggle { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; }
   .proj-status-tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; flex-shrink: 0; }
   .projects-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+  /* The card is a link to the project's detail view, so it says so on hover. */
+  .proj-card-click { cursor: pointer; transition: box-shadow 0.12s, border-color 0.12s; }
+  .proj-card-click:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.09); border-color: var(--text-muted); }
+  /* Project detail drawer */
+  .pd-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .pd-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .pd-desc { font-size: 0.87rem; line-height: 1.5; margin-bottom: 0.9rem; }
+  .pd-progress { margin-bottom: 0.9rem; }
+  .pd-progress-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.3rem; }
+  .pd-track { height: 6px; border-radius: 999px; background: var(--surface2); overflow: hidden; }
+  .pd-fill { height: 100%; background: var(--success); }
+  .pd-overdue { font-size: 0.78rem; color: #b91c1c; font-weight: 600; margin-top: 0.35rem; }
+  .pd-cols { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+  .pd-col { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; }
+  .pd-col-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .pd-col-label { color: var(--text-muted); }
+  .pd-col-n { font-weight: 700; }
+  .pd-facts { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.82rem; margin-bottom: 0.9rem; }
+  .pd-fact-label { display: inline-block; min-width: 6.5rem; color: var(--text-muted); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+  .pd-section-title { font-weight: 700; font-size: 0.85rem; margin: 1rem 0 0.4rem; }
+  .pd-tasks { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .pd-task { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.82rem; cursor: pointer; }
+  .pd-task:last-child { border-bottom: none; }
+  .pd-task:hover { background: var(--surface2); }
+  .pd-task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pd-task-done { text-decoration: line-through; color: var(--text-muted); }
+  .pd-task-status { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
   .project-list-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
   .project-list-card-bar { height: 5px; flex-shrink: 0; }
   .project-list-card-body { padding: 1.125rem 1.25rem; flex: 1; }
@@ -1401,6 +1428,24 @@ ${MY_WORK_CSS}
 </div>
 
 <!-- Task Modal -->
+<!-- Project detail: everything about one project in one place, opened by
+     clicking its card. Read-only; the buttons hand off to the existing
+     board / edit / duplicate flows rather than duplicating them. -->
+<div id="proj-detail-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:680px;overflow-y:auto;max-height:calc(100dvh - 48px)">
+    <div class="flex items-center" style="justify-content:space-between;gap:1rem">
+      <div class="modal-title" id="proj-detail-title" style="margin:0">Project</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="proj-detail-close">✕</button>
+    </div>
+    <div id="proj-detail-body" style="margin-top:0.75rem"></div>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1.25rem">
+      <button type="button" class="btn btn-primary btn-sm" id="proj-detail-board">Open on board</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="proj-detail-edit">Edit</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="proj-detail-dup">Duplicate</button>
+    </div>
+  </div>
+</div>
+
 <div id="task-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:540px;overflow-y:auto;max-height:calc(100dvh - 48px)">
     <div class="modal-title" id="task-modal-title">New Task</div>
@@ -1441,8 +1486,8 @@ ${MY_WORK_CSS}
         <input id="task-due" type="date">
       </div>
       <div class="form-group">
-        <label>Assigned To <span style="font-weight:400;text-transform:none">(select one or more)</span></label>
-        <div id="task-assignees-list" class="member-picker"></div>
+        <label>Assigned To</label>
+        <select id="task-assignee"></select>
       </div>
       <div class="form-group" style="margin-top:1.125rem">
         <label>Repeat</label>
@@ -5107,6 +5152,30 @@ ${MY_WORK_COMPONENT_JS}
     return Array.prototype.slice.call(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(function(cb) { return cb.value; });
   }
 
+  /**
+   * A task has one owner, so its assignee is a plain select rather than the
+   * checkbox picker projects use for membership. Tasks written before this
+   * carry more than one; the extra names are left in the data and the first is
+   * shown, so opening a task never silently drops someone — saving it does,
+   * which is the point at which someone has actually chosen.
+   */
+  function renderAssigneeSelect(selectedIds) {
+    const sel = document.getElementById('task-assignee');
+    if (!sel) return;
+    const current = (selectedIds || [])[0] || '';
+    sel.innerHTML = '<option value="">Unassigned</option>' + adminUsers.map(function(u) {
+      const name = fullName(u) || u.username;
+      return '<option value="' + esc(u.id) + '"' + (u.id === current ? ' selected' : '') + '>' + esc(name) + '</option>';
+    }).join('');
+    sel.value = current;
+  }
+
+  function readAssigneeSelect() {
+    const sel = document.getElementById('task-assignee');
+    const v = sel ? sel.value : '';
+    return v ? [v] : [];
+  }
+
   function isClosedProject(p) {
     return p.status === 'completed' || p.status === 'archived';
   }
@@ -5340,7 +5409,7 @@ ${MY_WORK_COMPONENT_JS}
     grid.innerHTML = filtered.map(function(p) {
       const tasksForProj = allTasks.filter(function(t) { return t.projectId === p.id && !t.parentTaskId; });
       const doneCount = tasksForProj.filter(function(t) { return statusRegistry.isDoneTask(t); }).length;
-      return '<div class="project-list-card">' +
+      return '<div class="project-list-card proj-card-click" data-id="' + esc(p.id) + '">' +
         '<div class="project-list-card-bar" style="background:' + esc(p.color) + '"></div>' +
         '<div class="project-list-card-body">' +
           '<div class="project-list-card-title-row">' +
@@ -5361,6 +5430,15 @@ ${MY_WORK_COMPONENT_JS}
         '</div>' +
       '</div>';
     }).join('');
+    // The card itself opens the detail view. The footer buttons keep working
+    // and stop the click there, so "Edit" still means edit rather than opening
+    // the drawer behind it.
+    grid.querySelectorAll('.project-list-card').forEach(function(card) {
+      card.addEventListener('click', function(e) {
+        if (e.target.closest('button')) return;
+        openProjectDetail(this.dataset.id);
+      });
+    });
     grid.querySelectorAll('.proj-list-view-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
         projectsFilter = this.dataset.id;
@@ -5375,6 +5453,132 @@ ${MY_WORK_COMPONENT_JS}
       btn.addEventListener('click', function() { duplicateProjectFlow(this.dataset.id); });
     });
   }
+
+  // ── Project detail ─────────────────────────────────────────────────────────
+  let projDetailId = null;
+
+  /** One project's whole picture: progress per column, dates, people, its tasks. */
+  function openProjectDetail(projectId) {
+    const p = allProjects.find(function(x) { return x.id === projectId; });
+    if (!p) return;
+    projDetailId = projectId;
+    document.getElementById('proj-detail-title').textContent = p.title;
+
+    const tasks = allTasks.filter(function(t) { return t.projectId === p.id && !t.parentTaskId; });
+    const done = tasks.filter(function(t) { return statusRegistry.isDoneTask(t); });
+    const pct = tasks.length ? Math.round((done.length / tasks.length) * 100) : 0;
+    const now = Date.now();
+    const overdue = tasks.filter(function(t) {
+      return t.dueDate && t.dueDate < now && !statusRegistry.isDoneTask(t);
+    });
+
+    let html = '';
+    html += '<div class="pd-head">' +
+      '<span class="badge proj-status-badge-' + esc(p.status) + '">' + esc(p.status) + '</span>' +
+      '<span class="pd-swatch" style="background:' + esc(p.color) + '"></span>' +
+      (p.startDate || p.endDate
+        ? '<span class="text-muted" style="font-size:0.8rem">📅 ' + esc(formatDateRange(p.startDate, p.endDate)) + '</span>'
+        : '') +
+      '</div>';
+    if (p.description) {
+      html += '<div class="pd-desc">' + esc(p.description) + '</div>';
+    }
+
+    // Progress first: the one number someone opens a project to see.
+    html += '<div class="pd-progress">' +
+      '<div class="pd-progress-top"><span>' + done.length + ' of ' + tasks.length + ' tasks done</span>' +
+      '<strong>' + pct + '%</strong></div>' +
+      '<div class="pd-track"><div class="pd-fill" style="width:' + pct + '%"></div></div>' +
+      (overdue.length
+        ? '<div class="pd-overdue">' + overdue.length + (overdue.length === 1 ? ' task is overdue' : ' tasks are overdue') + '</div>'
+        : '') +
+      '</div>';
+
+    // A count per column, using this project's own board.
+    const cols = statusRegistry.columnsFor(p.id);
+    if (cols && cols.length) {
+      html += '<div class="pd-cols">' + cols.map(function(c) {
+        const n = tasks.filter(function(t) { return t.status === c.key; }).length;
+        return '<div class="pd-col"><span class="pd-col-dot" style="background:' + esc(c.color) + '"></span>' +
+          '<span class="pd-col-label">' + esc(c.label) + '</span><span class="pd-col-n">' + n + '</span></div>';
+      }).join('') + '</div>';
+    }
+
+    const facts = [];
+    if (p.memberIds && p.memberIds.length) {
+      facts.push('<div><span class="pd-fact-label">Members</span>' + esc(p.memberIds.map(userLabel).join(', ')) + '</div>');
+    }
+    if (p.tags && p.tags.length) {
+      facts.push('<div><span class="pd-fact-label">Tags</span>' +
+        p.tags.map(function(t) { return '<span class="resource-tag">' + esc(t) + '</span>'; }).join(' ') + '</div>');
+    }
+    if (p.attachmentCount) {
+      facts.push('<div><span class="pd-fact-label">Attachments</span>' + p.attachmentCount + '</div>');
+    }
+    if (facts.length) {
+      html += '<div class="pd-facts">' + facts.join('') + '</div>';
+    }
+
+    // The tasks themselves, open ones first — a project with nothing left to do
+    // should not bury that under a list of finished work.
+    if (tasks.length) {
+      const ordered = tasks.slice().sort(function(a, b) {
+        const ad = statusRegistry.isDoneTask(a) ? 1 : 0;
+        const bd = statusRegistry.isDoneTask(b) ? 1 : 0;
+        if (ad !== bd) return ad - bd;
+        return (a.dueDate || Infinity) - (b.dueDate || Infinity);
+      });
+      html += '<div class="pd-section-title">Tasks</div><div class="pd-tasks">' + ordered.map(function(t) {
+        const isDone = statusRegistry.isDoneTask(t);
+        return '<div class="pd-task" data-task="' + esc(t.id) + '">' +
+          '<span class="pd-task-title' + (isDone ? ' pd-task-done' : '') + '">' + esc(t.title) + '</span>' +
+          (t.dueDate ? '<span class="pd-task-due">' + dueChip(t) + '</span>' : '') +
+          '<span class="pd-task-status">' + esc(statusRegistry.labelOf(t.projectId, t.status)) + '</span>' +
+          '</div>';
+      }).join('') + '</div>';
+    } else {
+      html += '<div class="text-muted" style="font-size:0.85rem;margin-top:0.75rem">No tasks in this project yet.</div>';
+    }
+
+    const body = document.getElementById('proj-detail-body');
+    body.innerHTML = html;
+    // A task in the list opens that task, so the drawer is a way in rather
+    // than a dead end.
+    body.querySelectorAll('.pd-task').forEach(function(row) {
+      row.addEventListener('click', function() {
+        closeProjectDetail();
+        openEditTask(this.dataset.task);
+      });
+    });
+    document.getElementById('proj-detail-modal').classList.remove('hidden');
+  }
+
+  function closeProjectDetail() {
+    document.getElementById('proj-detail-modal').classList.add('hidden');
+    projDetailId = null;
+  }
+
+  document.getElementById('proj-detail-close').addEventListener('click', closeProjectDetail);
+  document.getElementById('proj-detail-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeProjectDetail();
+  });
+  document.getElementById('proj-detail-board').addEventListener('click', function() {
+    const id = projDetailId;
+    closeProjectDetail();
+    projectsFilter = id;
+    document.getElementById('project-filter-sel').value = id;
+    switchProjectsView('board');
+  });
+  document.getElementById('proj-detail-edit').addEventListener('click', function() {
+    const id = projDetailId;
+    closeProjectDetail();
+    openEditProject(id);
+  });
+  document.getElementById('proj-detail-dup').addEventListener('click', function() {
+    const id = projDetailId;
+    closeProjectDetail();
+    duplicateProjectFlow(id);
+  });
 
   document.getElementById('proj-status-tabs').addEventListener('click', function(e) {
     const btn = e.target.closest('button[data-status]');
@@ -5874,7 +6078,7 @@ ${MY_WORK_COMPONENT_JS}
     populateTaskProjectSelect(projectsFilter || '');
     syncTaskStatusOptions(status || statusRegistry.defaultKey(projectsFilter));
     renderTaskModalTags();
-    renderMemberPicker('task-assignees-list', []);
+    renderAssigneeSelect([]);
     document.getElementById('task-modal').classList.remove('hidden');
     document.getElementById('task-title').focus();
   }
@@ -5894,7 +6098,7 @@ ${MY_WORK_COMPONENT_JS}
     populateTaskProjectSelect(task.projectId || '');
     syncTaskStatusOptions(task.status);
     renderTaskModalTags();
-    renderMemberPicker('task-assignees-list', task.assigneeIds || []);
+    renderAssigneeSelect(task.assigneeIds || []);
     document.getElementById('task-modal-delete').classList.remove('hidden');
     document.getElementById('task-subtasks-section').classList.remove('hidden');
     document.getElementById('task-attach-section').classList.remove('hidden');
@@ -6089,7 +6293,7 @@ ${MY_WORK_COMPONENT_JS}
       priority: document.getElementById('task-priority').value,
       projectId: document.getElementById('task-project').value || null,
       dueDate: dueVal ? new Date(dueVal).getTime() : null,
-      assigneeIds: readMemberPicker('task-assignees-list'),
+      assigneeIds: readAssigneeSelect(),
       recurrence: document.getElementById('task-recurrence').value || null,
       tags: taskModalTags.slice(),
     };

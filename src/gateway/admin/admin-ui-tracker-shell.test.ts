@@ -228,3 +228,76 @@ describe("renderTaskCard", () => {
     expect(card.dataset.status).toBe("in_progress");
   });
 });
+
+describe("the shipped SPA script", () => {
+  it("parses — a syntax error here breaks the whole dashboard silently", () => {
+    // Nothing in this file is type-checked or linted: it is a template string.
+    // `new Function` parses without executing, so a stray brace or bad literal
+    // fails here rather than in someone's browser.
+    const script = inlineScript();
+    expect(script.length).toBeGreaterThan(1000);
+    // Parsing our own shipped source is the whole point of the check.
+    // oxlint-disable-next-line no-implied-eval
+    expect(() => new Function(script)).not.toThrow();
+  });
+});
+
+describe("task assignment", () => {
+  const dom = new JSDOM(ADMIN_UI_HTML, { runScripts: "outside-only" });
+  const doc = dom.window.document;
+
+  it("offers one assignee as a select, not a checkbox list", () => {
+    const sel = doc.querySelector("#task-assignee");
+    expect(sel).not.toBeNull();
+    expect((sel as Element).tagName).toBe("SELECT");
+    // The multi-select picker it replaced is gone from the task modal.
+    expect(doc.querySelector("#task-assignees-list")).toBeNull();
+  });
+
+  it("keeps the checkbox picker for project membership, which is still many", () => {
+    const members = doc.querySelector("#proj-members-list");
+    expect(members).not.toBeNull();
+    expect(members?.classList.contains("member-picker")).toBe(true);
+  });
+
+  it("collapses the assignee to a single-element array on save", () => {
+    const script = inlineScript();
+    const start = script.indexOf("function renderAssigneeSelect(");
+    const end = script.indexOf("function isClosedProject(");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const win = new JSDOM(
+      "<!DOCTYPE html><select id='task-assignee'><option value=''>Unassigned</option>" +
+        "<option value='u1'>One</option><option value='u2'>Two</option></select>",
+      { runScripts: "outside-only" },
+    ).window;
+    // oxlint-disable-next-line no-implied-eval
+    const factory = new Function(
+      "document",
+      `${script.slice(start, end)}\nreturn { renderAssigneeSelect, readAssigneeSelect };`,
+    );
+    const api = factory(win.document) as {
+      readAssigneeSelect: () => string[];
+    };
+    expect(api.readAssigneeSelect()).toEqual([]);
+    (win.document.getElementById("task-assignee") as HTMLSelectElement).value = "u2";
+    expect(api.readAssigneeSelect()).toEqual(["u2"]);
+  });
+});
+
+describe("project detail", () => {
+  const dom = new JSDOM(ADMIN_UI_HTML, { runScripts: "outside-only" });
+  const doc = dom.window.document;
+
+  it("ships a detail drawer with the hand-off actions", () => {
+    expect(doc.querySelector("#proj-detail-modal")).not.toBeNull();
+    expect(doc.querySelector("#proj-detail-body")).not.toBeNull();
+    for (const id of ["#proj-detail-board", "#proj-detail-edit", "#proj-detail-dup"]) {
+      expect(doc.querySelector(id), `${id} should exist`).not.toBeNull();
+    }
+  });
+
+  it("starts hidden, so it does not cover the page on load", () => {
+    expect(doc.querySelector("#proj-detail-modal")?.classList.contains("hidden")).toBe(true);
+  });
+});
