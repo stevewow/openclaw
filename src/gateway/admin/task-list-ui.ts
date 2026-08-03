@@ -25,13 +25,15 @@ export const TASK_LIST_CSS = `
   .tl-more-btn:hover { color: var(--text); }
   .tl-more-btn.tl-more-on { color: var(--accent); border-color: var(--accent); background: rgba(192,0,10,0.05); }
   .tl-more-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px; background: var(--accent); color: #fff; font-size: 0.62rem; font-weight: 800; }
-  .tl-more-pop { position: absolute; left: 0; top: calc(100% + 0.35rem); z-index: 30; min-width: 15rem; padding: 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.12); display: flex; flex-direction: column; gap: 0.55rem; }
+  /* Anchored to the button's RIGHT edge so it opens leftward, back over the
+     toolbar. Opening rightward pushed it off-screen: the button sits well into
+     a bar that stretches to the page edge, so there is rarely 15rem to its
+     right. JS narrows this further if even the left side would overflow. */
+  .tl-more-pop { position: absolute; right: 0; left: auto; top: calc(100% + 0.35rem); z-index: 30; width: max-content; min-width: 15rem; max-width: min(22rem, calc(100vw - 2rem)); padding: 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.12); display: flex; flex-direction: column; gap: 0.55rem; }
   .tl-more-field { display: flex; flex-direction: column; gap: 0.2rem; }
   .tl-more-field > span { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
-  .tl-more-pop select { width: 100%; }
+  .tl-more-pop select { width: 100%; max-width: 100%; }
   .tl-more-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.15rem; border-top: 1px solid var(--border); }
-  /* The popover anchors to the right edge on narrow screens so it stays on-page. */
-  @media (max-width: 560px) { .tl-more-pop { left: auto; right: 0; } }
 
   /* Due-date signalling, shared by cards and rows. */
   .due-chip { display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
@@ -329,11 +331,31 @@ export const TASK_LIST_COMPONENT_JS = `
       sync();
     });
 
+    /**
+     * Keep the open popover inside the viewport. Right-anchoring covers the
+     * common case, but the bar can sit anywhere — narrow screens, a collapsed
+     * sidebar, the portal's different layout — so measure once on open and
+     * nudge it back by however far it actually spills.
+     */
+    function placeMorePop() {
+      if (!morePop || morePop.classList.contains('hidden')) return;
+      morePop.style.marginLeft = '';
+      var box = morePop.getBoundingClientRect();
+      var pad = 8;
+      if (box.left < pad) {
+        morePop.style.marginLeft = (pad - box.left) + 'px';
+      } else if (box.right > window.innerWidth - pad) {
+        morePop.style.marginLeft = (window.innerWidth - pad - box.right) + 'px';
+      }
+    }
+
     if (moreBtn && morePop) {
       moreBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         morePop.classList.toggle('hidden');
+        placeMorePop();
       });
+      window.addEventListener('resize', placeMorePop);
       // Clicks inside the popover are filter edits, not a request to dismiss it.
       morePop.addEventListener('click', function(e) { e.stopPropagation(); });
       document.addEventListener('click', function() { morePop.classList.add('hidden'); });

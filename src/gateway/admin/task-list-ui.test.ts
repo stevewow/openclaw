@@ -1,6 +1,6 @@
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
-import { TASK_LIST_COMPONENT_JS, TASK_LIST_MARKUP } from "./task-list-ui.js";
+import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
 
 type Task = Record<string, unknown>;
 
@@ -446,5 +446,47 @@ describe("createTaskList", () => {
     const { doc } = mountList([task({ id: "a", title: "<img src=x onerror=alert(1)>" })]);
     expect(doc.querySelector("tbody")?.querySelector("img")).toBeNull();
     expect(doc.querySelector(".tl-title-cell")?.textContent).toContain("<img src=x");
+  });
+});
+
+describe("the filters popover stays on screen", () => {
+  it("anchors to the button's right edge, so it opens back over the toolbar", () => {
+    // Opening rightward was the bug: the bar stretches to the page edge, so a
+    // 15rem panel starting at the button's left runs off the right of the page.
+    expect(TASK_LIST_CSS).toMatch(/\.tl-more-pop\s*\{[^}]*right:\s*0/);
+    expect(TASK_LIST_CSS).toMatch(/\.tl-more-pop\s*\{[^}]*left:\s*auto/);
+  });
+
+  it("never lets the panel exceed the viewport width", () => {
+    expect(TASK_LIST_CSS).toMatch(/max-width:\s*min\(22rem,\s*calc\(100vw - 2rem\)\)/);
+  });
+
+  it("nudges the panel back when it would still spill off an edge", () => {
+    const w = load();
+    const doc = w.document;
+    w.createTaskFilterBar({
+      rootId: "bar",
+      people: () => [],
+      tags: () => [],
+      currentUserId: () => "u1",
+      onChange: () => {},
+    });
+    const pop = doc.querySelector(".tl-more-pop") as HTMLElement;
+    const btn = doc.querySelector(".tl-more-btn") as HTMLElement;
+    // JSDOM has no layout, so getBoundingClientRect is all zeros and the clamp
+    // resolves to "nothing to correct". What this pins is that opening runs the
+    // placement path at all, and that it leaves a usable inline style rather
+    // than throwing on a viewport it cannot measure.
+    btn.dispatchEvent(
+      new (w as never as { window: typeof globalThis }).window.Event("click", { bubbles: true }),
+    );
+    expect(pop.classList.contains("hidden")).toBe(false);
+    expect(() =>
+      (
+        w as never as { window: { dispatchEvent: (e: Event) => void; Event: typeof Event } }
+      ).window.dispatchEvent(
+        new (w as never as { window: typeof globalThis }).window.Event("resize"),
+      ),
+    ).not.toThrow();
   });
 });
