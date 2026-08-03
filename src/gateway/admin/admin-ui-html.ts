@@ -218,6 +218,17 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
   .fin-contact { font-weight: 600; }
   .fin-contact-stale { color: #b45309; }
   .fin-contact-never { font-weight: 700; color: #991b1b; }
+  .fin-next { font-weight: 600; }
+  .fin-next-over { color: #991b1b; font-weight: 700; }
+  .fin-next-today { color: #b45309; font-weight: 700; }
+  .fin-next-none { color: var(--text-muted); }
+  /* Inline pickers sit quietly until hovered, so a dense table still reads as
+     data rather than as a wall of form controls. */
+  .fin-cell-select { max-width: 13rem; padding: 0.25rem 0.4rem; font-size: 0.78rem; font-family: inherit; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+  .fin-cell-select:hover { border-color: var(--border); background: var(--surface); }
+  .fin-cell-select:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px rgba(192,0,10,0.09); }
+  /* A pinned step disagrees with the account's age on purpose — say so. */
+  .fin-cell-pinned { color: var(--accent); font-weight: 600; }
   /* Growth is the column the Focus report exists for, so it carries colour. */
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
@@ -1202,11 +1213,12 @@ ${MY_WORK_CSS}
                   <th data-sort="oldest">Oldest Past Due</th>
                   <th data-sort="bucket">Aging</th>
                   <th data-sort="contact">Last Contact</th>
-                  <th>Next Action</th>
+                  <th data-sort="next">Next Contact</th>
+                  <th data-sort="action">Next Action</th>
                 </tr>
               </thead>
               <tbody id="fin-table-body">
-                <tr><td colspan="9" class="empty-state">Loading...</td></tr>
+                <tr><td colspan="10" class="empty-state">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -3898,6 +3910,7 @@ ${MY_WORK_COMPONENT_JS}
   let finBreakdown = null;
   let finAccount = null; // currently open account detail
   let finStatuses = [];  // board columns, server-owned
+  let finActions = [];   // collections steps in policy order, server-owned
   let finAssignees = []; // assignable users (admins only)
   let finCanAssign = false;
   let finView = 'board';
@@ -3980,6 +3993,7 @@ ${MY_WORK_COMPONENT_JS}
     }
     finBreakdown = r.data.breakdown;
     finStatuses = r.data.statuses || [];
+    finActions = r.data.actions || [];
     finAssignees = r.data.assignees || [];
     finCanAssign = r.data.canAssign === true;
     refEl.textContent = finBreakdown.refreshedAt
@@ -4126,6 +4140,55 @@ ${MY_WORK_COMPONENT_JS}
       '</span><span class="fin-owner"> · ' + esc(detail) + '</span>';
   }
 
+  /**
+   * When the next scheduled contact is. The date comes from the follow-up task
+   * raised for the account, so an empty cell means nothing is actually booked —
+   * which is the point of the column, and why it says so rather than showing a
+   * dash you could read as "no data".
+   */
+  function finNextContactCell(a) {
+    const nc = a.nextContact;
+    if (!nc) return '<span class="fin-next-none" title="No follow-up task scheduled">Not scheduled</span>';
+    const days = a.daysUntilContact;
+    const when = days === 0 ? 'Today' : days === 1 ? 'Tomorrow'
+      : days < 0 ? (days === -1 ? 'Yesterday' : (-days) + 'd ago') : 'in ' + days + 'd';
+    // A follow-up whose date has passed is the thing that needs attention, so
+    // it is coloured like an overdue item rather than sitting quietly.
+    const cls = days != null && days < 0 ? ' fin-next-over' : (days === 0 ? ' fin-next-today' : '');
+    return '<span class="fin-next' + cls + '" title="' + esc(nc.taskTitle) + '">' + esc(when) +
+      '</span><span class="fin-owner"> · ' + esc(finDate(nc.at)) + '</span>';
+  }
+
+  /**
+   * The two inline pickers. Both are numbered, because neither sequence is
+   * guessable from the labels alone — you cannot tell that "Billing call /
+   * final email" comes after "Billing call + notify BDS" without the step.
+   */
+  function finStageSelect(a) {
+    const c = a.case || {};
+    const opts = finStatuses.map((s, i) =>
+      '<option value="' + esc(s.key) + '"' + (s.key === c.status ? ' selected' : '') + '>' +
+      (i + 1) + ' · ' + esc(s.label) + '</option>').join('');
+    return '<select class="fin-cell-select js-fin-stage" data-account="' + esc(a.accountKey) +
+      '" title="Collections stage — in order">' + opts + '</select>';
+  }
+
+  function finActionSelect(a) {
+    const act = a.action || {};
+    const override = (a.case || {}).nextAction || '';
+    // The default option names the step the account's age calls for, so
+    // choosing "follow the policy" is never a jump into the unknown.
+    const policy = finActions.find(x => x.key === act.policyKey);
+    const policyLabel = policy ? policy.step + ' · ' + policy.label : 'policy';
+    const opts = ['<option value=""' + (override ? '' : ' selected') + '>Follow policy (' + esc(policyLabel) + ')</option>']
+      .concat(finActions.map(x =>
+        '<option value="' + esc(x.key) + '"' + (x.key === override ? ' selected' : '') + '>' +
+        x.step + ' · ' + esc(x.label) + '</option>'));
+    return '<select class="fin-cell-select js-fin-action' + (override ? ' fin-cell-pinned' : '') +
+      '" data-account="' + esc(a.accountKey) + '" title="' + esc(act.detail || '') + '">' +
+      opts.join('') + '</select>';
+  }
+
   // Sort state for the table view. Aging and last contact are the two people
   // actually re-sort by, so both are real sorts rather than a fixed order.
   let finSort = { key: 'oldest', dir: 'desc' };
@@ -4141,6 +4204,11 @@ ${MY_WORK_COMPONENT_JS}
       case 'bucket': return a.oldestDaysPastDue || 0;
       // Never-contacted sorts as the most urgent, not as "zero days ago".
       case 'contact': return a.daysSinceContact == null ? Number.MAX_SAFE_INTEGER : a.daysSinceContact;
+      // Unscheduled sorts last on either direction: an account with no
+      // follow-up booked is not "due soonest", it is simply not on the calendar.
+      case 'next': return a.daysUntilContact == null ? Number.MAX_SAFE_INTEGER : a.daysUntilContact;
+      // By where the account sits in the sequence, not alphabetically.
+      case 'action': return (a.action && a.action.step) || 0;
       default: return a.oldestDaysPastDue || 0;
     }
   }
@@ -4172,7 +4240,7 @@ ${MY_WORK_COMPONENT_JS}
       th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (on ? (finSort.dir === 'asc' ? ' ▲' : ' ▼') : '');
     });
     if (accounts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No past-due accounts match this filter. If that looks wrong, click Refresh now to pull the latest invoices from Spiro.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No past-due accounts match this filter. If that looks wrong, click Refresh now to pull the latest invoices from Spiro.</td></tr>';
       return;
     }
     tbody.innerHTML = finSortAccounts(accounts).map(a => {
@@ -4181,19 +4249,64 @@ ${MY_WORK_COMPONENT_JS}
       return \`
       <tr class="fin-row-click" data-account="\${esc(a.accountKey)}">
         <td>\${esc(a.accountName)}<span class="fin-owner"> · \${esc(a.accountType)}</span>\${flag}</td>
-        <td>\${esc(finStatusLabel(c.status))}</td>
+        <td>\${finStageSelect(a)}</td>
         <td class="text-muted">\${esc(finOwnerLabel(c))}</td>
         <td>\${money(a.balance)}</td>
         <td>\${a.invoiceCount}\${a.partiallyPaidCount ? ' (' + a.partiallyPaidCount + ' partial)' : ''}</td>
         <td>\${a.oldestDaysPastDue} days</td>
         <td><span class="\${bucketClass(a.bucket)}">\${esc(a.bucket)}</span></td>
         <td>\${finLastContactCell(a)}</td>
-        <td>\${esc(a.action.label)}</td>
+        <td>\${finNextContactCell(a)}</td>
+        <td>\${finActionSelect(a)}</td>
       </tr>\`;
     }).join('');
     tbody.querySelectorAll('.fin-row-click').forEach(row => {
       row.addEventListener('click', () => openFinAccount(row.dataset.account));
     });
+    // The row opens the drawer, so a click that lands on a picker has to stop
+    // there — otherwise changing a stage would also open the account behind it.
+    tbody.querySelectorAll('.fin-cell-select').forEach(sel => {
+      sel.addEventListener('click', e => e.stopPropagation());
+    });
+    tbody.querySelectorAll('.js-fin-stage').forEach(sel => {
+      sel.addEventListener('change', async e => {
+        e.stopPropagation();
+        await setFinStatus(sel.dataset.account, sel.value);
+      });
+    });
+    tbody.querySelectorAll('.js-fin-action').forEach(sel => {
+      sel.addEventListener('change', async e => {
+        e.stopPropagation();
+        await setFinNextAction(sel.dataset.account, sel.value || null);
+      });
+    });
+  }
+
+  /**
+   * Mirror of the server's action resolution, over the same ordered list the
+   * server shipped — so a saved override shows immediately without re-fetching
+   * the whole report, and no policy is duplicated in the browser.
+   */
+  function finResolveAction(a, override) {
+    const policy = finActions.find(x => x.bucket === a.bucket) || finActions[0];
+    if (!policy) return a.action;
+    const chosen = override ? (finActions.find(x => x.key === override) || policy) : policy;
+    return Object.assign({}, chosen, {
+      source: override ? 'override' : 'policy',
+      policyKey: policy.key,
+    });
+  }
+
+  async function setFinNextAction(accountKey, nextAction) {
+    const r = await api('PUT', '/financials/accounts/' + encodeURIComponent(accountKey) + '/next-action', { nextAction });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not change the next action.'); return false; }
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === accountKey);
+    if (acct) {
+      acct.case = r.data.case;
+      acct.action = finResolveAction(acct, r.data.case.nextAction);
+    }
+    renderFinViews();
+    return true;
   }
 
   document.getElementById('fin-view-board').addEventListener('click', () => {

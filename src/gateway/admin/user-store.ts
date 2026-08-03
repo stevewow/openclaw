@@ -324,6 +324,8 @@ type PastDueCasesTable = {
   account_key: string;
   account_name: string;
   status: string;
+  /** Pinned collections step, or null to follow the aging policy. */
+  next_action: string | null;
   assigned_to: string | null;
   assigned_by: string | null;
   assigned_at: number | null;
@@ -334,6 +336,12 @@ type PastDueCasesTable = {
   created_at: number;
   updated_at: number;
   updated_by_name: string | null;
+};
+
+type PastDueFollowupsTable = {
+  task_id: string;
+  account_key: string;
+  created_at: number;
 };
 
 type ClevelandOrdersTable = {
@@ -479,6 +487,7 @@ export type AdminDb = {
   admin_churn_notes: ChurnNotesTable;
   admin_financial_notes: FinancialNotesTable;
   admin_past_due_cases: PastDueCasesTable;
+  admin_past_due_followups: PastDueFollowupsTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
   admin_tickets: TicketsTable;
@@ -903,6 +912,9 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       account_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'new'
         CHECK(status IN ('new','working','promised','plan','escalated','resolved')),
+      -- Pinned collections step. NULL means "follow the aging policy", which is
+      -- what every account does until someone deliberately says otherwise.
+      next_action TEXT,
       assigned_to TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
       assigned_by TEXT,
       assigned_at INTEGER,
@@ -915,6 +927,17 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       updated_by_name TEXT
     );
     CREATE INDEX IF NOT EXISTS admin_past_due_cases_assigned ON admin_past_due_cases(assigned_to);
+    -- Ties a collections follow-up task back to the account it was raised for.
+    -- The link lives here rather than as a column on admin_tasks because it is
+    -- a collections concern; a task carries no account of its own. Deleting the
+    -- task drops the link, which is what makes "Next Contact" clear itself.
+    CREATE TABLE IF NOT EXISTS admin_past_due_followups (
+      task_id TEXT PRIMARY KEY REFERENCES admin_tasks(id) ON DELETE CASCADE,
+      account_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_past_due_followups_account
+      ON admin_past_due_followups(account_key);
     CREATE TABLE IF NOT EXISTS admin_cleveland_orders (
       order_id TEXT PRIMARY KEY,
       photographer TEXT NOT NULL,
@@ -1061,6 +1084,14 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     if (!invoiceColumns.some((c) => c.name === col)) {
       db.exec(`ALTER TABLE admin_spiro_invoices ADD COLUMN ${col} REAL`);
     }
+  }
+  // Collections steps used to be derived from aging alone. Nullable, so every
+  // existing case keeps following the policy until someone pins a step.
+  const pastDueCaseColumns = db.prepare("PRAGMA table_info(admin_past_due_cases)").all() as Array<{
+    name: string;
+  }>;
+  if (!pastDueCaseColumns.some((c) => c.name === "next_action")) {
+    db.exec("ALTER TABLE admin_past_due_cases ADD COLUMN next_action TEXT");
   }
   const financialNoteColumns = db
     .prepare("PRAGMA table_info(admin_financial_notes)")

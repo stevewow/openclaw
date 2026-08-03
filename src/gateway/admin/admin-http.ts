@@ -92,6 +92,7 @@ import {
   isPastDueCaseStatus,
   PAST_DUE_CASE_STATUSES,
   setPastDueCaseDueAt,
+  setPastDueCaseNextAction,
   setPastDueCaseReviewCleared,
   setPastDueCaseStatus,
 } from "./past-due-cases-store.js";
@@ -103,6 +104,8 @@ import {
   listContacts,
   logContact,
 } from "./past-due-contacts-store.js";
+import { linkFollowUpTask } from "./past-due-followups-store.js";
+import { isPastDueActionKey, PAST_DUE_ACTIONS } from "./past-due-policy.js";
 import {
   type CleanupImportItem,
   decideCleanupItem,
@@ -2816,6 +2819,9 @@ export async function handleAdminHttpRequest(
     sendJson(res, 200, {
       breakdown,
       statuses: PAST_DUE_CASE_STATUSES,
+      // The collections sequence, in order. Shipped like the board columns so
+      // the picker never hardcodes the policy or its ordering.
+      actions: PAST_DUE_ACTIONS,
       assignees,
       canAssign: isAdmin,
     });
@@ -2863,6 +2869,41 @@ export async function handleAdminHttpRequest(
       accountKey,
       accountName: await getAccountName(accountKey),
       status,
+      byUserName: sessionUser.username,
+    });
+    sendJson(res, 200, { case: updated });
+    return true;
+  }
+
+  // PUT /api/admin/financials/accounts/:accountKey/next-action — pin the
+  // collections step, or `nextAction: null` to follow the aging policy again.
+  // Admins, or the assignee working it — same rule as the stage.
+  const acctActionMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/next-action$/);
+  if (acctActionMatch && req.method === "PUT") {
+    const accountKey = decodeURIComponent(acctActionMatch[1]);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const raw = (body.value as Record<string, unknown>).nextAction;
+    // null is meaningful here — it is how an override is cleared — so it is
+    // accepted explicitly rather than falling through to the error.
+    if (raw !== null && !isPastDueActionKey(raw)) {
+      sendBadRequest(
+        res,
+        "nextAction must be null or one of: " + PAST_DUE_ACTIONS.map((a) => a.key).join(", "),
+      );
+      return true;
+    }
+    const updated = await setPastDueCaseNextAction({
+      accountKey,
+      accountName: await getAccountName(accountKey),
+      nextAction: raw,
       byUserName: sessionUser.username,
     });
     sendJson(res, 200, { case: updated });
@@ -3371,6 +3412,11 @@ export async function handleAdminHttpRequest(
       tags: ["collections"],
       createdBy: sessionUser.id,
     });
+    // Scheduling the contact IS creating this task, so record the link that
+    // lets the report show its due date as the account's Next Contact.
+    if (accountKey) {
+      await linkFollowUpTask({ taskId: task.id, accountKey });
+    }
     sendJson(res, 201, { task, projectId });
     return true;
   }

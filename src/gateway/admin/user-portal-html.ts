@@ -780,6 +780,27 @@ ${MY_WORK_COMPONENT_JS}
     host.innerHTML = head + accounts.map(function(a){ return portalPastDueCard(a, statuses); }).join('');
     bindPortalPastDue();
   }
+  /**
+   * The step, numbered so its place in the sequence is visible, and marked when
+   * someone pinned it against what the account's age would call for.
+   */
+  function portalActionLabel(a){
+    var act = a.action || {};
+    var step = act.step ? act.step + ' · ' : '';
+    return step + (act.label || '') + (act.source === 'override' ? ' (pinned)' : '');
+  }
+
+  /** Scheduled next contact, from the follow-up task raised on the account. */
+  function portalNextContactLine(a){
+    if (!a.nextContact) return '';
+    var days = a.daysUntilContact;
+    var when = days === 0 ? 'today' : days === 1 ? 'tomorrow'
+      : days < 0 ? (days === -1 ? 'yesterday' : (-days) + ' days ago') : 'in ' + days + ' days';
+    var late = days != null && days <= 0 ? 'color:#b7791f;font-weight:600' : '';
+    return '<div class="text-muted" style="font-size:0.8rem;margin-top:0.2rem;' + late + '">' +
+      'Next contact ' + esc(when) + ' · ' + esc(pdDate(a.nextContact.at)) + '</div>';
+  }
+
   function portalPastDueCard(a, statuses){
     var c = a.case || {};
     var flagOpen = a.needsManualReview && !c.reviewClearedAt;
@@ -796,7 +817,9 @@ ${MY_WORK_COMPONENT_JS}
         esc(a.oldestDaysPastDue + ' days past due (' + a.bucket + ') · ' + a.invoiceCount + ' invoice' + (a.invoiceCount === 1 ? '' : 's')) +
         (a.partiallyPaidCount ? esc(', ' + a.partiallyPaidCount + ' partly paid') : '') +
       '</div>' +
-      '<div class="text-muted" style="font-size:0.82rem;margin-top:0.2rem"><strong>' + esc(a.action.label) + ':</strong> ' + esc(a.action.detail) + '</div>' +
+      '<div class="text-muted" style="font-size:0.82rem;margin-top:0.2rem">' +
+        '<strong>' + esc(portalActionLabel(a)) + ':</strong> ' + esc(a.action.detail) + '</div>' +
+      portalNextContactLine(a) +
       (flagOpen ? '<div style="font-size:0.8rem;margin-top:0.4rem;padding:0.4rem 0.55rem;border-left:3px solid #b7791f;background:var(--surface2,#f6f7f9);border-radius:6px">' +
         'A partial payment sits behind this balance. Confirm what was agreed before the next collections step. ' +
         '<button class="btn btn-sm" data-pd-review="' + esc(a.accountKey) + '">Mark reviewed</button></div>' : '') +

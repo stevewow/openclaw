@@ -157,9 +157,13 @@ describe("scopeBreakdownToAssignee", () => {
       needsManualReview: partial > 0,
       oldestDaysPastDue: 100,
       bucket: "90-119" as const,
-      action: { label: "x", detail: "y" },
+      action: financials.resolveAction("90-119", null),
       paymentPlan: { requiredDown: 0, maxMonths: 3 },
       case: { ...store.defaultCase(key, key, 1), assignedTo },
+      lastContact: null,
+      daysSinceContact: null,
+      nextContact: null,
+      daysUntilContact: null,
     };
   }
 
@@ -186,5 +190,69 @@ describe("scopeBreakdownToAssignee", () => {
       accounts: 1,
       amount: 100,
     });
+  });
+});
+
+describe("pinned next action", () => {
+  it("is unset until someone pins it, so every account follows the policy", async () => {
+    const c = await store.getPastDueCase("never-touched");
+    expect(c).toBeNull();
+    expect(store.defaultCase("never-touched", "Never Touched").nextAction).toBeNull();
+  });
+
+  it("persists the pinned step and survives a re-read", async () => {
+    await store.setPastDueCaseNextAction({
+      accountKey: "acct-pin",
+      accountName: "Pinned Co",
+      nextAction: "call_90",
+      byUserName: "Casey",
+    });
+    expect((await store.getPastDueCase("acct-pin"))?.nextAction).toBe("call_90");
+  });
+
+  it("hands the account back to the policy when cleared", async () => {
+    await store.setPastDueCaseNextAction({
+      accountKey: "acct-clear",
+      accountName: "Clear Co",
+      nextAction: "letter_120",
+    });
+    await store.setPastDueCaseNextAction({
+      accountKey: "acct-clear",
+      accountName: "Clear Co",
+      nextAction: null,
+    });
+    expect((await store.getPastDueCase("acct-clear"))?.nextAction).toBeNull();
+  });
+
+  it("leaves the stage and owner alone", async () => {
+    await store.setPastDueCaseStatus({
+      accountKey: "acct-both",
+      accountName: "Both Co",
+      status: "promised",
+    });
+    await store.setPastDueCaseNextAction({
+      accountKey: "acct-both",
+      accountName: "Both Co",
+      nextAction: "email_45",
+    });
+    const c = await store.getPastDueCase("acct-both");
+    expect(c?.status).toBe("promised");
+    expect(c?.nextAction).toBe("email_45");
+  });
+
+  it("ignores a stored value that is not a step, rather than trusting it", async () => {
+    // A key retired from the policy must not come back as a live step.
+    await store.setPastDueCaseStatus({
+      accountKey: "acct-bad",
+      accountName: "Bad Co",
+      status: "new",
+    });
+    const db = userStore.getAdminDb();
+    await db
+      .updateTable("admin_past_due_cases")
+      .set({ next_action: "retired_step" })
+      .where("account_key", "=", "acct-bad")
+      .execute();
+    expect((await store.getPastDueCase("acct-bad"))?.nextAction).toBeNull();
   });
 });

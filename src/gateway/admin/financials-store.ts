@@ -8,71 +8,37 @@ import {
   type PastDueCaseStatus,
 } from "./past-due-cases-store.js";
 import { lastContactByAccount, type LastContact } from "./past-due-contacts-store.js";
+import { type NextContact, nextContactByAccount } from "./past-due-followups-store.js";
+import {
+  bucketForDays,
+  PAST_DUE_BUCKETS,
+  PAST_DUE_MIN_DAYS,
+  type PastDueBucket,
+  paymentPlanTerms,
+  type ResolvedAction,
+  resolveAction,
+} from "./past-due-policy.js";
 import { type ContactIndex, loadContactIndex, lookupContact } from "./pipedrive-contacts-store.js";
 import { spiroInvoiceUrl } from "./spiro-links.js";
 import { getAdminDb } from "./user-store.js";
 
-// ── Collections policy ────────────────────────────────────────────────────
-// Buckets and next-actions mirror WOW Video Tours' written collection process.
-// A bucket is chosen by an account's OLDEST past-due invoice (worst case).
-export type PastDueBucket = "45-59" | "60-89" | "90-119" | "120+";
-
-export const PAST_DUE_BUCKETS: PastDueBucket[] = ["45-59", "60-89", "90-119", "120+"];
-
-/**
- * The report starts where the collections process does. Nothing is owed to a
- * collector before the 45-day billing email, so an invoice younger than this is
- * left out of every figure on the report — balances, counts and tiles included —
- * rather than being shown and then filtered in the UI.
- */
-export const PAST_DUE_MIN_DAYS = 45;
-
-// Policy action surfaced per bucket. Kept declarative so the UI and any future
-// automation read the same source of truth.
-export function bucketForDays(daysPastDue: number): PastDueBucket | null {
-  if (daysPastDue >= 120) return "120+";
-  if (daysPastDue >= 90) return "90-119";
-  if (daysPastDue >= 60) return "60-89";
-  if (daysPastDue >= PAST_DUE_MIN_DAYS) {
-    return "45-59";
-  }
-  return null;
-}
-
-export function policyAction(bucket: PastDueBucket): { label: string; detail: string } {
-  switch (bucket) {
-    case "45-59":
-      return {
-        label: "Send billing email",
-        detail: "45-day billing email from billing.",
-      };
-    case "60-89":
-      return {
-        label: "Billing call + notify BDS",
-        detail: "60-day billing call. Notify BDS. Switch payment plan to pay-at-download.",
-      };
-    case "90-119":
-      return {
-        label: "Billing call / final email",
-        detail:
-          "90-day billing call. If no answer, send final collection email. Switch payment plan to pay-at-order.",
-      };
-    case "120+":
-      return {
-        label: "Letter → refer to collections",
-        detail:
-          "Letter sent 14 days after last contact with a 30-day deadline. Notify BDS. Refer to collections if no payment or plan by the deadline.",
-      };
-  }
-}
-
-// Payment-plan terms per policy: 10% down, term capped by balance size.
-export function paymentPlanTerms(balance: number): { requiredDown: number; maxMonths: number } {
-  return {
-    requiredDown: Math.round(balance * 0.1 * 100) / 100,
-    maxMonths: balance < 1000 ? 3 : 6,
-  };
-}
+// The collections policy moved to its own leaf module so the worklist store can
+// read it too; re-exported here because the report is where callers look for it.
+export {
+  actionForKey,
+  bucketForDays,
+  isPastDueActionKey,
+  PAST_DUE_ACTIONS,
+  PAST_DUE_BUCKETS,
+  PAST_DUE_MIN_DAYS,
+  type PastDueActionDef,
+  type PastDueActionKey,
+  type PastDueBucket,
+  paymentPlanTerms,
+  policyAction,
+  type ResolvedAction,
+  resolveAction,
+} from "./past-due-policy.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 export type PastDueInvoice = {
@@ -115,7 +81,11 @@ export type PastDueAccount = {
   needsManualReview: boolean;
   oldestDaysPastDue: number;
   bucket: PastDueBucket;
-  action: { label: string; detail: string };
+  /**
+   * The collections step to take next. Follows the aging policy unless the case
+   * pins its own; `source` says which, so an override is never silently applied.
+   */
+  action: ResolvedAction;
   paymentPlan: { requiredDown: number; maxMonths: number };
   case: PastDueCase;
   /**
@@ -133,6 +103,13 @@ export type PastDueAccount = {
   } | null;
   /** Whole days since that contact, or null when nobody has reached them. */
   daysSinceContact: number | null;
+  /**
+   * The scheduled next contact, taken from the soonest still-open follow-up
+   * task. Null when nothing is on the books for this account.
+   */
+  nextContact: NextContact | null;
+  /** Whole days until that contact; negative once it has slipped. */
+  daysUntilContact: number | null;
 };
 
 export type PastDueBreakdown = {
@@ -549,6 +526,7 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
 
   const cases = await listPastDueCases();
   const logged = await lastContactByAccount();
+  const nextContacts = await nextContactByAccount();
   // The CRM directory is optional: unconfigured or never swept simply means the
   // column falls back to what collectors logged themselves.
   let pipedrive: ContactIndex | null = null;
@@ -573,6 +551,8 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
         name: v.name,
         type: v.type,
       });
+      const caseRow = cases.get(accountKey) ?? defaultCase(accountKey, v.name, now);
+      const nextContact = nextContacts.get(accountKey) ?? null;
       return [
         {
           accountKey,
@@ -586,11 +566,13 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
           needsManualReview: v.partial > 0,
           oldestDaysPastDue: v.oldest,
           bucket,
-          action: policyAction(bucket),
+          action: resolveAction(bucket, caseRow.nextAction),
           paymentPlan: paymentPlanTerms(v.balance),
-          case: cases.get(accountKey) ?? defaultCase(accountKey, v.name, now),
+          case: caseRow,
           lastContact,
           daysSinceContact: lastContact ? Math.max(0, daysBetween(lastContact.at, now)) : null,
+          nextContact,
+          daysUntilContact: nextContact ? daysBetween(now, nextContact.at) : null,
         },
       ];
     })

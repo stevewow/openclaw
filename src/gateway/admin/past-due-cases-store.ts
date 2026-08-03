@@ -11,6 +11,7 @@
 // `new`/unassigned default, and only touching it (stage, owner, review) writes.
 // That keeps the table the size of the worked list, not of every past-due payee.
 
+import { isPastDueActionKey, type PastDueActionKey } from "./past-due-policy.js";
 import { getAdminDb } from "./user-store.js";
 
 export type PastDueCaseStatus = "new" | "working" | "promised" | "plan" | "escalated" | "resolved";
@@ -40,6 +41,8 @@ export type PastDueCase = {
   accountKey: string;
   accountName: string;
   status: PastDueCaseStatus;
+  /** Pinned collections step, or null to follow the aging policy. */
+  nextAction: PastDueActionKey | null;
   assignedTo: string | null;
   assignedToName: string | null;
   assignedBy: string | null;
@@ -57,6 +60,7 @@ type CaseRow = {
   account_key: string;
   account_name: string;
   status: string;
+  next_action: string | null;
   assigned_to: string | null;
   assigned_by: string | null;
   assigned_at: number | null;
@@ -74,6 +78,7 @@ function rowToCase(row: CaseRow, assigneeName: string | null): PastDueCase {
     accountKey: row.account_key,
     accountName: row.account_name,
     status: isPastDueCaseStatus(row.status) ? row.status : "new",
+    nextAction: isPastDueActionKey(row.next_action) ? row.next_action : null,
     assignedTo: row.assigned_to,
     assignedToName: assigneeName,
     assignedBy: row.assigned_by,
@@ -98,6 +103,7 @@ export function defaultCase(
     accountKey,
     accountName,
     status: "new",
+    nextAction: null,
     assignedTo: null,
     assignedToName: null,
     assignedBy: null,
@@ -190,6 +196,7 @@ async function upsertCase(
         account_key: accountKey,
         account_name: accountName,
         status: "new",
+        next_action: null,
         assigned_to: null,
         assigned_by: null,
         assigned_at: null,
@@ -222,6 +229,27 @@ export async function setPastDueCaseStatus(params: {
     params.accountKey,
     params.accountName,
     { status: params.status, updated_by_name: params.byUserName ?? null },
+    now,
+  );
+}
+
+/**
+ * Pin the collections step for an account, or with `nextAction: null` hand it
+ * back to the aging policy. Pinning is deliberate: it is how someone says the
+ * account is being worked ahead of, or behind, what its age implies.
+ */
+export async function setPastDueCaseNextAction(params: {
+  accountKey: string;
+  accountName: string;
+  nextAction: PastDueActionKey | null;
+  byUserName?: string | null;
+  now?: number;
+}): Promise<PastDueCase> {
+  const now = params.now ?? Date.now();
+  return upsertCase(
+    params.accountKey,
+    params.accountName,
+    { next_action: params.nextAction, updated_by_name: params.byUserName ?? null },
     now,
   );
 }
