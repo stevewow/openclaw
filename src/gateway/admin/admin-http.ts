@@ -169,6 +169,7 @@ import {
   recordTaskActivity,
   recordTaskDiff,
 } from "./task-events-store.js";
+import { newlyAdded, notifyTaskPeople } from "./task-notifier.js";
 import {
   clearProjectStatuses,
   defaultStatusKey,
@@ -1456,6 +1457,15 @@ export async function handleAdminHttpRequest(
       authorId: sessionUser.id,
       authorName: sessionUser.username,
     });
+    // Everyone on a brand-new task is newly assigned to it.
+    if (task.assigneeIds.length) {
+      void notifyTaskPeople({
+        kind: "assignment",
+        task,
+        recipientIds: task.assigneeIds,
+        actor: { id: sessionUser.id, name: sessionUser.username },
+      }).catch(() => {});
+    }
     sendJson(res, 201, { task });
     return true;
   }
@@ -1531,6 +1541,17 @@ export async function handleAdminHttpRequest(
     // unchanged — adds nothing to the feed.
     if (before) {
       await recordTaskDiff(before, updated, { id: sessionUser.id, name: sessionUser.username });
+      // Only people this write put on the task — a status drag re-sends the
+      // whole assignee array and must not re-notify anyone already on it.
+      const addedAssignees = newlyAdded(before.assigneeIds, updated.assigneeIds);
+      if (addedAssignees.length) {
+        void notifyTaskPeople({
+          kind: "assignment",
+          task: updated,
+          recipientIds: addedAssignees,
+          actor: { id: sessionUser.id, name: sessionUser.username },
+        }).catch(() => {});
+      }
     }
     // "Finished" is whichever column carries is_done on this board, not the
     // literal key 'done' — a board ending in "Delivered" still rolls a
@@ -1707,13 +1728,26 @@ export async function handleAdminHttpRequest(
       // Mentions are resolved server-side against real accounts, so a comment
       // cannot claim to mention someone who does not exist.
       const people = (await listUsers()).map((u) => ({ id: u.id, name: u.username }));
+      const mentions = parseMentions(text, people);
       const event = await addTaskComment({
         taskId,
         body: text,
-        mentions: parseMentions(text, people),
+        mentions,
         authorId: sessionUser.id,
         authorName: sessionUser.username,
       });
+      // Fire-and-forget: a mail provider having a bad day must not fail the
+      // comment that is already saved.
+      const commentTask = await getTask(taskId);
+      if (commentTask && mentions.length) {
+        void notifyTaskPeople({
+          kind: "mention",
+          task: commentTask,
+          recipientIds: mentions,
+          actor: { id: sessionUser.id, name: sessionUser.username },
+          commentBody: text,
+        }).catch(() => {});
+      }
       sendJson(res, 201, { event });
       return true;
     }
@@ -1766,12 +1800,26 @@ export async function handleAdminHttpRequest(
       return true;
     }
     const people = (await listUsers()).map((u) => ({ id: u.id, name: u.username }));
+    const editedMentions = parseMentions(text, people);
     const updatedEvent = await editTaskComment(eventId, text, {
-      mentions: parseMentions(text, people),
+      mentions: editedMentions,
     });
     if (!updatedEvent) {
       sendBadRequest(res, "only comments can be edited");
       return true;
+    }
+    // Only people the edit newly names are emailed — fixing a typo must not
+    // re-notify everyone the comment already mentioned.
+    const addedByEdit = newlyAdded(existing.mentions, editedMentions);
+    const editedTask = addedByEdit.length ? await getTask(taskId) : null;
+    if (editedTask) {
+      void notifyTaskPeople({
+        kind: "mention",
+        task: editedTask,
+        recipientIds: addedByEdit,
+        actor: { id: sessionUser.id, name: sessionUser.username },
+        commentBody: text,
+      }).catch(() => {});
     }
     sendJson(res, 200, { event: updatedEvent });
     return true;
