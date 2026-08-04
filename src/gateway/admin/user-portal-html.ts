@@ -1,3 +1,4 @@
+import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
   PROJECT_CALENDAR_COMPONENT_JS,
@@ -14,7 +15,8 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OpenClaw Portal</title>
+<title>${brandTitle("Portal")}</title>
+${BRAND_FAVICON_TAG}
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -45,7 +47,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .login-left { flex: 1; background: var(--sidebar-bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; }
   .login-left-inner { max-width: 340px; width: 100%; }
   .login-brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 2.5rem; }
-  .login-brand-icon { width: 44px; height: 44px; background: var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+  .login-brand-icon { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .login-brand-name { color: #ffffff; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
   .login-tagline { color: rgba(255,255,255,0.45); font-size: 0.9rem; line-height: 1.6; }
   .login-right { width: 440px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 3rem; background: var(--surface); }
@@ -67,7 +69,7 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
   .app { display: flex; height: calc(100vh - var(--banner-h)); overflow: hidden; }
   .sidebar { width: 220px; background: var(--sidebar-bg); display: flex; flex-direction: column; flex-shrink: 0; height: calc(100vh - var(--banner-h)); }
   .sidebar-logo { padding: 1.25rem 1.25rem 1rem; display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--sidebar-border); }
-  .sidebar-logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+  .sidebar-logo-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .sidebar-logo-name { color: #ffffff; font-weight: 700; font-size: 1rem; letter-spacing: -0.01em; }
   .sidebar-user { padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--sidebar-border); }
   .sidebar-user .name { color: var(--sidebar-text-active); font-weight: 600; font-size: 0.875rem; }
@@ -242,10 +244,10 @@ ${MY_WORK_CSS}
   <div class="login-left">
     <div class="login-left-inner">
       <div class="login-brand">
-        <div class="login-brand-icon">🦞</div>
-        <div class="login-brand-name">OpenClaw</div>
+        <div class="login-brand-icon">${brandLogo(44)}</div>
+        <div class="login-brand-name">${BRAND_NAME}</div>
       </div>
-      <p class="login-tagline">Your personal AI assistant — connecting every channel, every model, from one place.</p>
+      <p class="login-tagline">${BRAND_TAGLINE}</p>
     </div>
   </div>
   <div class="login-right">
@@ -277,8 +279,8 @@ ${MY_WORK_CSS}
 <div id="app" class="app hidden">
   <aside class="sidebar">
     <div class="sidebar-logo">
-      <div class="sidebar-logo-icon">🦞</div>
-      <div class="sidebar-logo-name">OpenClaw</div>
+      <div class="sidebar-logo-icon">${brandLogo(32)}</div>
+      <div class="sidebar-logo-name">${BRAND_NAME}</div>
     </div>
     <div class="sidebar-user">
       <div class="name" id="sidebar-username"></div>
@@ -300,7 +302,7 @@ ${MY_WORK_CSS}
 
     <!-- Chat — embedded control UI -->
     <div id="page-chat" class="page active">
-      <iframe id="chat-frame" title="OpenClaw Chat" allow="microphone"></iframe>
+      <iframe id="chat-frame" title="${BRAND_NAME} Chat" allow="microphone"></iframe>
     </div>
 
     <!-- Projects & Tasks -->

@@ -72,14 +72,14 @@ describe("newlyAdded", () => {
 
 describe("adminBaseUrl / taskUrl", () => {
   it("defaults to the gateway host and strips trailing slashes from an override", () => {
-    expect(adminBaseUrl({})).toBe("https://openclaw.wowvideotours.com");
+    expect(adminBaseUrl({})).toBe("https://hub.wowvideotours.com");
     expect(adminBaseUrl({ ADMIN_BASE_URL: "https://dash.example.com/" })).toBe(
       "https://dash.example.com",
     );
   });
 
   it("builds a deep link that opens the task", () => {
-    expect(taskUrl("abc", {})).toBe("https://openclaw.wowvideotours.com/admin#projects?task=abc");
+    expect(taskUrl("abc", {})).toBe("https://hub.wowvideotours.com/admin#projects?task=abc");
   });
 
   it("escapes an id that would otherwise break the query", () => {
@@ -111,7 +111,7 @@ describe("formatTaskEmail", () => {
     expect(msg.textBody).toContain("Project: Coldwell Banker Heritage");
     expect(msg.textBody).toContain("Priority: high");
     expect(msg.textBody).toContain("Aug 14, 2026");
-    expect(msg.textBody).toContain("https://openclaw.wowvideotours.com/admin#projects?task=task-1");
+    expect(msg.textBody).toContain("https://hub.wowvideotours.com/admin#projects?task=task-1");
   });
 
   it("renders an assignment without a quoted body", () => {

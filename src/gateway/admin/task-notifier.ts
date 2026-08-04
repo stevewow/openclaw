@@ -1,3 +1,4 @@
+import { BRAND_NAME } from "./brand.js";
 import { getProject, type Task } from "./project-store.js";
 import {
   type EmailConfig,
@@ -20,7 +21,7 @@ import { listUsers } from "./user-store.js";
  * so replies land on the from-address and the body points at the dashboard.
  */
 
-const DEFAULT_ADMIN_BASE_URL = "https://openclaw.wowvideotours.com";
+const DEFAULT_ADMIN_BASE_URL = "https://hub.wowvideotours.com";
 
 /** Where the dashboard is reachable, for the "Open this task" link. */
 export function adminBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
@@ -125,7 +126,7 @@ export function formatTaskEmail(params: TaskEmailParams): OutboundEmail {
   lines.push(`Open this task: ${taskUrl(task.id, params.env)}`);
   lines.push("");
   lines.push("—");
-  lines.push("You're getting this because you were named on a task in the OpenClaw dashboard.");
+  lines.push(`You're getting this because you were named on a task in ${BRAND_NAME}.`);
 
   return {
     to: params.to,

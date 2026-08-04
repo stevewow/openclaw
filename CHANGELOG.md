@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Admin/Portal: the dashboard is white-labeled for the team — "WOW Hub" and a red play-button mark replace the upstream name and emoji logo on the login screen, the sidebar, the browser tab and the chat pane, and both pages now declare a favicon they previously left to fall through to the control UI's. The brand lives in one module both pages read, so the dashboard and the portal can no longer drift apart. Task notification mail defaults to `https://hub.wowvideotours.com` (still overridable via `ADMIN_BASE_URL`).
 - Admin: Past Due Accounts becomes a collections board — stage columns with drag-to-move, per-account assignment, next-action dates, and shared notes; an assigned account shows up as that person's queue in the user portal under the new `past-due` report grant.
 - Admin: Past Due Accounts flags any account holding a partially paid invoice for manual review, with a per-invoice invoiced/paid/outstanding breakdown and a review sign-off.
 - Admin: Churn & Retention report gains an on-demand refresh (re-pulls Spiro order history and re-runs the retention engine over a 1/2/3/5-year window), shared per-agent notes, a collapsed-by-default explainer, and a header that states the window and what the agent count covers.
