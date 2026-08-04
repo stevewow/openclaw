@@ -14,8 +14,9 @@ import {
 } from "../chat/attachment-support.ts";
 import { buildChatItems } from "../chat/build-chat-items.ts";
 import { renderChatQueue } from "../chat/chat-queue.ts";
-import { DeletedMessages } from "../chat/deleted-messages.ts";
 import { renderContextNotice } from "../chat/context-notice.ts";
+import { DeletedMessages } from "../chat/deleted-messages.ts";
+import { exportChatMarkdown } from "../chat/export.ts";
 import {
   renderMessageGroup,
   renderReadingIndicatorGroup,
@@ -37,8 +38,11 @@ import { icons } from "../icons.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type { ThemeMode } from "../theme.ts";
 import type { ChatAttachment } from "../ui-types.ts";
-import { agentLogoUrl, resolveChatAvatarRenderUrl, resolveAssistantTextAvatar } from "./agents-utils.ts";
-import { exportChatMarkdown } from "../chat/export.ts";
+import {
+  agentLogoUrl,
+  resolveChatAvatarRenderUrl,
+  resolveAssistantTextAvatar,
+} from "./agents-utils.ts";
 import type { ChatProps } from "./chat.ts";
 
 export type UserPortalProps = ChatProps & {
@@ -220,11 +224,7 @@ function updateSlashMenu(value: string, requestUpdate: () => void) {
   requestUpdate();
 }
 
-function selectSlashCmd(
-  cmd: SlashCommandDef,
-  props: UserPortalProps,
-  requestUpdate: () => void,
-) {
+function selectSlashCmd(cmd: SlashCommandDef, props: UserPortalProps, requestUpdate: () => void) {
   if (cmd.argOptions?.length) {
     props.onDraftChange(`/${cmd.name} `);
     pvs.slashMenuMode = "args";
@@ -356,12 +356,18 @@ function renderPortalSlashMenu(
   if (pvs.slashMenuItems.length === 0) return nothing;
 
   // Group commands by category
-  const grouped = new Map<SlashCommandCategory, Array<{ cmd: SlashCommandDef; globalIdx: number }>>();
+  const grouped = new Map<
+    SlashCommandCategory,
+    Array<{ cmd: SlashCommandDef; globalIdx: number }>
+  >();
   for (let i = 0; i < pvs.slashMenuItems.length; i++) {
     const cmd = pvs.slashMenuItems[i];
     const cat = cmd.category ?? "session";
     let list = grouped.get(cat);
-    if (!list) { list = []; grouped.set(cat, list); }
+    if (!list) {
+      list = [];
+      grouped.set(cat, list);
+    }
     list.push({ cmd, globalIdx: i });
   }
 
@@ -369,31 +375,42 @@ function renderPortalSlashMenu(
 
   return html`
     <div id=${PORTAL_SLASH_MENU_ID} class="slash-menu" role="listbox" aria-label="Slash commands">
-      ${[...grouped.entries()].map(([cat, entries]) => html`
-        <div class="slash-menu-group">
-          <div class="slash-menu-group__label">${CATEGORY_LABELS[cat]}</div>
-          ${entries.map(({ cmd, globalIdx }) => html`
-            <div
-              id="portal-slash-cmd-${cmd.name}"
-              class="slash-menu-item ${globalIdx === pvs.slashMenuIndex ? "slash-menu-item--active" : ""}"
-              role="option"
-              aria-selected=${globalIdx === pvs.slashMenuIndex}
-              @click=${() => selectSlashCmd(cmd, props, requestUpdate)}
-              @mouseenter=${() => { pvs.slashMenuIndex = globalIdx; requestUpdate(); }}
-            >
-              ${cmd.icon ? html`<span class="slash-menu-icon">${icons[cmd.icon]}</span>` : nothing}
-              <span class="slash-menu-name">/${cmd.name}</span>
-              ${cmd.args ? html`<span class="slash-menu-args">${cmd.args}</span>` : nothing}
-              <span class="slash-menu-desc">${cmd.description}</span>
-              ${cmd.argOptions?.length
-                ? html`<span class="slash-menu-badge">${cmd.argOptions.length} options</span>`
-                : cmd.executeLocal && !cmd.args
-                  ? html`<span class="slash-menu-badge">instant</span>`
-                  : nothing}
-            </div>
-          `)}
-        </div>
-      `)}
+      ${[...grouped.entries()].map(
+        ([cat, entries]) => html`
+          <div class="slash-menu-group">
+            <div class="slash-menu-group__label">${CATEGORY_LABELS[cat]}</div>
+            ${entries.map(
+              ({ cmd, globalIdx }) => html`
+                <div
+                  id="portal-slash-cmd-${cmd.name}"
+                  class="slash-menu-item ${globalIdx === pvs.slashMenuIndex
+                    ? "slash-menu-item--active"
+                    : ""}"
+                  role="option"
+                  aria-selected=${globalIdx === pvs.slashMenuIndex}
+                  @click=${() => selectSlashCmd(cmd, props, requestUpdate)}
+                  @mouseenter=${() => {
+                    pvs.slashMenuIndex = globalIdx;
+                    requestUpdate();
+                  }}
+                >
+                  ${cmd.icon
+                    ? html`<span class="slash-menu-icon">${icons[cmd.icon]}</span>`
+                    : nothing}
+                  <span class="slash-menu-name">/${cmd.name}</span>
+                  ${cmd.args ? html`<span class="slash-menu-args">${cmd.args}</span>` : nothing}
+                  <span class="slash-menu-desc">${cmd.description}</span>
+                  ${cmd.argOptions?.length
+                    ? html`<span class="slash-menu-badge">${cmd.argOptions.length} options</span>`
+                    : cmd.executeLocal && !cmd.args
+                      ? html`<span class="slash-menu-badge">instant</span>`
+                      : nothing}
+                </div>
+              `,
+            )}
+          </div>
+        `,
+      )}
       ${hiddenCount > 0
         ? html`<button
             class="slash-menu-show-more"
@@ -426,7 +443,10 @@ const WELCOME_SUGGESTION_KEYS = [
 function renderPortalWelcome(props: UserPortalProps) {
   const name = props.assistantName || "Assistant";
   const avatarUrl = resolveChatAvatarRenderUrl(props.assistantAvatarUrl, {
-    identity: { avatar: props.assistantAvatar ?? undefined, avatarUrl: props.assistantAvatarUrl ?? undefined },
+    identity: {
+      avatar: props.assistantAvatar ?? undefined,
+      avatarUrl: props.assistantAvatarUrl ?? undefined,
+    },
   });
   const avatarText = avatarUrl ? null : resolveAssistantTextAvatar(props.assistantAvatar);
   const fallbackLogoUrl = agentLogoUrl(props.basePath ?? "");
@@ -436,7 +456,9 @@ function renderPortalWelcome(props: UserPortalProps) {
       ${avatarUrl
         ? html`<img class="user-portal__welcome-avatar" src=${avatarUrl} alt=${name} />`
         : avatarText
-          ? html`<div class="user-portal__welcome-avatar-initials" aria-label=${name}>${avatarText}</div>`
+          ? html`<div class="user-portal__welcome-avatar-initials" aria-label=${name}>
+              ${avatarText}
+            </div>`
           : html`
               <div class="user-portal__welcome-avatar-logo">
                 <img src=${fallbackLogoUrl} alt=${name} />
@@ -474,28 +496,34 @@ function renderPortalAttachments(props: UserPortalProps): TemplateResult | typeo
   if (attachments.length === 0) return nothing;
   return html`
     <div class="user-portal__attachments">
-      ${attachments.map((att) => html`
-        <div class="chat-attachment-thumb ${isImage(att) ? "" : "chat-attachment-thumb--file"}">
-          ${isImage(att) && getChatAttachmentPreviewUrl(att)
-            ? html`<img src=${getChatAttachmentPreviewUrl(att)!} alt="Attachment preview" />`
-            : html`
-                <div class="chat-attachment-file" title=${att.fileName ?? "Attached file"}>
-                  <span class="chat-attachment-file__icon">${icons.paperclip}</span>
-                  <span class="chat-attachment-file__name">${att.fileName ?? "Attached file"}</span>
-                </div>
-              `}
-          <button
-            class="chat-attachment-remove"
-            type="button"
-            aria-label="Remove attachment"
-            @click=${() => {
-              const next = (props.attachments ?? []).filter((a) => a.id !== att.id);
-              releaseChatAttachmentPayload(att.id);
-              props.onAttachmentsChange?.(next);
-            }}
-          >&times;</button>
-        </div>
-      `)}
+      ${attachments.map(
+        (att) => html`
+          <div class="chat-attachment-thumb ${isImage(att) ? "" : "chat-attachment-thumb--file"}">
+            ${isImage(att) && getChatAttachmentPreviewUrl(att)
+              ? html`<img src=${getChatAttachmentPreviewUrl(att)!} alt="Attachment preview" />`
+              : html`
+                  <div class="chat-attachment-file" title=${att.fileName ?? "Attached file"}>
+                    <span class="chat-attachment-file__icon">${icons.paperclip}</span>
+                    <span class="chat-attachment-file__name"
+                      >${att.fileName ?? "Attached file"}</span
+                    >
+                  </div>
+                `}
+            <button
+              class="chat-attachment-remove"
+              type="button"
+              aria-label="Remove attachment"
+              @click=${() => {
+                const next = (props.attachments ?? []).filter((a) => a.id !== att.id);
+                releaseChatAttachmentPayload(att.id);
+                props.onAttachmentsChange?.(next);
+              }}
+            >
+              &times;
+            </button>
+          </div>
+        `,
+      )}
     </div>
   `;
 }
@@ -511,18 +539,22 @@ function renderThemeToggle(props: UserPortalProps): TemplateResult | typeof noth
   ];
   return html`
     <div style="display:flex;align-items:center;gap:2px;">
-      ${modes.map(({ id, icon, label }) => html`
-        <button
-          type="button"
-          class="user-portal__icon-btn ${props.themeMode === id ? "user-portal__icon-btn--active" : ""}"
-          title=${label}
-          aria-label=${label}
-          @click=${() => props.onThemeModeChange?.(id)}
-          style="${props.themeMode === id ? "color:var(--text);background:var(--bg-hover);" : ""}"
-        >
-          ${icon}
-        </button>
-      `)}
+      ${modes.map(
+        ({ id, icon, label }) => html`
+          <button
+            type="button"
+            class="user-portal__icon-btn ${props.themeMode === id
+              ? "user-portal__icon-btn--active"
+              : ""}"
+            title=${label}
+            aria-label=${label}
+            @click=${() => props.onThemeModeChange?.(id)}
+            style="${props.themeMode === id ? "color:var(--text);background:var(--bg-hover);" : ""}"
+          >
+            ${icon}
+          </button>
+        `,
+      )}
     </div>
   `;
 }
@@ -587,20 +619,68 @@ export function renderUserPortal(props: UserPortalProps) {
     // Slash menu — arg mode navigation
     if (pvs.slashMenuOpen && pvs.slashMenuMode === "args" && pvs.slashMenuArgItems.length > 0) {
       const len = pvs.slashMenuArgItems.length;
-      if (e.key === "ArrowDown") { e.preventDefault(); pvs.slashMenuIndex = (pvs.slashMenuIndex + 1) % len; requestUpdate(); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); pvs.slashMenuIndex = (pvs.slashMenuIndex - 1 + len) % len; requestUpdate(); return; }
-      if (e.key === "Tab") { e.preventDefault(); selectSlashArg(pvs.slashMenuArgItems[pvs.slashMenuIndex], props, requestUpdate, false); return; }
-      if (e.key === "Enter") { e.preventDefault(); selectSlashArg(pvs.slashMenuArgItems[pvs.slashMenuIndex], props, requestUpdate, true); return; }
-      if (e.key === "Escape") { e.preventDefault(); pvs.slashMenuOpen = false; resetSlashState(); requestUpdate(); return; }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        pvs.slashMenuIndex = (pvs.slashMenuIndex + 1) % len;
+        requestUpdate();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        pvs.slashMenuIndex = (pvs.slashMenuIndex - 1 + len) % len;
+        requestUpdate();
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        selectSlashArg(pvs.slashMenuArgItems[pvs.slashMenuIndex], props, requestUpdate, false);
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        selectSlashArg(pvs.slashMenuArgItems[pvs.slashMenuIndex], props, requestUpdate, true);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        pvs.slashMenuOpen = false;
+        resetSlashState();
+        requestUpdate();
+        return;
+      }
     }
     // Slash menu — command mode navigation
     if (pvs.slashMenuOpen && pvs.slashMenuItems.length > 0) {
       const len = pvs.slashMenuItems.length;
-      if (e.key === "ArrowDown") { e.preventDefault(); pvs.slashMenuIndex = (pvs.slashMenuIndex + 1) % len; requestUpdate(); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); pvs.slashMenuIndex = (pvs.slashMenuIndex - 1 + len) % len; requestUpdate(); return; }
-      if (e.key === "Tab") { e.preventDefault(); tabCompleteSlashCmd(pvs.slashMenuItems[pvs.slashMenuIndex], props, requestUpdate); return; }
-      if (e.key === "Enter") { e.preventDefault(); selectSlashCmd(pvs.slashMenuItems[pvs.slashMenuIndex], props, requestUpdate); return; }
-      if (e.key === "Escape") { e.preventDefault(); pvs.slashMenuOpen = false; resetSlashState(); requestUpdate(); return; }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        pvs.slashMenuIndex = (pvs.slashMenuIndex + 1) % len;
+        requestUpdate();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        pvs.slashMenuIndex = (pvs.slashMenuIndex - 1 + len) % len;
+        requestUpdate();
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        tabCompleteSlashCmd(pvs.slashMenuItems[pvs.slashMenuIndex], props, requestUpdate);
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        selectSlashCmd(pvs.slashMenuItems[pvs.slashMenuIndex], props, requestUpdate);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        pvs.slashMenuOpen = false;
+        resetSlashState();
+        requestUpdate();
+        return;
+      }
     }
     // History navigation
     if ((e.key === "ArrowUp" || e.key === "ArrowDown") && props.onHistoryKeydown) {
@@ -647,8 +727,8 @@ export function renderUserPortal(props: UserPortalProps) {
       <!-- Header -->
       <header class="user-portal__header">
         <div class="user-portal__header-start">
-          <img class="user-portal__header-logo" src=${logoUrl} alt="OpenClaw" />
-          <span class="user-portal__header-name">${props.assistantName || "OpenClaw"}</span>
+          <img class="user-portal__header-logo" src=${logoUrl} alt="WOW Hub" />
+          <span class="user-portal__header-name">${props.assistantName || "WOW Hub"}</span>
         </div>
         <div class="user-portal__header-end">
           ${renderThemeToggle(props)}
@@ -661,8 +741,7 @@ export function renderUserPortal(props: UserPortalProps) {
                   title="New chat"
                   aria-label="New chat"
                 >
-                  ${icons.plus}
-                  New chat
+                  ${icons.plus} New chat
                 </button>
               `
             : nothing}
@@ -691,9 +770,7 @@ export function renderUserPortal(props: UserPortalProps) {
                 </div>
               `
             : nothing}
-
           ${isEmpty && !props.loading ? renderPortalWelcome(props) : nothing}
-
           ${props.loading && chatItems.length === 0
             ? html`
                 <div class="user-portal__messages">
@@ -701,8 +778,14 @@ export function renderUserPortal(props: UserPortalProps) {
                     <div class="chat-line assistant">
                       <div class="chat-msg">
                         <div class="chat-bubble">
-                          <div class="skeleton skeleton-line skeleton-line--long" style="margin-bottom:8px"></div>
-                          <div class="skeleton skeleton-line skeleton-line--medium" style="margin-bottom:8px"></div>
+                          <div
+                            class="skeleton skeleton-line skeleton-line--long"
+                            style="margin-bottom:8px"
+                          ></div>
+                          <div
+                            class="skeleton skeleton-line skeleton-line--medium"
+                            style="margin-bottom:8px"
+                          ></div>
                           <div class="skeleton skeleton-line skeleton-line--short"></div>
                         </div>
                       </div>
@@ -711,7 +794,6 @@ export function renderUserPortal(props: UserPortalProps) {
                 </div>
               `
             : nothing}
-
           ${chatItems.length > 0 || props.loading
             ? html`
                 <div class="user-portal__messages" role="log" aria-live="polite">
@@ -722,7 +804,11 @@ export function renderUserPortal(props: UserPortalProps) {
                       if (item.kind === "divider") {
                         return html`
                           <div class="chat-divider" data-ts=${String(item.timestamp)}>
-                            <div class="chat-divider__rule" role="separator" aria-label=${item.label}>
+                            <div
+                              class="chat-divider__rule"
+                              role="separator"
+                              aria-label=${item.label}
+                            >
                               <span class="chat-divider__line"></span>
                               <span class="chat-divider__label">${item.label}</span>
                               <span class="chat-divider__line"></span>
@@ -791,19 +877,14 @@ export function renderUserPortal(props: UserPortalProps) {
                 </div>
               `
             : nothing}
-
           ${renderSideResult(props.sideResult, props.onDismissSideResult)}
           ${renderFallbackIndicator(props.fallbackStatus)}
           ${renderCompactionIndicator(props.compactionStatus)}
-          ${renderContextNotice(
-            activeSession,
-            props.sessions?.defaults?.contextTokens ?? null,
-            {
-              compactBusy,
-              compactDisabled: !props.connected || isBusy || Boolean(props.canAbort),
-              onCompact: props.onCompact,
-            },
-          )}
+          ${renderContextNotice(activeSession, props.sessions?.defaults?.contextTokens ?? null, {
+            compactBusy,
+            compactDisabled: !props.connected || isBusy || Boolean(props.canAbort),
+            onCompact: props.onCompact,
+          })}
           ${renderChatQueue({
             queue: props.queue,
             canAbort: props.canAbort,
@@ -817,8 +898,7 @@ export function renderUserPortal(props: UserPortalProps) {
                   type="button"
                   @click=${props.onScrollToBottom}
                 >
-                  ${icons.arrowDown}
-                  New messages
+                  ${icons.arrowDown} New messages
                 </button>
               `
             : nothing}
@@ -866,7 +946,8 @@ export function renderUserPortal(props: UserPortalProps) {
                 role="status"
                 aria-live="polite"
                 aria-atomic="true"
-              >${activeSlashMenuLabel}</span>
+                >${activeSlashMenuLabel}</span
+              >
             </div>
 
             <div class="user-portal__toolbar">
@@ -878,9 +959,7 @@ export function renderUserPortal(props: UserPortalProps) {
                   aria-label=${t("chat.composer.attachFile")}
                   ?disabled=${!props.connected}
                   @click=${() => {
-                    document
-                      .querySelector<HTMLInputElement>(".user-portal__file-input")
-                      ?.click();
+                    document.querySelector<HTMLInputElement>(".user-portal__file-input")?.click();
                   }}
                 >
                   ${icons.paperclip}
@@ -906,10 +985,7 @@ export function renderUserPortal(props: UserPortalProps) {
                       </button>
                     `
                   : nothing}
-
-                ${tokens
-                  ? html`<span class="user-portal__token-count">${tokens}</span>`
-                  : nothing}
+                ${tokens ? html`<span class="user-portal__token-count">${tokens}</span>` : nothing}
               </div>
 
               <div class="user-portal__toolbar-right">
@@ -926,7 +1002,6 @@ export function renderUserPortal(props: UserPortalProps) {
                       </button>
                     `
                   : nothing}
-
                 ${canAbort
                   ? html`
                       <button
@@ -956,7 +1031,7 @@ export function renderUserPortal(props: UserPortalProps) {
           </div>
 
           <p class="user-portal__footer-hint">
-            ${props.assistantName || "OpenClaw"} can make mistakes. Review important info.
+            ${props.assistantName || "WOW Hub"} can make mistakes. Review important info.
           </p>
         </div>
       </div>

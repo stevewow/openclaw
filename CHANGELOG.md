@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Control UI: the chat pane embedded in the dashboard is white-labeled to match — the app icons are redrawn as the play-button mark (one SVG, with the PNG and ICO variants rasterized from it), and the browser title, PWA manifest, sidebar brand, dashboard breadcrumb and login-gate title follow. Because the header and login-gate logos both resolve through `agentLogoUrl()` to `favicon.svg`, the icon swap covers all three surfaces at once.
 - Admin/Portal: the dashboard is white-labeled for the team — "WOW Hub" and a red play-button mark replace the upstream name and emoji logo on the login screen, the sidebar, the browser tab and the chat pane, and both pages now declare a favicon they previously left to fall through to the control UI's. The brand lives in one module both pages read, so the dashboard and the portal can no longer drift apart. Task notification mail defaults to `https://hub.wowvideotours.com` (still overridable via `ADMIN_BASE_URL`).
 - Admin: Past Due Accounts becomes a collections board — stage columns with drag-to-move, per-account assignment, next-action dates, and shared notes; an assigned account shows up as that person's queue in the user portal under the new `past-due` report grant.
 - Admin: Past Due Accounts flags any account holding a partially paid invoice for manual review, with a per-invoice invoiced/paid/outstanding breakdown and a review sign-off.

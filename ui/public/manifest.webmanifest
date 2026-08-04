@@ -1,7 +1,7 @@
 {
-  "name": "OpenClaw Control",
-  "short_name": "OpenClaw",
-  "description": "Multi-channel AI gateway control panel",
+  "name": "WOW Hub",
+  "short_name": "WOW Hub",
+  "description": "Scheduling, projects, and reporting for the WOW Video Tours team",
   "start_url": "./",
   "display": "standalone",
   "theme_color": "#0a0a0a",

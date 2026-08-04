@@ -158,7 +158,6 @@ import {
   sortLocaleStrings,
 } from "./views/agents-utils.ts";
 import { renderChat } from "./views/chat.ts";
-import { renderUserPortal } from "./views/user-portal.ts";
 import { renderCommandPalette } from "./views/command-palette.ts";
 import { getPresetById } from "./views/config-presets.ts";
 import { renderQuickSettings, type QuickSettingsChannel } from "./views/config-quick.ts";
@@ -174,6 +173,7 @@ import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderLoginGate } from "./views/login-gate.ts";
 import { renderOverview } from "./views/overview.ts";
+import { renderUserPortal } from "./views/user-portal.ts";
 
 let _pendingUpdate: (() => void) | undefined;
 
@@ -1393,7 +1393,9 @@ export function renderApp(state: AppViewState) {
     return html`
       ${renderUserPortal({
         sessionKey: state.sessionKey,
-        onSessionKeyChange: (next) => { switchChatSession(state, next); },
+        onSessionKeyChange: (next) => {
+          switchChatSession(state, next);
+        },
         thinkingLevel: state.chatThinkingLevel,
         showThinking,
         showToolCalls,
@@ -1458,7 +1460,9 @@ export function renderApp(state: AppViewState) {
         onAbort: () => void state.handleAbortChat({ preserveDraft: true }),
         onQueueRemove: (id) => state.removeQueuedMessage(id),
         onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
-        onDismissSideResult: () => { state.chatSideResult = null; },
+        onDismissSideResult: () => {
+          state.chatSideResult = null;
+        },
         onNewSession: () => void createChatSession(state),
         onClearHistory: async () => {
           if (!state.client || !state.connected) return;
@@ -1482,7 +1486,9 @@ export function renderApp(state: AppViewState) {
           state.agentsSelectedId = resolvedAgentId;
           state.setTab("agents" as import("./navigation.ts").Tab);
         },
-        onSessionSelect: (key: string) => { switchChatSession(state, key); },
+        onSessionSelect: (key: string) => {
+          switchChatSession(state, key);
+        },
         showNewMessages: state.chatNewMessagesBelow && !state.chatManualRefreshInFlight,
         onScrollToBottom: () => state.scrollToBottom(),
         sidebarOpen: state.sidebarOpen,
@@ -1503,11 +1509,9 @@ export function renderApp(state: AppViewState) {
         assistantAttachmentAuthToken: resolveAssistantAttachmentAuthToken(state),
         basePath: state.basePath ?? "",
         themeMode: state.themeMode,
-        onThemeModeChange: (mode) =>
-          state.setThemeMode(mode as import("./theme.ts").ThemeMode),
+        onThemeModeChange: (mode) => state.setThemeMode(mode as import("./theme.ts").ThemeMode),
       })}
-      ${renderExecApprovalPrompt(state)}
-      ${renderGatewayUrlConfirmation(state)}
+      ${renderExecApprovalPrompt(state)} ${renderGatewayUrlConfirmation(state)}
     `;
   }
 
@@ -1605,11 +1609,11 @@ export function renderApp(state: AppViewState) {
                       <img
                         class="sidebar-brand__logo"
                         src="${agentLogoUrl(basePath)}"
-                        alt="OpenClaw"
+                        alt="WOW Hub"
                       />
                       <span class="sidebar-brand__copy">
                         <span class="sidebar-brand__eyebrow">${t("nav.control")}</span>
-                        <span class="sidebar-brand__title">OpenClaw</span>
+                        <span class="sidebar-brand__title">WOW Hub</span>
                       </span>
                     `}
               </div>
