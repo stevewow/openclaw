@@ -94,6 +94,23 @@ export const PROJECT_CALENDAR_COMPONENT_JS = `
     return d.getFullYear() + '-' + m + '-' + day;
   }
 
+  /**
+   * The inverse of calDateInputValue: a yyyy-mm-dd from an <input type="date">
+   * as a timestamp on THAT calendar day, locally.
+   *
+   * new Date('2026-08-06') is defined to parse as UTC midnight, which is the
+   * evening of the 5th anywhere west of Greenwich — so a task due the 6th used
+   * to land on the 5th in every day-binning surface (the calendar most visibly).
+   * Anchoring at local noon puts the timestamp far enough from both midnights
+   * that no offset, DST shift included, can move it off its own day.
+   */
+  function calDateInputMs(value) {
+    if (!value) return null;
+    var m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(String(value).trim());
+    if (!m) return null;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0).getTime();
+  }
+
   function calFormatRange(start, end) {
     var opts = { month: 'short', day: 'numeric' };
     if (start && end) {

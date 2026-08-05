@@ -172,6 +172,60 @@ describe("createProjectCalendar", () => {
     expect(() => (doc.querySelector(".cal-day[data-date]") as HTMLElement).click()).not.toThrow();
   });
 
+  /**
+   * The reported bug: a task due 8/6 drew on 8/5. The date input hands back
+   * "2026-08-06"; the old save path ran that through `new Date(v)`, which JS
+   * parses as UTC midnight — the evening of the 5th in every US timezone — and
+   * the calendar bins by local day. These pin the round trip rather than the
+   * arithmetic, so the pair can never drift apart again.
+   */
+  describe("date input round trip", () => {
+    it("keeps the picked day when a date goes to storage and comes back", () => {
+      const { window } = mountCalendar({ tasks: () => [], projects: () => [] });
+      const w = window as unknown as {
+        calDateInputMs: (v: string) => number | null;
+        calDateInputValue: (ms: number) => string;
+      };
+      for (const picked of ["2026-08-06", "2026-01-01", "2026-12-31", "2026-03-08"]) {
+        const stored = w.calDateInputMs(picked);
+        expect(stored).not.toBeNull();
+        expect(w.calDateInputValue(stored as number)).toBe(picked);
+      }
+    });
+
+    it("bins a task due 8/6 on 8/6, not the day before", () => {
+      const AUGUST = 7;
+      const dueDate = ((): number => {
+        const { window } = mountCalendar({ tasks: () => [], projects: () => [] });
+        return (window as unknown as { calDateInputMs: (v: string) => number }).calDateInputMs(
+          "2026-08-06",
+        );
+      })();
+      const { doc, cal } = mountCalendar({
+        tasks: () => [{ id: "t1", title: "Due the sixth", dueDate }],
+        projects: () => [],
+      });
+      cal.goTo(2026, AUGUST);
+      const on6 = doc.querySelector(
+        '.cal-day[data-date="' + new Date(2026, AUGUST, 6).getTime() + '"] .cal-task-chip',
+      );
+      const on5 = doc.querySelector(
+        '.cal-day[data-date="' + new Date(2026, AUGUST, 5).getTime() + '"] .cal-task-chip',
+      );
+      expect(on6?.textContent).toBe("Due the sixth");
+      expect(on5).toBeNull();
+    });
+
+    it("rejects anything that is not a yyyy-mm-dd date", () => {
+      const { window } = mountCalendar({ tasks: () => [], projects: () => [] });
+      const parse = (window as unknown as { calDateInputMs: (v: unknown) => number | null })
+        .calDateInputMs;
+      for (const bad of ["", "not a date", "2026-8-6", "08/06/2026", null, undefined]) {
+        expect(parse(bad)).toBeNull();
+      }
+    });
+  });
+
   it("escapes titles rather than letting them inject markup", () => {
     const { doc } = mountCalendar({
       tasks: () => [{ id: "t1", title: "<img src=x onerror=alert(1)>", dueDate: day(9) }],

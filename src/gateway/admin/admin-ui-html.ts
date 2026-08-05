@@ -5474,9 +5474,12 @@ ${MY_WORK_COMPONENT_JS}
     const tasks = allTasks.filter(function(t) { return t.projectId === p.id && !t.parentTaskId; });
     const done = tasks.filter(function(t) { return statusRegistry.isDoneTask(t); });
     const pct = tasks.length ? Math.round((done.length / tasks.length) * 100) : 0;
-    const now = Date.now();
+    // Compare from the start of today, not the current instant: due dates are
+    // anchored at midday, so a raw Date.now() would call a task due today
+    // overdue from lunchtime onward.
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
     const overdue = tasks.filter(function(t) {
-      return t.dueDate && t.dueDate < now && !statusRegistry.isDoneTask(t);
+      return t.dueDate && t.dueDate < startOfToday.getTime() && !statusRegistry.isDoneTask(t);
     });
 
     let html = '';
@@ -6100,7 +6103,7 @@ ${MY_WORK_COMPONENT_JS}
     document.getElementById('task-title').value = task.title;
     document.getElementById('task-desc').value = task.description || '';
     document.getElementById('task-priority').value = task.priority;
-    document.getElementById('task-due').value = task.dueDate ? new Date(task.dueDate).toISOString().slice(0,10) : '';
+    document.getElementById('task-due').value = task.dueDate ? calDateInputValue(task.dueDate) : '';
     document.getElementById('task-recurrence').value = task.recurrence || '';
     populateTaskProjectSelect(task.projectId || '');
     syncTaskStatusOptions(task.status);
@@ -6299,7 +6302,7 @@ ${MY_WORK_COMPONENT_JS}
       status: document.getElementById('task-status').value,
       priority: document.getElementById('task-priority').value,
       projectId: document.getElementById('task-project').value || null,
-      dueDate: dueVal ? new Date(dueVal).getTime() : null,
+      dueDate: calDateInputMs(dueVal),
       assigneeIds: readAssigneeSelect(),
       recurrence: document.getElementById('task-recurrence').value || null,
       tags: taskModalTags.slice(),
@@ -6351,8 +6354,8 @@ ${MY_WORK_COMPONENT_JS}
     document.getElementById('proj-name').value = proj.title;
     document.getElementById('proj-desc').value = proj.description || '';
     document.getElementById('proj-status').value = proj.status;
-    document.getElementById('proj-start').value = proj.startDate ? new Date(proj.startDate).toISOString().slice(0,10) : '';
-    document.getElementById('proj-end').value = proj.endDate ? new Date(proj.endDate).toISOString().slice(0,10) : '';
+    document.getElementById('proj-start').value = proj.startDate ? calDateInputValue(proj.startDate) : '';
+    document.getElementById('proj-end').value = proj.endDate ? calDateInputValue(proj.endDate) : '';
     setProjColor(proj.color || '#3b82f6');
     renderProjModalTags();
     renderMemberPicker('proj-members-list', proj.memberIds || []);
@@ -6583,8 +6586,8 @@ ${MY_WORK_COMPONENT_JS}
       status: document.getElementById('proj-status').value,
       color: document.getElementById('proj-color-val').value,
       tags: projModalTags.slice(),
-      startDate: startVal ? new Date(startVal).getTime() : null,
-      endDate: endVal ? new Date(endVal).getTime() : null,
+      startDate: calDateInputMs(startVal),
+      endDate: calDateInputMs(endVal),
       memberIds: readMemberPicker('proj-members-list'),
     };
     const r = editingProjectId

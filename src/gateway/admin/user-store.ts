@@ -1100,6 +1100,44 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     db.exec("ALTER TABLE admin_financial_notes ADD COLUMN created_by_name TEXT");
   }
   backfillPortalFeaturePermissions(db);
+  migrateDueDatesOffMidnight(db);
+}
+
+/**
+ * Task and project dates used to be saved as `new Date('2026-08-06').getTime()`,
+ * which JS defines as UTC midnight. Every surface that bins by calendar day does
+ * so in the *browser's* timezone, so west of Greenwich that timestamp is the
+ * evening before — a task due the 6th drew on the 5th in the calendar.
+ *
+ * The save path now anchors at noon instead. Rows written before that still hold
+ * midnight, so move them once. Exactly-midnight-UTC is the signature of the old
+ * writer (noon can never land on it), which makes this both precise and safe to
+ * re-run: a row it has already moved no longer matches.
+ *
+ * Noon UTC, not noon local: the server is UTC but the readers are in US
+ * timezones, and midday is far enough from either midnight that no offset in
+ * that range — DST included — can push the value onto a neighbouring day.
+ */
+export function migrateDueDatesOffMidnight(db: import("node:sqlite").DatabaseSync): void {
+  const MARKER = "date_local_noon_v1";
+  if (db.prepare("SELECT id FROM admin_migrations WHERE id = ?").get(MARKER)) {
+    return;
+  }
+  const NOON_MS = 12 * 60 * 60 * 1000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const shift = (table: string, column: string) => {
+    db.prepare(
+      `UPDATE ${table} SET ${column} = ${column} + ?
+        WHERE ${column} IS NOT NULL AND ${column} % ? = 0`,
+    ).run(NOON_MS, DAY_MS);
+  };
+  shift("admin_tasks", "due_date");
+  shift("admin_projects", "start_date");
+  shift("admin_projects", "end_date");
+  db.prepare("INSERT OR IGNORE INTO admin_migrations (id, applied_at) VALUES (?, ?)").run(
+    MARKER,
+    Date.now(),
+  );
 }
 
 /**

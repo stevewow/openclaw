@@ -1693,7 +1693,7 @@ ${MY_WORK_COMPONENT_JS}
       status: document.getElementById('pt-t-status').value,
       priority: document.getElementById('pt-t-priority').value,
       projectId: document.getElementById('pt-t-project').value || null,
-      dueDate: dueVal ? new Date(dueVal).getTime() : null,
+      dueDate: calDateInputMs(dueVal),
       assigneeIds: ptReadAssigneeSelect(),
     };
     const r = ptEditingTask
@@ -1722,8 +1722,8 @@ ${MY_WORK_COMPONENT_JS}
     document.getElementById('pt-p-name').value = project ? project.title : '';
     document.getElementById('pt-p-desc').value = project ? (project.description || '') : '';
     document.getElementById('pt-p-status').value = project ? project.status : 'active';
-    document.getElementById('pt-p-start').value = project && project.startDate ? new Date(project.startDate).toISOString().slice(0,10) : '';
-    document.getElementById('pt-p-end').value = project && project.endDate ? new Date(project.endDate).toISOString().slice(0,10) : '';
+    document.getElementById('pt-p-start').value = project && project.startDate ? calDateInputValue(project.startDate) : '';
+    document.getElementById('pt-p-end').value = project && project.endDate ? calDateInputValue(project.endDate) : '';
     ptRenderMemberPicker('pt-p-members', project ? (project.memberIds || []) : []);
     document.getElementById('pt-project-delete').classList.toggle('hidden', !project);
     document.getElementById('pt-project-modal').classList.remove('hidden');
@@ -1747,8 +1747,8 @@ ${MY_WORK_COMPONENT_JS}
       title: document.getElementById('pt-p-name').value.trim(),
       description: document.getElementById('pt-p-desc').value.trim() || null,
       status: document.getElementById('pt-p-status').value,
-      startDate: startVal ? new Date(startVal).getTime() : null,
-      endDate: endVal ? new Date(endVal).getTime() : null,
+      startDate: calDateInputMs(startVal),
+      endDate: calDateInputMs(endVal),
       memberIds: ptReadMemberPicker('pt-p-members'),
     };
     const r = ptEditingProject
