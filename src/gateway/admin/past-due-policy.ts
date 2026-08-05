@@ -129,6 +129,59 @@ export function resolveAction(
   return { ...actionForKey(override), source: "override", policyKey: fromPolicy.key };
 }
 
+// ── Pay-at-order prompt ────────────────────────────────────────────────────
+
+/**
+ * How many separate past-due invoices make a pattern rather than a bad month.
+ *
+ * Chosen against the live book rather than picked round: at three, 13 of the 79
+ * past-due accounts qualify — 16% of accounts carrying 41% of the balance. Two
+ * would flag 37% of accounts, which is a list nobody works; the account's age
+ * is not used at all, because 76% of the book is already past 90 days and a
+ * prompt that fires on three quarters of the report is wallpaper.
+ */
+export const PAY_AT_ORDER_MIN_INVOICES = 3;
+
+export type PayAtOrderPrompt = {
+  /** Whether to prompt for switching this client's future orders. */
+  recommended: boolean;
+  /** Separate past-due invoices behind the call, so the UI can say why. */
+  invoiceCount: number;
+  /** One line explaining the recommendation, or why there isn't one. */
+  detail: string;
+};
+
+/**
+ * Whether a client's future orders should be moved to pay-at-order.
+ *
+ * This is about the NEXT order, not this debt: one big unpaid invoice is a
+ * collections problem, but several separately-billed shoots left unpaid is the
+ * client's payment behaviour, and taking payment up front is what stops the
+ * same balance rebuilding while collections works the existing one.
+ *
+ * Deliberately distinct from the collections step. Step 3 already tells a
+ * collector to switch the plan at 90 days on this account; this answers the
+ * different question of which clients keep doing it.
+ */
+export function payAtOrderPrompt(invoiceCount: number): PayAtOrderPrompt {
+  const count = Number.isFinite(invoiceCount) ? Math.max(0, Math.trunc(invoiceCount)) : 0;
+  if (count < PAY_AT_ORDER_MIN_INVOICES) {
+    return {
+      recommended: false,
+      invoiceCount: count,
+      detail:
+        count === 1
+          ? "One past-due invoice — a single miss, not yet a pattern."
+          : `${count} past-due invoices — under the ${PAY_AT_ORDER_MIN_INVOICES} that mark a pattern.`,
+    };
+  }
+  return {
+    recommended: true,
+    invoiceCount: count,
+    detail: `${count} separate past-due invoices. Switch this client's future orders to Pay at order so the balance stops rebuilding while collections works the existing one.`,
+  };
+}
+
 // Payment-plan terms per policy: 10% down, term capped by balance size.
 export function paymentPlanTerms(balance: number): { requiredDown: number; maxMonths: number } {
   return {

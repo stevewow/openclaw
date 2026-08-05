@@ -14,6 +14,8 @@ import {
   PAST_DUE_BUCKETS,
   PAST_DUE_MIN_DAYS,
   type PastDueBucket,
+  type PayAtOrderPrompt,
+  payAtOrderPrompt,
   paymentPlanTerms,
   type ResolvedAction,
   resolveAction,
@@ -31,9 +33,12 @@ export {
   PAST_DUE_ACTIONS,
   PAST_DUE_BUCKETS,
   PAST_DUE_MIN_DAYS,
+  PAY_AT_ORDER_MIN_INVOICES,
   type PastDueActionDef,
   type PastDueActionKey,
   type PastDueBucket,
+  type PayAtOrderPrompt,
+  payAtOrderPrompt,
   paymentPlanTerms,
   policyAction,
   type ResolvedAction,
@@ -87,6 +92,12 @@ export type PastDueAccount = {
    */
   action: ResolvedAction;
   paymentPlan: { requiredDown: number; maxMonths: number };
+  /**
+   * Whether this client's FUTURE orders should be taken at pay-at-order,
+   * because they keep leaving separate invoices unpaid. About the next order
+   * rather than this debt, so it stands apart from the collections step.
+   */
+  payAtOrder: PayAtOrderPrompt;
   case: PastDueCase;
   /**
    * When anyone last reached this client. A contact logged by a collector wins
@@ -119,6 +130,8 @@ export type PastDueBreakdown = {
   accountCount: number;
   invoiceCount: number;
   manualReviewCount: number;
+  /** Accounts whose repeat past-due invoices call for pay-at-order. */
+  payAtOrderCount: number;
   byBucket: Array<{ bucket: PastDueBucket; accounts: number; amount: number }>;
   byStatus: Array<{ status: PastDueCaseStatus; accounts: number; amount: number }>;
   accounts: PastDueAccount[];
@@ -568,6 +581,7 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
           bucket,
           action: resolveAction(bucket, caseRow.nextAction),
           paymentPlan: paymentPlanTerms(v.balance),
+          payAtOrder: payAtOrderPrompt(v.count),
           case: caseRow,
           lastContact,
           daysSinceContact: lastContact ? Math.max(0, daysBetween(lastContact.at, now)) : null,
@@ -605,6 +619,7 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
     accountCount: accounts.length,
     invoiceCount: accounts.reduce((s, a) => s + a.invoiceCount, 0),
     manualReviewCount: accounts.filter((a) => a.needsManualReview).length,
+    payAtOrderCount: accounts.filter((a) => a.payAtOrder.recommended).length,
     byBucket,
     byStatus,
     accounts,
@@ -631,6 +646,7 @@ export function scopeBreakdownToAssignee(
     accountCount: accounts.length,
     invoiceCount: accounts.reduce((s, a) => s + a.invoiceCount, 0),
     manualReviewCount: accounts.filter((a) => a.needsManualReview).length,
+    payAtOrderCount: accounts.filter((a) => a.payAtOrder.recommended).length,
     byBucket: PAST_DUE_BUCKETS.map((bucket) => {
       const inBucket = accounts.filter((a) => a.bucket === bucket);
       return { bucket, accounts: inBucket.length, amount: sum(inBucket) };
