@@ -1,4 +1,5 @@
 import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
+import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
   PROJECT_CALENDAR_COMPONENT_JS,
@@ -238,9 +239,6 @@ ${BRAND_FAVICON_TAG}
   /* Growth is the column the Focus report exists for, so it carries colour. */
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
-  /* The national row is the yardstick every other row is measured against, not
-     a market we serve — kept visually apart wherever a sort puts it. */
-  .market-national-row { background: var(--bg-subtle, rgba(127,127,127,0.07)); }
   /* Client tags. Kept small and outlined so a row of them cannot out-shout the
      revenue figures they sit beside. */
   .focus-tag { display: inline-block; padding: 0.05rem 0.35rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; border: 1px solid transparent; }
@@ -467,6 +465,7 @@ ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
+${MARKET_CSS}
   /* One filter row: project picker, the shared filter bar, and an overflow
      menu holding what used to be loose buttons in the toolbar. */
   .board-tools { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 1rem; }
@@ -3069,6 +3068,7 @@ ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}
+${MARKET_COMPONENT_JS}
   var cancelCols = [
     { key: 'client', label: 'Client', value: function(r){ return r.client; } },
     { key: 'totalOrders', label: 'Total Orders', type: 'num', value: function(r){ return r.totalOrders; } },
@@ -3951,206 +3951,36 @@ ${MY_WORK_COMPONENT_JS}
   });
 
   // ── Housing Market ─────────────────────────────────────────────────────────
-  // Market context for the regions we serve. The point of the page is the
-  // rolling-year change against the nation: order volume alone cannot say
-  // whether a region's shoots fell because the market fell or because we lost
-  // share, and those need opposite responses.
-  var marketTable = null;
-  var marketReport = null;
-
-  function marketFmt(value, format) {
-    if (value === null || value === undefined || !isFinite(value)) return '—';
-    if (format === 'money') return money(Math.round(value));
-    if (format === 'percent') {
-      // The feed sends sale-to-list as a ratio and price drops as a percent.
-      var pct = value <= 1.5 ? value * 100 : value;
-      return (Math.round(pct * 10) / 10) + '%';
-    }
-    if (format === 'days') return Math.round(value) + ' days';
-    if (format === 'months') return (Math.round(value * 10) / 10) + ' mo';
-    return Math.round(value).toLocaleString();
-  }
-
-  // Percentage-point change, signed, so a reader never has to guess direction.
-  function marketPct(pct) {
-    if (pct === null || pct === undefined || !isFinite(pct)) return '—';
-    var r = Math.round(pct * 10) / 10;
-    return (r > 0 ? '+' : '') + r + '%';
-  }
-
-  // Good/bad depends on the metric, not on the sign: rising days-on-market is
-  // bad news, and months of supply is deliberately neither.
-  function marketClass(pct, direction) {
-    if (pct === null || pct === undefined || !isFinite(pct) || direction === 'neutral') return '';
-    if (Math.abs(pct) < 0.05) return '';
-    var good = direction === 'down' ? pct < 0 : pct > 0;
-    return good ? 'focus-up' : 'focus-down';
-  }
-
-  function marketSelectedKey() {
-    var sel = document.getElementById('market-metric');
-    return sel.value || 'homesSold';
-  }
-
-  /** The chosen metric pulled out of each area, plus the areas that have none. */
-  function marketRows(key) {
-    if (!marketReport) return [];
-    var areas = (marketReport.national ? [marketReport.national] : []).concat(marketReport.regions || []);
-    return areas.map(function(a) {
-      var m = (a.metrics || []).filter(function(x){ return x.key === key; })[0] || null;
-      return { key: a.key, label: a.label, error: a.error, vsNationalPct: a.vsNationalPct, metric: m };
-    });
-  }
-
-  function marketCols() {
-    return [
-      { key: 'market', label: 'Market', type: 'text',
-        value: function(r){ return r.label; },
-        render: function(r){
-          return '<strong>' + esc(r.label) + '</strong>' +
-            (r.error ? '<div class="text-muted" style="font-size:0.75rem">' + esc(r.error) + '</div>' : '');
-        } },
-      { key: 'latest', label: 'Latest month', type: 'num',
-        value: function(r){ return r.metric ? r.metric.latest : null; },
-        render: function(r){
-          if (!r.metric) return '<span class="text-muted">—</span>';
-          // Redfin's own formatted string when it sent one; ours otherwise.
-          return esc(r.metric.display || marketFmt(r.metric.latest, r.metric.format));
-        } },
-      { key: 'yoy', label: 'Redfin YoY', type: 'text',
-        value: function(r){ return r.metric && r.metric.yoy ? r.metric.yoy : ''; },
-        render: function(r){
-          if (!r.metric || !r.metric.yoy) return '<span class="text-muted">—</span>';
-          return '<span class="text-muted">' + esc(r.metric.yoy) + '</span>';
-        } },
-      { key: 'rolling', label: 'Last 12 mo', type: 'num',
-        value: function(r){ return r.metric && r.metric.rolling ? r.metric.rolling.current : null; },
-        render: function(r){
-          var ro = r.metric && r.metric.rolling;
-          if (!ro) return '<span class="text-muted">—</span>';
-          return esc(marketFmt(ro.current, r.metric.format)) +
-            '<span class="text-muted" style="font-size:0.72rem"> ' + (ro.mode === 'sum' ? 'total' : 'avg') + '</span>';
-        } },
-      { key: 'prior', label: 'Prior 12 mo', type: 'num',
-        value: function(r){ return r.metric && r.metric.rolling ? r.metric.rolling.prior : null; },
-        render: function(r){
-          var ro = r.metric && r.metric.rolling;
-          return ro ? esc(marketFmt(ro.prior, r.metric.format)) : '<span class="text-muted">—</span>';
-        } },
-      { key: 'change', label: 'Change', type: 'num',
-        value: function(r){ return r.metric && r.metric.rolling ? r.metric.rolling.changePct : null; },
-        render: function(r){
-          var ro = r.metric && r.metric.rolling;
-          if (!ro || ro.changePct === null) return '<span class="text-muted">—</span>';
-          return '<span class="' + marketClass(ro.changePct, r.metric.direction) + '">' + esc(marketPct(ro.changePct)) + '</span>';
-        } },
-      { key: 'vsNational', label: 'vs national', type: 'num',
-        value: function(r){ return r.vsNationalPct; },
-        render: function(r){
-          // Only meaningful for homes sold — the comparison is computed on it.
-          if (marketSelectedKey() !== 'homesSold') return '<span class="text-muted">—</span>';
-          if (r.vsNationalPct === null || r.vsNationalPct === undefined) return '<span class="text-muted">—</span>';
-          var r1 = Math.round(r.vsNationalPct * 10) / 10;
-          return '<span class="' + (r1 > 0 ? 'focus-up' : r1 < 0 ? 'focus-down' : '') + '">' +
-            esc((r1 > 0 ? '+' : '') + r1 + ' pts') + '</span>';
-        } }
-    ];
-  }
-
-  function renderMarket() {
-    if (!marketTable) {
-      marketTable = createReportTable({
-        containerId: 'market-table',
-        reportKey: 'market',
-        frozenFirst: true,
-        emptyMsg: 'No market data cached yet. An admin can pull it with Refresh now.',
-        columns: marketCols(),
-        // The nation is the yardstick, not a market we serve — keep it legible
-        // as a row apart even after someone sorts the table.
-        rowClass: function(r){ return r.key === 'national' ? 'market-national-row' : ''; },
-      });
-    }
-    var key = marketSelectedKey();
-    marketTable.setData(marketRows(key));
-
-    var def = null;
-    var all = marketReport ? (marketReport.national ? [marketReport.national] : []).concat(marketReport.regions || []) : [];
-    for (var i = 0; i < all.length && !def; i++) {
-      def = (all[i].metrics || []).filter(function(x){ return x.key === key; })[0] || null;
-    }
-    document.getElementById('market-note').textContent = def ? def.note : '';
-
-    // National headline for the selected metric.
-    var nat = marketReport && marketReport.national;
-    var natMetric = nat ? (nat.metrics || []).filter(function(x){ return x.key === key; })[0] : null;
-    var natEl = document.getElementById('market-national');
-    if (!natMetric) {
-      natEl.innerHTML = '<span class="text-muted">No national figure cached' + (nat && nat.error ? ': ' + esc(nat.error) : '.') + '</span>';
-    } else {
-      var ro = natMetric.rolling;
-      natEl.innerHTML =
-        '<span style="font-weight:700">United States</span>' +
-        '<span>' + esc(natMetric.display || marketFmt(natMetric.latest, natMetric.format)) + '</span>' +
-        (ro ? '<span class="text-muted">last 12 mo ' + esc(marketFmt(ro.current, natMetric.format)) +
-          ' vs ' + esc(marketFmt(ro.prior, natMetric.format)) + '</span>' +
-          '<span class="' + marketClass(ro.changePct, natMetric.direction) + '">' + esc(marketPct(ro.changePct)) + '</span>' : '');
-    }
-
-    // Everything a reader needs to distrust the numbers appropriately.
-    var warn = [];
-    if (marketReport && !marketReport.configured) {
-      warn.push('No RealtyAPI key is configured, so this report cannot be refreshed. Set REALTYAPI_KEY in the gateway environment.');
-    }
-    if (marketReport && marketReport.neverRefreshed) {
-      warn.push('Nothing has been pulled yet.');
-    } else if (marketReport && marketReport.lagMonths !== null && marketReport.lagMonths >= 1) {
-      warn.push('The newest month in this data is ' + esc(String(marketReport.dataThrough || '')).slice(0, 7) +
-        ' — about ' + marketReport.lagMonths + ' month' + (marketReport.lagMonths === 1 ? '' : 's') +
-        ' behind. The series is published monthly and always trails.');
-    }
-    if (marketReport && (marketReport.missingRegions || []).length) {
-      warn.push('No market query for: ' + marketReport.missingRegions.join(', ') + '.');
-    }
-    var warnEl = document.getElementById('market-warning');
-    warnEl.classList.toggle('hidden', warn.length === 0);
-    warnEl.innerHTML = warn.map(function(w){ return '<div>' + w + '</div>'; }).join('');
-
-    document.getElementById('market-refreshed-at').textContent = marketReport && marketReport.refreshedAt
-      ? 'Updated ' + new Date(marketReport.refreshedAt).toLocaleString() + (marketReport.stale ? ' (stale)' : '')
-      : 'Never refreshed';
-  }
+  // Formatting, colouring and rendering live in market-ui.ts, shared verbatim
+  // with the portal. This is only the page's own wiring: the load, and the
+  // admin-only refresh.
+  var marketView = null;
 
   async function loadMarket() {
-    var r = await api('GET', '/reports/market');
-    if (!r.ok) { if (marketTable) marketTable.setError(); return; }
-    marketReport = r.data;
-
-    // The metric list comes from whatever the feed actually returned, so a
-    // metric Redfin drops stops being offered instead of showing empty rows.
-    var sel = document.getElementById('market-metric');
-    if (!sel.options.length || !sel.value) {
-      var seen = [];
-      var areas = (marketReport.national ? [marketReport.national] : []).concat(marketReport.regions || []);
-      areas.forEach(function(a){
-        (a.metrics || []).forEach(function(m){
-          if (!seen.some(function(x){ return x.key === m.key; })) seen.push({ key: m.key, label: m.label });
-        });
+    if (!marketView) {
+      marketView = createMarketReport({
+        metricSelectId: 'market-metric',
+        tableId: 'market-table',
+        reportKey: 'market',
+        nationalId: 'market-national',
+        noteId: 'market-note',
+        warningId: 'market-warning',
+        refreshedAtId: 'market-refreshed-at',
+        emptyMsg: 'No market data cached yet. An admin can pull it with Refresh now.',
+        // Only an admin can act on a missing key, and only here.
+        adminHints: true,
       });
-      if (!seen.length) seen = [{ key: 'homesSold', label: 'Homes Sold' }];
-      var keep = sel.value;
-      sel.innerHTML = seen.map(function(m){ return '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>'; }).join('');
-      sel.value = seen.some(function(m){ return m.key === keep; }) ? keep : seen[0].key;
     }
-    renderMarket();
+    var r = await api('GET', '/reports/market');
+    if (!r.ok) { marketView.setError(); return; }
+    marketView.setReport(r.data);
   }
-
-  document.getElementById('market-metric').addEventListener('change', renderMarket);
 
   document.getElementById('market-refresh-btn').addEventListener('click', async () => {
     var btn = document.getElementById('market-refresh-btn');
     btn.disabled = true;
     // One metered upstream call per market, so name the cost rather than spin.
-    btn.textContent = 'Pulling 9 markets…';
+    btn.textContent = 'Pulling market data…';
     var r = await api('POST', '/reports/market/refresh', {});
     btn.disabled = false;
     btn.innerHTML = '↻ Refresh now';

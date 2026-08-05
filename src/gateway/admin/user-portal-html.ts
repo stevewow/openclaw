@@ -1,4 +1,5 @@
 import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
+import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
   PROJECT_CALENDAR_COMPONENT_JS,
@@ -176,6 +177,7 @@ ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
+${MARKET_CSS}
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
   /* Client tags, matching the dashboard's Focus report. */
@@ -567,6 +569,7 @@ ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}
+${MARKET_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -577,6 +580,7 @@ ${MY_WORK_COMPONENT_JS}
     { key: 'rankings', title: 'Agent & Company Rankings' },
     { key: 'photographers', title: 'Photographers' },
     { key: 'focus', title: 'Sales Focus' },
+    { key: 'market', title: 'Housing Market' },
     { key: 'pipedrive-cleanup', title: 'Pipedrive Cleanup' },
     { key: 'past-due', title: 'Collections Queue' }
   ];
@@ -602,6 +606,7 @@ ${MY_WORK_COMPONENT_JS}
   var portalReportMonths = [];
   var portalReportTables = {};
   var portalActiveReport = null;
+  var portalMarketView = null;
   var portalReportsBuilt = false;
   function monthLabelP(m){ var d = new Date(m + '-01T00:00:00Z'); return d.toLocaleString('en-US', { month:'short', year:'numeric', timeZone:'UTC' }); }
   function portalCancelCols(){ return [
@@ -701,6 +706,16 @@ ${MY_WORK_COMPONENT_JS}
           '</div>' +
           '<div class="card" style="padding:0" id="prt-focus"></div>' +
         '</div>' +
+        '<div class="report-view" data-view="market" style="display:none">' +
+          '<div class="card" style="margin-bottom:1rem;padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">' +
+            '<label style="font-size:0.8rem;font-weight:600">Metric <select id="prt-market-metric"></select></label>' +
+            '<span class="text-muted" id="prt-market-note" style="font-size:0.78rem"></span>' +
+            '<span class="text-muted" id="prt-market-refreshed" style="font-size:0.78rem;margin-left:auto"></span>' +
+          '</div>' +
+          '<div class="card hidden" id="prt-market-warning" style="margin-bottom:1rem;border-left:3px solid #d97706"></div>' +
+          '<div class="card" style="margin-bottom:1rem;padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap" id="prt-market-national"></div>' +
+          '<div class="card" style="padding:0" id="prt-market"></div>' +
+        '</div>' +
         '<div class="report-view" data-view="pipedrive-cleanup" style="display:none"><div id="prt-pdc"></div></div>' +
         '<div class="report-view" data-view="past-due" style="display:none"><div id="prt-pastdue"></div></div>';
       portalReportTables['report-cancellations'] = createReportTable({ containerId:'prt-cancel', reportKey:'p-cancellations', frozenFirst:true, emptyMsg:'No data cached for this range yet.', columns: portalCancelCols() });
@@ -708,6 +723,18 @@ ${MY_WORK_COMPONENT_JS}
       portalReportTables['rankings-companies'] = createReportTable({ containerId:'prt-rank-companies', reportKey:'p-rankings-companies', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Company') });
       portalReportTables['photographers'] = createReportTable({ containerId:'prt-photographers', reportKey:'p-photographers', frozenFirst:true, emptyMsg:'No photographers cached yet.', columns: portalPhotographerCols() });
       portalReportTables['focus'] = createReportTable({ containerId:'prt-focus', reportKey:'p-focus', frozenFirst:true, emptyMsg:'No orders cached for this range yet. Ask an admin to refresh it.', columns: portalFocusCols() });
+      // The market report owns its own picker and rendering; the portal only
+      // reads the cache, so there is no refresh button here.
+      portalMarketView = createMarketReport({
+        metricSelectId: 'prt-market-metric',
+        tableId: 'prt-market',
+        reportKey: 'p-market',
+        nationalId: 'prt-market-national',
+        noteId: 'prt-market-note',
+        warningId: 'prt-market-warning',
+        refreshedAtId: 'prt-market-refreshed',
+        emptyMsg: 'No market data cached yet. Ask an admin to refresh it.'
+      });
       document.getElementById('prt-focus-bds').onchange = function(){ renderPortalReport('focus'); };
       document.getElementById('prt-focus-region').onchange = function(){ renderPortalReport('focus'); };
       document.getElementById('prt-focus-compare').onchange = function(){ renderPortalReport('focus'); };
@@ -731,7 +758,7 @@ ${MY_WORK_COMPONENT_JS}
     document.querySelectorAll('#report-area .report-view').forEach(function(v){ v.style.display = v.dataset.view === key ? '' : 'none'; });
     // The date/market controls only apply to the Spiro data reports; the cleanup
     // worklist and the collections queue are live worklists, so hide them there.
-    document.getElementById('report-controls').classList.toggle('hidden', key === 'pipedrive-cleanup' || key === 'past-due');
+    document.getElementById('report-controls').classList.toggle('hidden', key === 'pipedrive-cleanup' || key === 'past-due' || key === 'market');
     renderPortalReport(key);
   }
   async function renderPortalReport(key){
@@ -777,6 +804,10 @@ ${MY_WORK_COMPONENT_JS}
       gsel.value = (r4.data.regionOptions || []).indexOf(keepRegion) >= 0 ? keepRegion : '';
       document.getElementById('prt-focus-note').textContent =
         [r4.data.splitNote, r4.data.topPercentNote].filter(Boolean).join(' ');
+    } else if (key === 'market'){
+      var r5 = await api('GET', '/reports/market');
+      if (!r5.ok){ portalMarketView.setError(); return; }
+      portalMarketView.setReport(r5.data);
     } else if (key === 'pipedrive-cleanup'){
       await renderPortalCleanup();
     } else if (key === 'past-due'){
