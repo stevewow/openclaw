@@ -14,6 +14,7 @@
 // requests — so it is swept on a schedule and cached, never fetched per lookup.
 
 import { isConfigured, listOrganizations, listPersons } from "../../../extensions/pipedrive/api.js";
+import { loadContactEvents, refreshPipedriveContactEvents } from "./pipedrive-contact-events.js";
 import { getAdminDb } from "./user-store.js";
 
 export type PipedriveMatch = {
@@ -224,6 +225,11 @@ export async function refreshPipedriveContacts(
       .execute();
   });
 
+  // The directory alone says who exists, not when anyone was last spoken to.
+  // Swept after the transaction so a CRM hiccup here leaves the directory
+  // intact rather than rolling it back.
+  await refreshPipedriveContactEvents();
+
   return { persons: persons.size, organizations: orgs.size };
 }
 
@@ -245,13 +251,19 @@ export async function loadContactIndex(): Promise<ContactIndex> {
   const byPersonName = new Map<string, PipedriveMatch>();
   const byOrgName = new Map<string, PipedriveMatch>();
 
+  // Pipedrive's own last_activity_date counts newsletter opens, tracked site
+  // visits and shared-inbox order mail. `contact-events` holds the stricter
+  // answer — a human activity, or mail a real salesperson sent — so it wins
+  // outright rather than being maxed with the looser figure.
+  const events = await loadContactEvents();
+
   const personRows = (await db
     .selectFrom("admin_pipedrive_persons")
     .selectAll()
     .execute()) as PersonRow[];
   for (const r of personRows) {
     const match: PipedriveMatch = {
-      lastActivityAt: r.last_activity_at,
+      lastActivityAt: events.get(`person:${r.person_id}`) ?? null,
       matchedName: r.name,
       matchedType: "person",
       pipedriveId: r.person_id,
@@ -278,7 +290,7 @@ export async function loadContactIndex(): Promise<ContactIndex> {
       continue;
     }
     const match: PipedriveMatch = {
-      lastActivityAt: r.last_activity_at,
+      lastActivityAt: events.get(`organization:${r.org_id}`) ?? null,
       matchedName: r.name,
       matchedType: "organization",
       pipedriveId: r.org_id,

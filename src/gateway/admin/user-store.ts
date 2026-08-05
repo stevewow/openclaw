@@ -194,6 +194,13 @@ type PipedriveOrgsTable = {
   cached_at: number;
 };
 
+type PipedriveContactEventsTable = {
+  party_type: string;
+  party_id: number;
+  last_contact_at: number;
+  cached_at: number;
+};
+
 type PipedriveRefreshLogTable = {
   id: string;
   refreshed_at: number;
@@ -479,6 +486,7 @@ export type AdminDb = {
   admin_pipedrive_persons: PipedrivePersonsTable;
   admin_pipedrive_orgs: PipedriveOrgsTable;
   admin_pipedrive_refresh_log: PipedriveRefreshLogTable;
+  admin_pipedrive_contact_events: PipedriveContactEventsTable;
   admin_past_due_contacts: PastDueContactsTable;
   admin_outreach_templates: OutreachTemplatesTable;
   admin_focus_companies: FocusCompaniesTable;
@@ -799,6 +807,17 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       id TEXT PRIMARY KEY,
       refreshed_at INTEGER NOT NULL,
       manual INTEGER NOT NULL DEFAULT 0
+    );
+    -- When each party was last GENUINELY contacted: a human-run activity or a
+    -- mail thread a real salesperson sent, as opposed to the newsletter opens
+    -- and shared-inbox order traffic that last_activity_at counts.
+    -- Accumulates: the mail sweep is incremental, so rows outlive its window.
+    CREATE TABLE IF NOT EXISTS admin_pipedrive_contact_events (
+      party_type TEXT NOT NULL CHECK(party_type IN ('person','organization')),
+      party_id INTEGER NOT NULL,
+      last_contact_at INTEGER NOT NULL,
+      cached_at INTEGER NOT NULL,
+      PRIMARY KEY (party_type, party_id)
     );
     CREATE TABLE IF NOT EXISTS admin_past_due_contacts (
       id TEXT PRIMARY KEY,

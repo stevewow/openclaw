@@ -88,6 +88,40 @@ export async function listOrganizations(params: ListPageParams = {}) {
   });
 }
 
+/**
+ * One page of every activity in the account, newest paging metadata included.
+ *
+ * Unfiltered on purpose: callers that need "when was this client last actually
+ * spoken to" have to see the activity TYPE to discard newsletter opens and
+ * website visits, which a person's `last_activity_date` silently counts.
+ */
+export async function listActivities(params: ListPageParams = {}) {
+  return pipedriveGetPage("/activities", {
+    start: params.start ?? 0,
+    limit: params.limit ?? 500,
+  });
+}
+
+/** Which mailbox folder to page through. */
+export type MailFolder = "inbox" | "sent" | "archive";
+
+/**
+ * One page of synced mail threads. Threads carry the parties on each message,
+ * including the Pipedrive person each address resolves to, which is what lets a
+ * caller tell a salesperson's email apart from a shared-inbox one.
+ *
+ * Roughly newest-first, but not strictly: inversions of several days have been
+ * observed, so callers paging to a watermark need an overlap rather than
+ * stopping at the first older thread.
+ */
+export async function listMailThreads(params: ListPageParams & { folder: MailFolder }) {
+  return pipedriveGetPage("/mailbox/mailThreads", {
+    folder: params.folder,
+    start: params.start ?? 0,
+    limit: params.limit ?? 100,
+  });
+}
+
 /** Whether a token is configured at all, so callers can degrade rather than throw. */
 export function isConfigured(): boolean {
   return !!loadPipedriveConfig()?.apiToken;

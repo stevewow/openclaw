@@ -3,4 +3,12 @@
 //
 // Read-only surface only: the dashboard reads when a client was last touched,
 // it never writes back into the CRM.
-export { isConfigured, listOrganizations, listPersons, type ListPageParams } from "./src/client.js";
+export {
+  isConfigured,
+  listActivities,
+  type ListPageParams,
+  listMailThreads,
+  listOrganizations,
+  listPersons,
+  type MailFolder,
+} from "./src/client.js";
