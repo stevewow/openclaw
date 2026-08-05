@@ -72,6 +72,7 @@ import {
   refreshFocusData,
   ymd as focusYmd,
 } from "./focus-store.js";
+import { getMarketReport, refreshMarketData } from "./market-store.js";
 import {
   createTemplate,
   deleteTemplate,
@@ -3286,6 +3287,34 @@ export async function handleAdminHttpRequest(
         manual: true,
       });
       sendJson(res, 200, { ok: true, ...counts });
+    } catch (err) {
+      sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+
+  // GET /api/admin/reports/market — housing-market context for the regions we
+  // serve. Reads the cache only; the sweep below is the only thing that fetches.
+  if (subPath === "/reports/market" && req.method === "GET") {
+    if (!(await hasReportAccess("market"))) {
+      sendForbidden(res);
+      return true;
+    }
+    sendJson(res, 200, await getMarketReport());
+    return true;
+  }
+
+  // POST /api/admin/reports/market/refresh — one metered upstream call per area,
+  // so admin-only and never automatic. A partial sweep still returns 200 with
+  // its per-area errors; the report shows which market is missing and why.
+  if (subPath === "/reports/market/refresh" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    try {
+      const result = await refreshMarketData();
+      sendJson(res, 200, { ok: true, ...result });
     } catch (err) {
       sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
     }

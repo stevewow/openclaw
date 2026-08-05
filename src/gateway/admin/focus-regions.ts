@@ -30,6 +30,17 @@ const SOLE_OWNERS: Record<string, BdsName> = {
 /** Regions split by revenue rank rather than owned outright. */
 export const SPLIT_REGIONS = ["columbus", "dayton"] as const;
 
+/**
+ * Every region the business serves, sole-owned and split alike. Exported so a
+ * report that needs the whole footprint rather than the ownership of it — the
+ * market report does — reads the same list the BDS map is built from instead of
+ * keeping a second copy that quietly drifts when a region is added.
+ */
+export const ALL_REGIONS: readonly string[] = [
+  ...Object.keys(SOLE_OWNERS),
+  ...SPLIT_REGIONS,
+].toSorted();
+
 /** Chris Voge takes this share of the shared book; Ryan Bowersock takes the rest. */
 export const SPLIT_TOP_SHARE = 0.2;
 const SPLIT_TOP_OWNER: BdsName = "Chris Voge";

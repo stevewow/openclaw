@@ -245,6 +245,18 @@ type FocusRefreshLogTable = {
   manual: number;
 };
 
+// One cached Redfin trends payload per area ("national" plus a region key).
+// The body is stored raw so a parser change can be redeployed and take effect
+// without spending credits re-fetching a monthly series that has not moved.
+type MarketSnapshotsTable = {
+  area_key: string;
+  label: string;
+  query: string;
+  payload: string;
+  error: string | null;
+  fetched_at: number;
+};
+
 // Reusable outreach scripts with merge fields, picked on an account.
 type OutreachTemplatesTable = {
   id: string;
@@ -493,6 +505,7 @@ export type AdminDb = {
   admin_focus_agents: FocusAgentsTable;
   admin_focus_orders: FocusOrdersTable;
   admin_focus_refresh_log: FocusRefreshLogTable;
+  admin_market_snapshots: MarketSnapshotsTable;
   admin_churn_dismissals: ChurnDismissalsTable;
   admin_churn_notes: ChurnNotesTable;
   admin_financial_notes: FinancialNotesTable;
@@ -861,6 +874,14 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       id TEXT PRIMARY KEY,
       refreshed_at INTEGER NOT NULL,
       manual INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS admin_market_snapshots (
+      area_key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      query TEXT NOT NULL,
+      payload TEXT NOT NULL DEFAULT '{}',
+      error TEXT,
+      fetched_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS admin_outreach_templates (
       id TEXT PRIMARY KEY,

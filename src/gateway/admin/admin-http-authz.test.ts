@@ -1539,3 +1539,38 @@ describe("the Focus report is gated like every other report", () => {
     expect(r.json?.compare).toBe("yoy");
   });
 });
+
+describe("the Market report is gated like every other report", () => {
+  it("serves a granted user from the cache", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "market" }]);
+    const r = await call("GET", "/reports/market", { token: userToken });
+    expect(r.status).toBe(200);
+    // Nothing cached in this suite, so the page gets the "never refreshed"
+    // shape rather than an empty table that reads as a dead market.
+    expect(r.json?.neverRefreshed).toBe(true);
+    expect(Array.isArray(r.json?.regions)).toBe(true);
+  });
+
+  it("denies it to someone without the grant", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "rankings" }]);
+    const r = await call("GET", "/reports/market", { token: userToken });
+    expect(r.status).toBe(403);
+  });
+
+  it("keeps the metered sweep to admins", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "market" }]);
+    const r = await call("POST", "/reports/market/refresh", { token: userToken, body: {} });
+    expect(r.status).toBe(403);
+  });
+
+  it("reports a missing key as an upstream failure, not a crash", async () => {
+    const saved = process.env.REALTYAPI_KEY;
+    delete process.env.REALTYAPI_KEY;
+    const r = await call("POST", "/reports/market/refresh", { token: adminToken, body: {} });
+    expect(r.status).toBe(502);
+    expect(String(r.json?.error ?? "")).toMatch(/REALTYAPI_KEY/);
+    if (saved !== undefined) {
+      process.env.REALTYAPI_KEY = saved;
+    }
+  });
+});
