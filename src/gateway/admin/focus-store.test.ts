@@ -84,6 +84,24 @@ describe("the report", () => {
           name: "Amber Fairbanks",
           email: "amber@example.com",
           company_id: "c-cin",
+          vip: 1,
+          cached_at: now,
+        },
+        {
+          agent_id: "a2",
+          name: "Agent a2",
+          email: "a2@example.com",
+          company_id: "c-col",
+          vip: 0,
+          cached_at: now,
+        },
+        // Cached before VIP was swept: the column is null, not 0.
+        {
+          agent_id: "a3",
+          name: "Agent a3",
+          email: "a3@example.com",
+          company_id: "c-day",
+          vip: null,
           cached_at: now,
         },
       ])
@@ -210,6 +228,68 @@ describe("the report", () => {
     const r = await store.getFocusReport({ from: "2026-07-01", to: "2026-07-31" });
     expect(r.splitNote).toContain("Columbus and Dayton");
     expect(r.splitNote).toContain("of 3 clients");
+  });
+
+  it("tags the clients Spiro flags VIP", async () => {
+    const r = await store.getFocusReport({ from: "2026-07-01", to: "2026-07-31" });
+    expect(r.rows.find((x) => x.agentId === "a1")?.vip).toBe(true);
+    expect(r.rows.find((x) => x.agentId === "a2")?.vip).toBe(false);
+    // A row cached before the VIP sweep reads as not-VIP, never as undefined.
+    expect(r.rows.find((x) => x.agentId === "a3")?.vip).toBe(false);
+    // An agent with orders but no roster row at all must not throw.
+    expect(r.rows.find((x) => x.agentId === "a6")?.vip).toBe(false);
+  });
+
+  it("tags the top slice of each region on its own", async () => {
+    const r = await store.getFocusReport({ from: "2026-07-01", to: "2026-07-31" });
+    // Amber is the only Cincinnati client billing in this window, so she leads
+    // her own region even though Columbus's a2 out-earns her ten to one.
+    expect(r.rows.find((x) => x.agentId === "a1")?.topPercent).toBe(true);
+    expect(r.rows.find((x) => x.agentId === "a2")?.topPercent).toBe(true);
+    // Dayton has two clients; only the bigger one is tagged.
+    expect(r.rows.find((x) => x.agentId === "a3")?.topPercent).toBe(true);
+    expect(r.rows.find((x) => x.agentId === "a4")?.topPercent).toBe(false);
+    // The lapsed client billed nothing this period, so leads nothing.
+    expect(r.rows.find((x) => x.agentId === "a5")?.topPercent).toBe(false);
+  });
+
+  it("narrows to one region without changing what the tags mean", async () => {
+    const all = await store.getFocusReport({ from: "2026-07-01", to: "2026-07-31" });
+    const dayton = await store.getFocusReport({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      region: "Dayton",
+    });
+    expect(dayton.rows.length).toBeGreaterThan(0);
+    expect(dayton.rows.every((x) => x.region === "Dayton")).toBe(true);
+    expect(dayton.totals.clients).toBe(dayton.rows.length);
+    // Ranked before the filter, so a2 keeps the tag the unfiltered view gave it.
+    for (const row of dayton.rows) {
+      expect(row.topPercent).toBe(all.rows.find((x) => x.agentId === row.agentId)?.topPercent);
+    }
+    // The filter must not shrink the region list, or it could not be undone.
+    expect(dayton.regionOptions).toEqual(all.regionOptions);
+  });
+
+  it("combines the region and BDS filters rather than letting one win", async () => {
+    const r = await store.getFocusReport({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      bds: "Pam Branam",
+      region: "Dayton",
+    });
+    // Pam owns Cincinnati, so there is no Dayton client of hers.
+    expect(r.rows).toEqual([]);
+    expect(r.totals.clients).toBe(0);
+  });
+
+  it("offers every region present as a filter option", async () => {
+    const r = await store.getFocusReport({ from: "2026-07-01", to: "2026-07-31" });
+    expect(r.regionOptions).toContain("Cincinnati");
+    expect(r.regionOptions).toContain("Dayton");
+    // Including the one nobody owns — it still has clients to look at.
+    expect(r.regionOptions).toContain("Cleveland");
+    expect(r.regionOptions).toEqual(r.regionOptions.toSorted());
   });
 
   it("rejects a backwards or malformed range rather than returning nonsense", async () => {

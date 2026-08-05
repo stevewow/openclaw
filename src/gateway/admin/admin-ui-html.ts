@@ -234,6 +234,12 @@ ${BRAND_FAVICON_TAG}
   /* Growth is the column the Focus report exists for, so it carries colour. */
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
+  /* Client tags. Kept small and outlined so a row of them cannot out-shout the
+     revenue figures they sit beside. */
+  .focus-tag { display: inline-block; padding: 0.05rem 0.35rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; border: 1px solid transparent; }
+  .focus-tag + .focus-tag { margin-left: 0.25rem; }
+  .focus-tag-vip { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+  .focus-tag-top { background: #dcfce7; color: #166534; border-color: #86efac; }
   #fin-table-head th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
   #fin-table-head th[data-sort]:hover { color: var(--text); }
   .fin-contact-log { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
@@ -905,6 +911,10 @@ ${MY_WORK_CSS}
             <div class="form-group" style="margin:0">
               <label>BDS</label>
               <select id="focus-bds"><option value="">Everyone</option></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Region</label>
+              <select id="focus-region"><option value="">All regions</option></select>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
               <span class="text-muted" id="focus-refreshed-at" style="font-size:0.8rem"></span>
@@ -3760,9 +3770,25 @@ ${MY_WORK_COMPONENT_JS}
     return sign + v.toFixed(1) + '%';
   }
 
+  /** The tags a Focus row carries, in the order they should read. */
+  function focusTagList(r) {
+    var out = [];
+    if (r.vip) out.push('VIP');
+    if (r.topPercent) out.push('Top 20%');
+    return out;
+  }
+
   function focusCols() {
     return [
       { key: 'agent', label: 'Client', value: function(r){ return r.agentName; } },
+      // Sorts VIPs above top-20% above everyone else, so the tag column is
+      // worth clicking rather than being decoration.
+      { key: 'tags', label: 'Tags', type: 'num',
+        value: function(r){ return (r.vip ? 2 : 0) + (r.topPercent ? 1 : 0); },
+        csv: function(r){ return focusTagList(r).join(' '); },
+        render: function(r){ return focusTagList(r).map(function(t){
+          return '<span class="focus-tag focus-tag-' + (t === 'VIP' ? 'vip' : 'top') + '">' + esc(t) + '</span>';
+        }).join('') || '<span class="text-muted">—</span>'; } },
       { key: 'company', label: 'Brokerage', value: function(r){ return r.companyName || '—'; } },
       { key: 'region', label: 'Region', value: function(r){ return r.region; } },
       { key: 'bds', label: 'BDS', value: function(r){ return r.bds || 'Unassigned'; } },
@@ -3814,19 +3840,28 @@ ${MY_WORK_COMPONENT_JS}
     var qs = 'from=' + encodeURIComponent(document.getElementById('focus-from').value) +
       '&to=' + encodeURIComponent(document.getElementById('focus-to').value) +
       '&compare=' + encodeURIComponent(document.getElementById('focus-compare').value) +
-      '&bds=' + encodeURIComponent(document.getElementById('focus-bds').value);
+      '&bds=' + encodeURIComponent(document.getElementById('focus-bds').value) +
+      '&region=' + encodeURIComponent(document.getElementById('focus-region').value);
     var r = await api('GET', '/reports/focus?' + qs);
     if (!r.ok) { focusTable.setError(); return; }
     var rep = r.data;
     focusTable.setData(rep.rows);
 
-    // Keep the BDS options in step with who actually has clients in range,
-    // without losing the current selection.
+    // Keep the BDS and region options in step with who actually has clients in
+    // range, without losing the current selection.
     var sel = document.getElementById('focus-bds');
     var keep = sel.value;
     sel.innerHTML = '<option value="">Everyone</option>' +
       (rep.bdsOptions || []).map(function(b){ return '<option value="' + esc(b) + '">' + esc(b) + '</option>'; }).join('');
     sel.value = keep;
+
+    var rsel = document.getElementById('focus-region');
+    var keepRegion = rsel.value;
+    rsel.innerHTML = '<option value="">All regions</option>' +
+      (rep.regionOptions || []).map(function(g){ return '<option value="' + esc(g) + '">' + esc(g) + '</option>'; }).join('');
+    // A region that vanished from the data would otherwise leave the select
+    // blank while the filter stayed applied.
+    rsel.value = (rep.regionOptions || []).indexOf(keepRegion) >= 0 ? keepRegion : '';
 
     var change = rep.totals.priorRevenue > 0
       ? ((rep.totals.revenue - rep.totals.priorRevenue) / rep.totals.priorRevenue) * 100
@@ -3837,7 +3872,8 @@ ${MY_WORK_COMPONENT_JS}
       '<span><strong>' + money(rep.totals.revenue) + '</strong> revenue</span>' +
       '<span class="text-muted">vs ' + money(rep.totals.priorRevenue) + ' in ' + esc(rep.comparisonFrom) + ' → ' + esc(rep.comparisonTo) + '</span>' +
       (change === null ? '' : '<span class="' + (change >= 0 ? 'focus-up' : 'focus-down') + '">' + esc(focusPct(Math.round(change * 10) / 10)) + '</span>');
-    document.getElementById('focus-note').textContent = rep.splitNote || '';
+    document.getElementById('focus-note').textContent =
+      [rep.splitNote, rep.topPercentNote].filter(Boolean).join(' ');
     document.getElementById('focus-refreshed-at').textContent = rep.refreshedAt
       ? 'Updated ' + new Date(rep.refreshedAt).toLocaleString()
       : 'Never refreshed';
@@ -3854,7 +3890,7 @@ ${MY_WORK_COMPONENT_JS}
     await loadFocusTable();
   }
 
-  ['focus-from', 'focus-to', 'focus-compare', 'focus-bds'].forEach(function(id) {
+  ['focus-from', 'focus-to', 'focus-compare', 'focus-bds', 'focus-region'].forEach(function(id) {
     document.getElementById(id).addEventListener('change', loadFocusTable);
   });
 

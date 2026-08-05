@@ -3254,6 +3254,7 @@ export async function handleAdminHttpRequest(
           to,
           compare,
           bds: normalizeString(url.searchParams.get("bds")),
+          region: normalizeString(url.searchParams.get("region")),
         }),
       );
     } catch (err) {

@@ -100,6 +100,56 @@ export function assignOwners(clients: OwnedClient[]): Map<string, BdsName> {
   return out;
 }
 
+/**
+ * Which clients sit in the top slice of their OWN region by revenue.
+ *
+ * Deliberately not the same computation as `assignOwners`. Ownership ranks
+ * Columbus and Dayton as one combined book, because that is how the BDS split
+ * was described; this tag ranks every region on its own, because it answers
+ * "is this one of my best clients here?" and the report shows Columbus and
+ * Dayton as separate regions. The two can therefore disagree for those two
+ * cities, which is intended rather than a bug.
+ *
+ * A region with no revenue at all yields no tags: everyone tying on zero would
+ * otherwise hand the label to whoever sorted first.
+ */
+export function assignRegionTopPercentile(
+  clients: OwnedClient[],
+  share: number = SPLIT_TOP_SHARE,
+): Set<string> {
+  const byRegion = new Map<string, OwnedClient[]>();
+  for (const c of clients) {
+    const key = regionKey(c.region);
+    if (!key) {
+      continue;
+    }
+    const bucket = byRegion.get(key);
+    if (bucket) {
+      bucket.push(c);
+    } else {
+      byRegion.set(key, [c]);
+    }
+  }
+
+  const top = new Set<string>();
+  for (const bucket of byRegion.values()) {
+    if (bucket.every((c) => c.revenue <= 0)) {
+      continue;
+    }
+    // Ties broken by key so two identical page loads cut the same way.
+    const ranked = bucket.toSorted((a, b) => b.revenue - a.revenue || a.key.localeCompare(b.key));
+    const topCount = Math.max(1, Math.ceil(ranked.length * share));
+    for (const c of ranked.slice(0, topCount)) {
+      // A client billing nothing is never "top" of anything, even if the
+      // region is small enough that the slice would otherwise reach them.
+      if (c.revenue > 0) {
+        top.add(c.key);
+      }
+    }
+  }
+  return top;
+}
+
 /** Plain-English note for the report header, so the split is not a mystery. */
 export function splitExplainer(sharedCount: number): string {
   if (sharedCount === 0) {

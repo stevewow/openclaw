@@ -215,6 +215,8 @@ type FocusAgentsTable = {
   name: string;
   email: string | null;
   company_id: string | null;
+  /** Spiro's `settings.vip`, as 0/1. Null on rows cached before it was swept. */
+  vip: number | null;
   cached_at: number;
 };
 
@@ -820,6 +822,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       name TEXT NOT NULL,
       email TEXT,
       company_id TEXT,
+      vip INTEGER,
       cached_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS admin_focus_orders (
@@ -1101,6 +1104,14 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }
   backfillPortalFeaturePermissions(db);
   migrateDueDatesOffMidnight(db);
+  // The Focus report tags VIP clients; databases cached before that have no
+  // column to read. It stays null until the next Spiro sweep fills it in.
+  const focusAgentColumns = db.prepare("PRAGMA table_info(admin_focus_agents)").all() as Array<{
+    name: string;
+  }>;
+  if (!focusAgentColumns.some((c) => c.name === "vip")) {
+    db.exec("ALTER TABLE admin_focus_agents ADD COLUMN vip INTEGER");
+  }
 }
 
 /**

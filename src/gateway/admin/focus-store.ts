@@ -14,9 +14,11 @@
 import { callTool, listTools } from "../../../extensions/spiro/api.js";
 import {
   assignOwners,
+  assignRegionTopPercentile,
   type BdsName,
   isSplitRegion,
   regionLabel,
+  SPLIT_TOP_SHARE,
   splitExplainer,
 } from "./focus-regions.js";
 import { type ContactIndex, loadContactIndex, lookupContact } from "./pipedrive-contacts-store.js";
@@ -224,7 +226,13 @@ async function sweepAgents(): Promise<number> {
   const tool = await resolveTool("search_spiro_agents", [/agent/i], "agents");
   const rows = new Map<
     string,
-    { agent_id: string; name: string; email: string | null; company_id: string | null }
+    {
+      agent_id: string;
+      name: string;
+      email: string | null;
+      company_id: string | null;
+      vip: number;
+    }
   >();
   for (let page = 1; page <= MAX_PAGES; page++) {
     const { rows: batch, hasNextPage } = parsePaged(
@@ -238,12 +246,15 @@ async function sweepAgents(): Promise<number> {
       }
       const contact = asObject(raw.contact);
       const company = asObject(raw.company);
+      const settings = asObject(raw.settings);
       const name = [str(identity.firstName), str(identity.lastName)].filter(Boolean).join(" ");
       rows.set(id, {
         agent_id: id,
         name: name || "Unknown agent",
         email: str(contact?.emailAddress)?.toLowerCase() ?? null,
         company_id: str(company?.companyId),
+        // Spiro carries VIP on the agent's settings; absent means not VIP.
+        vip: settings?.vip === true ? 1 : 0,
       });
     }
     if (!hasNextPage || batch.length === 0) {
@@ -259,6 +270,7 @@ async function sweepAgents(): Promise<number> {
       name: r.name,
       email: r.email,
       company_id: r.company_id,
+      vip: r.vip,
       cached_at: now,
     }));
     for (let i = 0; i < list.length; i += INSERT_CHUNK) {
@@ -409,6 +421,10 @@ export type FocusRow = {
   growthPct: number | null;
   lastContactAt: number | null;
   daysSinceContact: number | null;
+  /** Flagged VIP in Spiro. */
+  vip: boolean;
+  /** In the top slice of their own region by revenue over this period. */
+  topPercent: boolean;
 };
 
 export type FocusReport = {
@@ -421,7 +437,11 @@ export type FocusReport = {
   rows: FocusRow[];
   totals: { clients: number; shoots: number; revenue: number; priorRevenue: number };
   bdsOptions: BdsName[];
+  /** Every region present in the data, for the filter. */
+  regionOptions: string[];
   splitNote: string;
+  /** How the top-slice tag was cut, for the report header. */
+  topPercentNote: string;
 };
 
 /** Orders are counted as shoots unless they were cancelled. */
@@ -432,6 +452,7 @@ export async function getFocusReport(params: {
   to: string;
   compare?: "yoy" | "previous";
   bds?: string | null;
+  region?: string | null;
   now?: number;
 }): Promise<FocusReport> {
   const fromMs = parseYmd(params.from);
@@ -524,9 +545,11 @@ export async function getFocusReport(params: {
     return viaRoster ?? null;
   };
 
-  const owners = assignOwners(
-    aggs.map((a) => ({ key: a.agentId, region: regionOf(a), revenue: a.revenue })),
-  );
+  const ranking = aggs.map((a) => ({ key: a.agentId, region: regionOf(a), revenue: a.revenue }));
+  const owners = assignOwners(ranking);
+  // Ranked before any BDS or region filter is applied: "top 20% in their region"
+  // must mean the same thing however the reader has narrowed the table.
+  const topInRegion = assignRegionTopPercentile(ranking);
 
   const rows: FocusRow[] = aggs.map((a) => {
     const roster = agentById.get(a.agentId);
@@ -555,10 +578,14 @@ export async function getFocusReport(params: {
       lastContactAt,
       daysSinceContact:
         lastContactAt === null ? null : Math.max(0, Math.floor((now - lastContactAt) / DAY)),
+      vip: roster?.vip === 1,
+      topPercent: topInRegion.has(a.agentId),
     };
   });
 
-  const filtered = params.bds ? rows.filter((r) => r.bds === params.bds) : rows;
+  const filtered = rows.filter(
+    (r) => (!params.bds || r.bds === params.bds) && (!params.region || r.region === params.region),
+  );
   const ranked = filtered.toSorted((a, b) => b.revenue - a.revenue || b.shoots - a.shoots);
 
   const log = await db
@@ -584,6 +611,8 @@ export async function getFocusReport(params: {
       priorRevenue: Math.round(ranked.reduce((s, r) => s + r.priorRevenue, 0) * 100) / 100,
     },
     bdsOptions: [...new Set(rows.map((r) => r.bds).filter((b): b is BdsName => !!b))].toSorted(),
+    regionOptions: [...new Set(rows.map((r) => r.region))].toSorted(),
     splitNote: splitExplainer(sharedCount),
+    topPercentNote: `Top ${Math.round(SPLIT_TOP_SHARE * 100)}% is by revenue within each region over this period, ranked before any filter.`,
   };
 }

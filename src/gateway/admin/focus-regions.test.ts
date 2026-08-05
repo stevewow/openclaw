@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assignOwners,
+  assignRegionTopPercentile,
   isSplitRegion,
   regionKey,
   regionLabel,
@@ -136,6 +137,83 @@ describe("assignOwners", () => {
     expect(isSplitRegion("Columbus, Ohio")).toBe(true);
     expect(isSplitRegion("Dayton, Ohio")).toBe(true);
     expect(isSplitRegion("Cincinnati, Ohio")).toBe(false);
+  });
+});
+
+describe("assignRegionTopPercentile", () => {
+  const client = (key: string, region: string | null, revenue: number) => ({
+    key,
+    region,
+    revenue,
+  });
+
+  it("cuts the top fifth of each region separately", () => {
+    // Ten clients per region, so the top slice is two in each.
+    const clients = [
+      ...Array.from({ length: 10 }, (_, i) => client(`cin${i}`, "Cincinnati, Ohio", (i + 1) * 100)),
+      ...Array.from({ length: 10 }, (_, i) => client(`tol${i}`, "Toledo, Ohio", (i + 1) * 10)),
+    ];
+    const top = assignRegionTopPercentile(clients);
+    expect(top.size).toBe(4);
+    expect([...top].toSorted()).toEqual(["cin8", "cin9", "tol8", "tol9"]);
+  });
+
+  it("ranks Columbus and Dayton apart, unlike the ownership split", () => {
+    // Every Dayton client out-earns every Columbus one. Ranked together — the
+    // way assignOwners does it — no Columbus client would make the top slice.
+    const clients = [
+      ...Array.from({ length: 5 }, (_, i) => client(`col${i}`, "Columbus, Ohio", (i + 1) * 10)),
+      ...Array.from({ length: 5 }, (_, i) => client(`day${i}`, "Dayton, Ohio", 10000 + i)),
+    ];
+    const top = assignRegionTopPercentile(clients);
+    expect(top.has("col4")).toBe(true);
+    expect(top.has("day4")).toBe(true);
+
+    // The contrast that makes this a separate function rather than a reuse.
+    const owners = assignOwners(clients);
+    expect(owners.get("col4")).toBe("Ryan Bowersock");
+    expect(owners.get("day4")).toBe("Chris Voge");
+  });
+
+  it("always tags at least one client in a region that billed anything", () => {
+    const top = assignRegionTopPercentile([
+      client("solo", "Lima, Ohio", 250),
+      client("other", "Lima, Ohio", 100),
+    ]);
+    expect([...top]).toEqual(["solo"]);
+  });
+
+  it("tags nobody in a region where everyone billed zero", () => {
+    const top = assignRegionTopPercentile([
+      client("a", "Findlay, Ohio", 0),
+      client("b", "Findlay, Ohio", 0),
+    ]);
+    expect(top.size).toBe(0);
+  });
+
+  it("never tags a zero-revenue client, even in a tiny region", () => {
+    // The slice would reach both, but a client billing nothing is not "top".
+    const top = assignRegionTopPercentile([
+      client("earner", "Charlotte, North Carolina", 500),
+      client("idle", "Charlotte, North Carolina", 0),
+    ]);
+    expect([...top]).toEqual(["earner"]);
+  });
+
+  it("skips clients with no region rather than pooling them", () => {
+    const top = assignRegionTopPercentile([
+      client("nowhere", null, 9999),
+      client("known", "Toledo, Ohio", 5),
+    ]);
+    expect(top.has("nowhere")).toBe(false);
+    expect(top.has("known")).toBe(true);
+  });
+
+  it("breaks revenue ties the same way every time", () => {
+    const tied = Array.from({ length: 8 }, (_, i) => client(`z${i}`, "Toledo, Ohio", 100));
+    const first = assignRegionTopPercentile(tied);
+    const again = assignRegionTopPercentile(tied.toReversed());
+    expect([...first].toSorted()).toEqual([...again].toSorted());
   });
 });
 

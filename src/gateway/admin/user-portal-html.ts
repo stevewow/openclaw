@@ -178,6 +178,11 @@ ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
+  /* Client tags, matching the dashboard's Focus report. */
+  .focus-tag { display: inline-block; padding: 0.05rem 0.35rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; border: 1px solid transparent; }
+  .focus-tag + .focus-tag { margin-left: 0.25rem; }
+  .focus-tag-vip { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+  .focus-tag-top { background: #dcfce7; color: #166534; border-color: #86efac; }
   .focus-never { font-weight: 700; color: #991b1b; }
   /* One filter row: project picker, the shared filter bar, and an overflow menu
      holding what used to sit loose in the toolbar. */
@@ -623,8 +628,21 @@ ${MY_WORK_COMPONENT_JS}
   // Same columns the dashboard draws, so a BDS and their manager read one
   // report rather than two that drift.
   function pFocusMoney(n){ return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+  /** Mirrors focusTagList on the dashboard; the two must read the same. */
+  function pFocusTags(r){
+    var out = [];
+    if (r.vip) out.push('VIP');
+    if (r.topPercent) out.push('Top 20%');
+    return out;
+  }
   function portalFocusCols(){ return [
     { key:'agent', label:'Client', value:function(r){ return r.agentName; } },
+    { key:'tags', label:'Tags', type:'num',
+      value:function(r){ return (r.vip ? 2 : 0) + (r.topPercent ? 1 : 0); },
+      csv:function(r){ return pFocusTags(r).join(' '); },
+      render:function(r){ return pFocusTags(r).map(function(t){
+        return '<span class="focus-tag focus-tag-' + (t === 'VIP' ? 'vip' : 'top') + '">' + esc(t) + '</span>';
+      }).join('') || '<span class="text-muted">—</span>'; } },
     { key:'company', label:'Brokerage', value:function(r){ return r.companyName || '—'; } },
     { key:'region', label:'Region', value:function(r){ return r.region; } },
     { key:'bds', label:'BDS', value:function(r){ return r.bds || 'Unassigned'; } },
@@ -677,6 +695,7 @@ ${MY_WORK_COMPONENT_JS}
         '<div class="report-view" data-view="focus" style="display:none">' +
           '<div class="card" style="margin-bottom:1rem;padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">' +
             '<label style="font-size:0.8rem;font-weight:600">BDS <select id="prt-focus-bds"><option value="">Everyone</option></select></label>' +
+            '<label style="font-size:0.8rem;font-weight:600">Region <select id="prt-focus-region"><option value="">All regions</option></select></label>' +
             '<label style="font-size:0.8rem;font-weight:600">Compare <select id="prt-focus-compare"><option value="yoy">Same period last year</option><option value="previous">The period before</option></select></label>' +
             '<span class="text-muted" id="prt-focus-note" style="font-size:0.78rem"></span>' +
           '</div>' +
@@ -690,6 +709,7 @@ ${MY_WORK_COMPONENT_JS}
       portalReportTables['photographers'] = createReportTable({ containerId:'prt-photographers', reportKey:'p-photographers', frozenFirst:true, emptyMsg:'No photographers cached yet.', columns: portalPhotographerCols() });
       portalReportTables['focus'] = createReportTable({ containerId:'prt-focus', reportKey:'p-focus', frozenFirst:true, emptyMsg:'No orders cached for this range yet. Ask an admin to refresh it.', columns: portalFocusCols() });
       document.getElementById('prt-focus-bds').onchange = function(){ renderPortalReport('focus'); };
+      document.getElementById('prt-focus-region').onchange = function(){ renderPortalReport('focus'); };
       document.getElementById('prt-focus-compare').onchange = function(){ renderPortalReport('focus'); };
       portalReportsBuilt = true;
       loadPortalMarkets();
@@ -738,9 +758,11 @@ ${MY_WORK_COMPONENT_JS}
       var lastDay = new Date(Number(toParts[0]), Number(toParts[1]), 0).getDate();
       var fTo = to + '-' + String(lastDay).padStart(2, '0');
       var bds = document.getElementById('prt-focus-bds').value;
+      var focusRegion = document.getElementById('prt-focus-region').value;
       var cmp = document.getElementById('prt-focus-compare').value;
       var r4 = await api('GET', '/reports/focus?from=' + encodeURIComponent(fFrom) + '&to=' + encodeURIComponent(fTo) +
-        '&compare=' + encodeURIComponent(cmp) + '&bds=' + encodeURIComponent(bds));
+        '&compare=' + encodeURIComponent(cmp) + '&bds=' + encodeURIComponent(bds) +
+        '&region=' + encodeURIComponent(focusRegion));
       if (!r4.ok){ portalReportTables['focus'].setError(); return; }
       portalReportTables['focus'].setData(r4.data.rows);
       var bsel = document.getElementById('prt-focus-bds');
@@ -748,7 +770,13 @@ ${MY_WORK_COMPONENT_JS}
       bsel.innerHTML = '<option value="">Everyone</option>' +
         (r4.data.bdsOptions || []).map(function(b){ return '<option value="' + esc(b) + '">' + esc(b) + '</option>'; }).join('');
       bsel.value = keep;
-      document.getElementById('prt-focus-note').textContent = r4.data.splitNote || '';
+      var gsel = document.getElementById('prt-focus-region');
+      var keepRegion = gsel.value;
+      gsel.innerHTML = '<option value="">All regions</option>' +
+        (r4.data.regionOptions || []).map(function(g){ return '<option value="' + esc(g) + '">' + esc(g) + '</option>'; }).join('');
+      gsel.value = (r4.data.regionOptions || []).indexOf(keepRegion) >= 0 ? keepRegion : '';
+      document.getElementById('prt-focus-note').textContent =
+        [r4.data.splitNote, r4.data.topPercentNote].filter(Boolean).join(' ');
     } else if (key === 'pipedrive-cleanup'){
       await renderPortalCleanup();
     } else if (key === 'past-due'){
