@@ -39,6 +39,7 @@ import {
   listChurnNotes,
   listChurnNotesForAgent,
 } from "./churn-notes-store.js";
+import { attachChurnOwnership, loadChurnRegionIndex } from "./churn-ownership.js";
 import {
   CHURN_YEAR_CHOICES,
   getChurnRefreshState,
@@ -2410,7 +2411,20 @@ export async function handleAdminHttpRequest(
       sendJson(res, 200, { report: null, status: result.status, dismissals, notes, refresh });
       return true;
     }
-    sendJson(res, 200, { report: result.report, dismissals, notes, refresh });
+    // Territory is not in the snapshot — the engine has no notion of one. It is
+    // joined on here from the Focus caches so the outreach queue can say who
+    // should make the call, under the same ownership rule the Focus report uses.
+    // A cold Focus cache leaves the columns empty; it never blocks the report.
+    let ownership = { owned: 0, unknownRegion: 0 };
+    try {
+      ownership = attachChurnOwnership(
+        [result.report.agent_scores ?? [], result.report.outreach_queue ?? []],
+        await loadChurnRegionIndex(),
+      );
+    } catch {
+      ownership = { owned: 0, unknownRegion: 0 };
+    }
+    sendJson(res, 200, { report: result.report, dismissals, notes, refresh, ownership });
     return true;
   }
 

@@ -137,6 +137,11 @@ ${BRAND_FAVICON_TAG}
   .churn-howto > summary::-webkit-details-marker { display: none; }
   .churn-howto > summary::before { content: '\\25b8'; font-size: 0.8em; color: var(--accent); }
   .churn-howto[open] > summary::before { content: '\\25be'; }
+  /* Territory filter row. The SPA styles every select 100% wide, so a select in
+     a flex row has to opt out or it swallows the line. */
+  .churn-bds-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; font-size: 0.85rem; }
+  .churn-bds-row label { font-weight: 600; }
+  .churn-bds-row select { width: auto; max-width: 18rem; padding: 0.3rem 0.5rem; }
   .churn-refresh-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; font-size: 0.85rem; }
   .churn-refresh-row label { font-weight: 600; }
   .churn-refresh-row select { padding: 0.3rem 0.5rem; }
@@ -1073,6 +1078,9 @@ ${MARKET_CSS}
           </details>
         </details>
 
+        <!-- Territory filter. Narrows the tables, the tiles and the tier chips;
+             the options are built from the ownership the server joined on. -->
+        <div id="churn-bds-row" class="card churn-bds-row hidden" style="margin-bottom:1rem"></div>
         <div id="churn-tiles" class="stats-grid"></div>
         <div id="churn-meta" class="card" style="margin-bottom:1.5rem"></div>
         <div style="margin-bottom:0.25rem;font-weight:700">Outreach Queue — recoverable agents by priority</div>
@@ -3139,7 +3147,9 @@ ${MARKET_COMPONENT_JS}
   // the team, stored server-side); showHidden: viewing mode only — the tiles and
   // tier counts always describe the cleaned list.
   // notes: agentKey -> note records, newest first (shared, stored server-side).
-  var churnState = { report: null, dismissed: {}, notes: {}, showHidden: false, refresh: null };
+  // bds: '' for everyone, a BDS name to narrow to one book, or '__none' for the
+  // clients no territory rule reached — the ones nobody is calling.
+  var churnState = { report: null, dismissed: {}, notes: {}, showHidden: false, refresh: null, bds: '' };
   var churnRefreshTimer = null;
   var CHURN_HEALTH_COLOR = { 'Healthy':'#2f855a', 'Watch':'#b7791f', 'At risk':'#c05621', 'Likely churned':'#b5473b' };
   // Mirror of churnAgentKey() in churn-store.ts — change both together.
@@ -3151,10 +3161,21 @@ ${MARKET_COMPONENT_JS}
     return name + '|' + company;
   }
   function churnIsHidden(row){ return !!churnState.dismissed[churnKey(row)]; }
-  function churnKept(rows){ return (rows || []).filter(function(r){ return !churnIsHidden(r); }); }
+  // The BDS filter narrows everything the page derives from the snapshot — the
+  // tables, the tiles and the tier chips — because a BDS looking at their own
+  // book wants their revenue at risk, not the company's. The headline retention
+  // rates are the exception: GRR/NRR come out of the engine whole and cannot be
+  // recomputed for a subset here.
+  function churnInScope(row){
+    if (!churnState.bds) return true;
+    if (churnState.bds === '__none') return !row.bds;
+    return String(row.bds || '') === churnState.bds;
+  }
+  function churnScoped(rows){ return (rows || []).filter(churnInScope); }
+  function churnKept(rows){ return churnScoped(rows).filter(function(r){ return !churnIsHidden(r); }); }
   // What a table shows: the cleaned list, plus the hidden rows while the viewer
   // has "Show hidden" on so they can restore them in place.
-  function churnRowsFor(rows){ return churnState.showHidden ? (rows || []) : churnKept(rows); }
+  function churnRowsFor(rows){ return churnState.showHidden ? churnScoped(rows) : churnKept(rows); }
   function churnPct(v){ return (v == null) ? '—' : (Number(v) * 100).toFixed(1) + '%'; }
   function churnMoney(v){ return (v == null) ? '—' : '$' + Math.round(Number(v)).toLocaleString(); }
   function churnNum(v){ return (v == null) ? '—' : Number(v).toLocaleString(); }
@@ -3207,10 +3228,17 @@ ${MARKET_COMPONENT_JS}
   // value() feeds sort + CSV, so the export says whether a row is hidden rather
   // than carrying an empty column.
   var CHURN_ACTION_COL = { key:'actions', label:'Actions', value:function(r){ return churnIsHidden(r) ? 'hidden' : ''; }, render:churnActionCell };
+  // Territory columns, joined on server-side from the Focus caches. They sort and
+  // export as plain text; an empty cell means the Focus sweep has not seen this
+  // agent, which is a different thing from "nobody owns them".
+  var CHURN_REGION_COL = { key:'region', label:'Region', value:function(r){ return r.region || ''; }, render:function(r){ return r.region ? esc(String(r.region)) : '<span class="text-muted">—</span>'; } };
+  var CHURN_BDS_COL = { key:'bds', label:'BDS', value:function(r){ return r.bds || ''; }, render:function(r){ return r.bds ? esc(String(r.bds)) : '<span class="text-muted">—</span>'; } };
   function churnQueueCols(){
     return [
       { key:'agent', label:'Agent', value:function(r){ return r.agent_name; }, render:churnAgentCell },
       { key:'company', label:'Brokerage', value:function(r){ return r.company_name; } },
+      CHURN_REGION_COL,
+      CHURN_BDS_COL,
       { key:'health', label:'Health', value:function(r){ return r.health; }, render:function(r){ return churnHealthChip(r.health); } },
       { key:'urgency', label:'Urgency', value:function(r){ return r.urgency; } },
       { key:'days', label:'Days silent', type:'num', value:function(r){ return r.days_silent; } },
@@ -3227,6 +3255,8 @@ ${MARKET_COMPONENT_JS}
     return [
       { key:'agent', label:'Agent', value:function(r){ return r.agent_name; }, render:churnAgentCell },
       { key:'company', label:'Brokerage', value:function(r){ return r.company_name; } },
+      CHURN_REGION_COL,
+      CHURN_BDS_COL,
       { key:'orders', label:'Orders', type:'num', value:function(r){ return r.orders; } },
       { key:'cadence', label:'Orders/yr', type:'num', value:function(r){ return r.cadence_per_year; }, render:function(r){ return Number(r.cadence_per_year).toFixed(1); } },
       { key:'revenue', label:'Revenue', type:'num', value:function(r){ return r.revenue; }, render:function(r){ return churnMoney(r.revenue); } },
@@ -3295,6 +3325,8 @@ ${MARKET_COMPONENT_JS}
     ['churn-tiles','churn-meta','churn-hidden-bar','churn-queue-table','churn-retention','churn-scores-table','churn-conversion','churn-seasonality','churn-dq'].forEach(function(id){
       var el = document.getElementById(id); if (el) el.innerHTML = '';
     });
+    var bds = document.getElementById('churn-bds-row');
+    if (bds) { bds.innerHTML = ''; bds.className = 'card churn-bds-row hidden'; }
   }
 
   // Hidden agents whose key is no longer anywhere in the snapshot (the agent
@@ -3310,6 +3342,43 @@ ${MARKET_COMPONENT_JS}
       .filter(function(k){ return !present[k]; })
       .map(function(k){ return churnState.dismissed[k]; });
   }
+  // The BDS picker. Options are whoever actually owns someone in this snapshot,
+  // so an empty Focus cache leaves the row hidden rather than offering a filter
+  // that would match nobody. Rebuilt on every apply, so the select is written
+  // from churnState rather than reading its own DOM value back.
+  function churnRenderBdsRow(){
+    var el = document.getElementById('churn-bds-row');
+    var rep = churnState.report;
+    if (!el) return;
+    if (!rep) { el.className = 'card churn-bds-row hidden'; el.innerHTML = ''; return; }
+    var rows = rep.agent_scores || [];
+    var names = {}, unowned = 0;
+    rows.forEach(function(r){ if (r.bds) names[r.bds] = (names[r.bds] || 0) + 1; else unowned++; });
+    var list = Object.keys(names).sort();
+    // A refresh can retire the selected owner (they own nobody in the new
+    // snapshot). Fall back to everyone rather than showing an empty table under
+    // a select that says "All".
+    if (churnState.bds && churnState.bds !== '__none' && list.indexOf(churnState.bds) === -1) churnState.bds = '';
+    if (churnState.bds === '__none' && !unowned) churnState.bds = '';
+    if (!list.length) {
+      // Nothing joined: say why, since two blank columns otherwise read as a bug.
+      el.className = 'card churn-bds-row';
+      el.innerHTML = '<span class="text-muted">Territory is unknown for every agent — refresh the Sales Focus report to sweep brokerage service areas, then reload.</span>';
+      return;
+    }
+    el.className = 'card churn-bds-row';
+    var opts = '<option value="">All BDS (' + churnNum(rows.length) + ' agents)</option>'
+      + list.map(function(n){
+          return '<option value="' + esc(n) + '"' + (churnState.bds === n ? ' selected' : '') + '>' + esc(n) + ' (' + churnNum(names[n]) + ')</option>';
+        }).join('')
+      + (unowned ? '<option value="__none"' + (churnState.bds === '__none' ? ' selected' : '') + '>No owner (' + churnNum(unowned) + ')</option>' : '');
+    el.innerHTML = '<label for="churn-bds-sel">BDS</label>'
+      + '<select id="churn-bds-sel">' + opts + '</select>'
+      + '<span class="text-muted">Columbus and Dayton are each split at their own top 20% by revenue over this window — that slice is Chris Voge\\'s, the rest Ryan Bowersock\\'s.</span>';
+    var sel = document.getElementById('churn-bds-sel');
+    if (sel) sel.addEventListener('change', function(){ churnState.bds = sel.value; churnApply(); });
+  }
+
   function churnRenderHiddenBar(){
     var el = document.getElementById('churn-hidden-bar');
     if (!el) return;
@@ -3371,7 +3440,10 @@ ${MARKET_COMPONENT_JS}
       + '<div><div style="font-weight:700;font-size:1.05rem">Churn &amp; Retention</div>'
       + '<div class="text-muted" style="font-size:0.85rem">'+windowLine+' · '+churnNum(rep.orders_kept)+' clean orders of '+churnNum(rep.orders_total)+' · '
       + agentsLine
-      + ' · seasonal adjust '+(rep.seasonal_adjust ? 'on' : 'off')+(hiddenCount ? ' · '+churnNum(hiddenCount)+' hidden' : '')+'</div></div>'
+      + ' · seasonal adjust '+(rep.seasonal_adjust ? 'on' : 'off')+(hiddenCount ? ' · '+churnNum(hiddenCount)+' hidden' : '')
+      // The counts above describe the whole snapshot; the tiles and tables below
+      // follow the filter. Say so, or the two read as contradicting each other.
+      + (churnState.bds ? ' · <b>tiles and tables below show '+esc(churnState.bds === '__none' ? 'agents with no owner' : churnState.bds + ' only')+'</b>' : '')+'</div></div>'
       + '<div class="text-muted" style="font-size:0.8rem">Generated '+esc(String(rep.generated_at).replace('T', ' ').slice(0, 16))+'</div>'
       + '</div>';
 
@@ -3401,6 +3473,7 @@ ${MARKET_COMPONENT_JS}
       + '<div class="text-muted" style="font-size:0.82rem">Pareto/NBD (operational-month unit): r='+Number(m.r).toFixed(3)+' α='+Number(m.alpha).toFixed(3)+' s='+Number(m.s).toFixed(3)+' β='+Number(m.beta).toFixed(3)+' · mean purchase '+Number(m.mean_purchase_rate).toFixed(3)+'/mo · mean dropout '+Number(m.mean_dropout_rate).toFixed(3)+'/mo</div>'
       + '<div class="text-muted" style="font-size:0.82rem;margin-top:0.35rem">'+esc(iaLine)+'</div>';
 
+    churnRenderBdsRow();
     churnRenderHiddenBar();
     churnQueueTable.setData(churnRowsFor(rep.outreach_queue || []));
     churnScoresTable.setData(churnRowsFor(rep.agent_scores || []));
