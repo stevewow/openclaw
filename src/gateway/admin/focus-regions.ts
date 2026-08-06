@@ -2,10 +2,15 @@
 //
 // A client's region is the service area of the company they belong to. Six of
 // the eight regions belong outright to one BDS. Columbus and Dayton are shared:
-// the top slice of clients by revenue is one person's, the rest is another's —
-// so ownership there is not a lookup, it is recomputed from the revenue of the
-// period being viewed. A client who grows into the top slice changes hands, and
-// the report should say so rather than quietly keep them where they were.
+// in each of those two cities the top slice of clients by revenue is one
+// person's and the rest is another's — so ownership there is not a lookup, it is
+// recomputed from the revenue of the period being viewed. A client who grows
+// into the top slice changes hands, and the report should say so rather than
+// quietly keep them where they were.
+//
+// The two cities are cut separately, not as one combined book: a 20% slice of
+// the pair would be filled by whichever city bills more, and the smaller one
+// would end up with no top clients of its own.
 
 export type BdsName = "Pam Branam" | "Joy Kiser" | "Craig Magrum" | "Chris Voge" | "Ryan Bowersock";
 
@@ -72,9 +77,43 @@ export type OwnedClient = {
 };
 
 /**
- * Decide who owns each client. Sole-owner regions are a lookup; the shared
- * Columbus/Dayton book is ranked by revenue across BOTH cities together (that is
- * how the split was described) and cut at the top 20% of clients by count.
+ * Rank a book by revenue, breaking ties by key so the same input always cuts the
+ * same way; a client should not swap owners between two identical page loads.
+ */
+function rankByRevenue(clients: OwnedClient[]): OwnedClient[] {
+  return clients.toSorted((a, b) => b.revenue - a.revenue || a.key.localeCompare(b.key));
+}
+
+/**
+ * How many clients the top slice holds. "Top 20% of clients", so a share of the
+ * count, not of the money — and at least one whenever the book is not empty.
+ */
+export function topSliceCount(total: number, share: number = SPLIT_TOP_SHARE): number {
+  return total <= 0 ? 0 : Math.max(1, Math.ceil(total * share));
+}
+
+/** Group clients by region key, dropping any whose region is unknown. */
+function groupByRegion(clients: OwnedClient[]): Map<string, OwnedClient[]> {
+  const out = new Map<string, OwnedClient[]>();
+  for (const c of clients) {
+    const key = regionKey(c.region);
+    if (!key) {
+      continue;
+    }
+    const bucket = out.get(key);
+    if (bucket) {
+      bucket.push(c);
+    } else {
+      out.set(key, [c]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Decide who owns each client. Sole-owner regions are a lookup; Columbus and
+ * Dayton are each ranked by revenue on their own and cut at the top 20% of that
+ * city's clients by count.
  *
  * Returns a map of client key → BDS, leaving out clients in regions nobody owns
  * so they surface as unassigned rather than being quietly handed to someone.
@@ -96,13 +135,9 @@ export function assignOwners(clients: OwnedClient[]): Map<string, BdsName> {
     }
   }
 
-  if (shared.length > 0) {
-    // Ties are broken by key so the same input always cuts the same way; a
-    // client should not swap owners between two identical page loads.
-    const ranked = shared.toSorted((a, b) => b.revenue - a.revenue || a.key.localeCompare(b.key));
-    // "Top 20% of clients", so a share of the count, not of the money. At least
-    // one client is in the top slice whenever the shared book is not empty.
-    const topCount = Math.max(1, Math.ceil(ranked.length * SPLIT_TOP_SHARE));
+  for (const bucket of groupByRegion(shared).values()) {
+    const ranked = rankByRevenue(bucket);
+    const topCount = topSliceCount(ranked.length);
     ranked.forEach((c, i) => {
       out.set(c.key, i < topCount ? SPLIT_TOP_OWNER : SPLIT_REST_OWNER);
     });
@@ -114,12 +149,11 @@ export function assignOwners(clients: OwnedClient[]): Map<string, BdsName> {
 /**
  * Which clients sit in the top slice of their OWN region by revenue.
  *
- * Deliberately not the same computation as `assignOwners`. Ownership ranks
- * Columbus and Dayton as one combined book, because that is how the BDS split
- * was described; this tag ranks every region on its own, because it answers
- * "is this one of my best clients here?" and the report shows Columbus and
- * Dayton as separate regions. The two can therefore disagree for those two
- * cities, which is intended rather than a bug.
+ * Every region is ranked on its own, so in Columbus and Dayton this tag now
+ * agrees with the ownership cut by construction; elsewhere it answers "is this
+ * one of my best clients here?" for regions that have a single owner anyway.
+ * It stays a separate computation because it covers all eight regions and
+ * ownership only has an opinion about two.
  *
  * A region with no revenue at all yields no tags: everyone tying on zero would
  * otherwise hand the label to whoever sorted first.
@@ -128,29 +162,13 @@ export function assignRegionTopPercentile(
   clients: OwnedClient[],
   share: number = SPLIT_TOP_SHARE,
 ): Set<string> {
-  const byRegion = new Map<string, OwnedClient[]>();
-  for (const c of clients) {
-    const key = regionKey(c.region);
-    if (!key) {
-      continue;
-    }
-    const bucket = byRegion.get(key);
-    if (bucket) {
-      bucket.push(c);
-    } else {
-      byRegion.set(key, [c]);
-    }
-  }
-
   const top = new Set<string>();
-  for (const bucket of byRegion.values()) {
+  for (const bucket of groupByRegion(clients).values()) {
     if (bucket.every((c) => c.revenue <= 0)) {
       continue;
     }
-    // Ties broken by key so two identical page loads cut the same way.
-    const ranked = bucket.toSorted((a, b) => b.revenue - a.revenue || a.key.localeCompare(b.key));
-    const topCount = Math.max(1, Math.ceil(ranked.length * share));
-    for (const c of ranked.slice(0, topCount)) {
+    const ranked = rankByRevenue(bucket);
+    for (const c of ranked.slice(0, topSliceCount(ranked.length, share))) {
       // A client billing nothing is never "top" of anything, even if the
       // region is small enough that the slice would otherwise reach them.
       if (c.revenue > 0) {
@@ -161,11 +179,29 @@ export function assignRegionTopPercentile(
   return top;
 }
 
-/** Plain-English note for the report header, so the split is not a mystery. */
-export function splitExplainer(sharedCount: number): string {
-  if (sharedCount === 0) {
+/**
+ * Plain-English note for the report header, so the split is not a mystery.
+ *
+ * Takes the clients rather than a count because the cut is per city now: the
+ * header has to state both cuts, and doing the ceil arithmetic here keeps the
+ * sentence and `assignOwners` from ever disagreeing about where the line falls.
+ */
+export function splitExplainer(clients: OwnedClient[]): string {
+  const byRegion = groupByRegion(clients);
+  const parts: string[] = [];
+  for (const key of SPLIT_REGIONS) {
+    const bucket = byRegion.get(key);
+    if (!bucket || bucket.length === 0) {
+      continue;
+    }
+    const label = regionLabel(bucket[0].region);
+    const top = topSliceCount(bucket.length);
+    parts.push(
+      `${label} — top ${top} of ${bucket.length} to ${SPLIT_TOP_OWNER}, the other ${bucket.length - top} to ${SPLIT_REST_OWNER}`,
+    );
+  }
+  if (parts.length === 0) {
     return "No Columbus or Dayton clients in this period.";
   }
-  const top = Math.max(1, Math.ceil(sharedCount * SPLIT_TOP_SHARE));
-  return `Columbus and Dayton are split by revenue over this period: the top ${top} of ${sharedCount} clients go to ${SPLIT_TOP_OWNER}, the remaining ${sharedCount - top} to ${SPLIT_REST_OWNER}.`;
+  return `Columbus and Dayton are split by revenue over this period, each city cut on its own: ${parts.join("; ")}.`;
 }

@@ -187,9 +187,11 @@ describe("the report", () => {
     const r = await store.getFocusReport({ from: "2026-07-01", to: "2026-07-31" });
     expect(r.rows.find((x) => x.agentId === "a1")!.region).toBe("Cincinnati");
     expect(r.rows.find((x) => x.agentId === "a1")!.bds).toBe("Pam Branam");
-    // Biggest of the three shared clients goes to the top slice.
+    // Each shared city is cut on its own: Columbus's only client tops Columbus,
+    // and Dayton's better client tops Dayton even though it bills 1/50th as much.
     expect(r.rows.find((x) => x.agentId === "a2")!.bds).toBe("Chris Voge");
-    expect(r.rows.find((x) => x.agentId === "a3")!.bds).toBe("Ryan Bowersock");
+    expect(r.rows.find((x) => x.agentId === "a3")!.bds).toBe("Chris Voge");
+    expect(r.rows.find((x) => x.agentId === "a4")!.bds).toBe("Ryan Bowersock");
   });
 
   it("leaves a client in an unowned region without an owner", async () => {
@@ -224,10 +226,11 @@ describe("the report", () => {
     expect(r.bdsOptions).not.toContain("Joy Kiser");
   });
 
-  it("explains how the shared book was cut", async () => {
+  it("explains how each shared city was cut", async () => {
     const r = await store.getFocusReport({ from: "2026-07-01", to: "2026-07-31" });
     expect(r.splitNote).toContain("Columbus and Dayton");
-    expect(r.splitNote).toContain("of 3 clients");
+    expect(r.splitNote).toContain("Columbus — top 1 of 1");
+    expect(r.splitNote).toContain("Dayton — top 1 of 2");
   });
 
   it("tags the clients Spiro flags VIP", async () => {

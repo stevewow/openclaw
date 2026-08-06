@@ -53,35 +53,44 @@ describe("assignOwners", () => {
     expect(owners.get("f")).toBe("Ryan Bowersock");
   });
 
-  it("splits Columbus and Dayton at the top 20% by revenue", () => {
-    // Ten shared clients: the top two are Chris's, the rest Ryan's.
-    const clients = Array.from({ length: 10 }, (_, i) =>
-      client(`c${i}`, i % 2 === 0 ? "Columbus, Ohio" : "Dayton, Ohio", (10 - i) * 100),
-    );
+  it("splits each of Columbus and Dayton at its own top 20% by revenue", () => {
+    // Ten clients in each city, so the top two of each are Chris's.
+    const clients = [
+      ...Array.from({ length: 10 }, (_, i) => client(`col${i}`, "Columbus, Ohio", (10 - i) * 100)),
+      ...Array.from({ length: 10 }, (_, i) => client(`day${i}`, "Dayton, Ohio", (10 - i) * 10)),
+    ];
     const owners = assignOwners(clients);
-    expect(owners.get("c0")).toBe("Chris Voge");
-    expect(owners.get("c1")).toBe("Chris Voge");
-    expect(owners.get("c2")).toBe("Ryan Bowersock");
-    expect(owners.get("c9")).toBe("Ryan Bowersock");
+    expect(owners.get("col0")).toBe("Chris Voge");
+    expect(owners.get("col1")).toBe("Chris Voge");
+    expect(owners.get("col2")).toBe("Ryan Bowersock");
+    // Dayton bills a tenth of Columbus, but its own top two are still Chris's —
+    // the whole point of cutting the cities apart.
+    expect(owners.get("day0")).toBe("Chris Voge");
+    expect(owners.get("day1")).toBe("Chris Voge");
+    expect(owners.get("day2")).toBe("Ryan Bowersock");
+    expect(owners.get("day9")).toBe("Ryan Bowersock");
   });
 
-  it("ranks Columbus and Dayton together, not city by city", () => {
-    // The two biggest are both in Columbus; Dayton's best is still outranked.
+  it("cuts each city on its own, so a smaller city keeps its own top clients", () => {
+    // Every Columbus client out-earns every Dayton one. Cut as one book, Dayton
+    // would have no top clients at all; cut city by city, its best is Chris's.
     const owners = assignOwners([
       client("col-big", "Columbus, Ohio", 900),
       client("col-big2", "Columbus, Ohio", 800),
-      client("day-mid", "Dayton, Ohio", 700),
+      client("col-low", "Columbus, Ohio", 700),
+      client("day-mid", "Dayton, Ohio", 90),
       client("day-low", "Dayton, Ohio", 10),
-      client("col-low", "Columbus, Ohio", 5),
     ]);
     expect(owners.get("col-big")).toBe("Chris Voge");
-    expect(owners.get("day-mid")).toBe("Ryan Bowersock");
+    expect(owners.get("col-big2")).toBe("Ryan Bowersock");
+    expect(owners.get("day-mid")).toBe("Chris Voge");
+    expect(owners.get("day-low")).toBe("Ryan Bowersock");
   });
 
-  it("keeps at least one client in the top slice of a small shared book", () => {
+  it("keeps at least one client in the top slice of a small city", () => {
     const owners = assignOwners([
       client("x", "Columbus, Ohio", 50),
-      client("y", "Dayton, Ohio", 10),
+      client("y", "Columbus, Ohio", 10),
     ]);
     // ceil(2 * 0.2) = 1, so the bigger client is Chris's.
     expect(owners.get("x")).toBe("Chris Voge");
@@ -158,9 +167,9 @@ describe("assignRegionTopPercentile", () => {
     expect([...top].toSorted()).toEqual(["cin8", "cin9", "tol8", "tol9"]);
   });
 
-  it("ranks Columbus and Dayton apart, unlike the ownership split", () => {
-    // Every Dayton client out-earns every Columbus one. Ranked together — the
-    // way assignOwners does it — no Columbus client would make the top slice.
+  it("agrees with the ownership cut in Columbus and Dayton", () => {
+    // Every Dayton client out-earns every Columbus one; both surfaces still cut
+    // each city on its own, so the tag and the owner tell the same story.
     const clients = [
       ...Array.from({ length: 5 }, (_, i) => client(`col${i}`, "Columbus, Ohio", (i + 1) * 10)),
       ...Array.from({ length: 5 }, (_, i) => client(`day${i}`, "Dayton, Ohio", 10000 + i)),
@@ -169,10 +178,10 @@ describe("assignRegionTopPercentile", () => {
     expect(top.has("col4")).toBe(true);
     expect(top.has("day4")).toBe(true);
 
-    // The contrast that makes this a separate function rather than a reuse.
     const owners = assignOwners(clients);
-    expect(owners.get("col4")).toBe("Ryan Bowersock");
+    expect(owners.get("col4")).toBe("Chris Voge");
     expect(owners.get("day4")).toBe("Chris Voge");
+    expect(owners.get("col0")).toBe("Ryan Bowersock");
   });
 
   it("always tags at least one client in a region that billed anything", () => {
@@ -218,13 +227,30 @@ describe("assignRegionTopPercentile", () => {
 });
 
 describe("splitExplainer", () => {
-  it("says how the shared book was cut", () => {
-    expect(splitExplainer(10)).toContain("top 2 of 10");
-    expect(splitExplainer(10)).toContain("Chris Voge");
-    expect(splitExplainer(10)).toContain("Ryan Bowersock");
+  const client = (key: string, region: string | null, revenue: number) => ({
+    key,
+    region,
+    revenue,
+  });
+
+  it("states each city's cut separately", () => {
+    const note = splitExplainer([
+      ...Array.from({ length: 10 }, (_, i) => client(`col${i}`, "Columbus, Ohio", i)),
+      ...Array.from({ length: 5 }, (_, i) => client(`day${i}`, "Dayton, Ohio", i)),
+    ]);
+    expect(note).toContain("Columbus — top 2 of 10");
+    expect(note).toContain("Dayton — top 1 of 5");
+    expect(note).toContain("Chris Voge");
+    expect(note).toContain("Ryan Bowersock");
+  });
+
+  it("names only the city that has clients", () => {
+    const note = splitExplainer([client("col0", "Columbus, Ohio", 10)]);
+    expect(note).toContain("Columbus — top 1 of 1");
+    expect(note).not.toContain("Dayton —");
   });
 
   it("says plainly when there is no shared book", () => {
-    expect(splitExplainer(0)).toContain("No Columbus or Dayton clients");
+    expect(splitExplainer([])).toContain("No Columbus or Dayton clients");
   });
 });

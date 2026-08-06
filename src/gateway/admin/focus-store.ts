@@ -594,8 +594,6 @@ export async function getFocusReport(params: {
     .where("id", "=", REFRESH_LOG_KEY)
     .executeTakeFirst();
 
-  const sharedCount = aggs.filter((a) => isSplitRegion(regionOf(a))).length;
-
   return {
     from: params.from,
     to: params.to,
@@ -612,7 +610,9 @@ export async function getFocusReport(params: {
     },
     bdsOptions: [...new Set(rows.map((r) => r.bds).filter((b): b is BdsName => !!b))].toSorted(),
     regionOptions: [...new Set(rows.map((r) => r.region))].toSorted(),
-    splitNote: splitExplainer(sharedCount),
+    // The same ranking the ownership cut was made from, so the header sentence
+    // and the BDS column can never describe different lines.
+    splitNote: splitExplainer(ranking.filter((r) => isSplitRegion(r.region))),
     topPercentNote: `Top ${Math.round(SPLIT_TOP_SHARE * 100)}% is by revenue within each region over this period, ranked before any filter.`,
   };
 }
