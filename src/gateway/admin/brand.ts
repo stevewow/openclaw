@@ -13,9 +13,13 @@
 /** Product name in the sidebar, the login screen, and every <title>. */
 export const BRAND_NAME = "WOW Hub";
 
-/** Login split-screen subtitle, under the brand name. */
+/**
+ * Login split-screen subtitle, under the brand name. Says what the Hub is for
+ * someone seeing it for the first time: one place for the work and the numbers,
+ * rather than a list of the modules it happens to contain today.
+ */
 export const BRAND_TAGLINE =
-  "Scheduling, projects, and reporting for the WOW Video Tours team — all in one place.";
+  "One hub for the whole operation — shoots, projects, clients, and the numbers behind them.";
 
 /** Brand red. Matches --accent in both pages. */
 export const BRAND_COLOR = "#c0000a";
