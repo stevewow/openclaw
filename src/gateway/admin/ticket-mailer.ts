@@ -92,6 +92,7 @@ export function formatDepartmentEmail(
   config: EmailConfig,
   to: string,
   categoryLabel: string = FALLBACK_CATEGORY_LABEL,
+  attachmentCount = 0,
 ): OutboundEmail {
   const lines: string[] = [];
   if (ticket.isTest) {
@@ -109,6 +110,14 @@ export function formatDepartmentEmail(
   if (ticket.orderId) lines.push(`Order: ${ticket.orderId}`);
   lines.push("");
   lines.push(ticket.description ?? "(no details provided)");
+  // The files themselves stay in the dashboard rather than riding the email, so
+  // a desk working from the inbox is told they exist and where to look.
+  if (attachmentCount > 0) {
+    lines.push("");
+    lines.push(
+      `📎 The client attached ${attachmentCount} file${attachmentCount === 1 ? "" : "s"}. Open ${ticket.number} in the dashboard to download ${attachmentCount === 1 ? "it" : "them"}.`,
+    );
+  }
   lines.push("");
   lines.push("—");
   lines.push("Reply to this email to update the client's ticket:");
@@ -192,6 +201,8 @@ export type NotifyDeps = {
    * `ticket-test-token.ts`); this function trusts what it's handed.
    */
   overrideTo?: string | null;
+  /** How many files the client attached, so the email can point at them. */
+  attachmentCount?: number;
 };
 
 /**
@@ -221,7 +232,7 @@ export async function notifyDepartment(ticket: Ticket, deps: NotifyDeps = {}): P
     return { ok: false, detail: "no department address" };
   }
   const categoryLabel = (await getCategoryShortLabel(ticket.category)) || FALLBACK_CATEGORY_LABEL;
-  const msg = formatDepartmentEmail(ticket, config, to, categoryLabel);
+  const msg = formatDepartmentEmail(ticket, config, to, categoryLabel, deps.attachmentCount ?? 0);
   const result = await mailer.send(msg);
   await addTicketEvent(ticket.id, {
     kind: "email_out",

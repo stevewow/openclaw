@@ -98,6 +98,13 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
             <div class="hint" id="details-hint">The more specific, the faster we can turn it around.</div>
           </div>
 
+          <div class="field">
+            <label for="f-files">Attach a photo or screenshot (optional)</label>
+            <input type="file" id="f-files" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/heic,application/pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.pdf" />
+            <div class="hint" id="files-hint">Up to 5 files, 6 MB each — JPG, PNG, GIF, WEBP, HEIC or PDF. A screenshot of the shot you mean is the fastest way to show us.</div>
+            <div id="file-list" class="hint"></div>
+          </div>
+
           <div class="row">
             <div class="field"><label for="f-name">Your name</label><input type="text" id="f-name" autocomplete="name" /></div>
             <div class="field"><label for="f-email">Email</label><input type="email" id="f-email" autocomplete="email" /></div>
@@ -224,6 +231,62 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   function showErr(msg){ err.textContent = msg; err.style.display = 'block'; }
   function clearErr(){ err.style.display = 'none'; }
 
+  // Attachments. These limits mirror the server's so the client gets an instant,
+  // specific message instead of uploading megabytes only to be refused. The
+  // server re-checks everything — this is courtesy, not enforcement.
+  var MAX_FILES = 5;
+  var MAX_FILE_BYTES = 6 * 1024 * 1024;
+  var MAX_TOTAL_BYTES = 15 * 1024 * 1024;
+  var filesEl = document.getElementById('f-files');
+  var fileListEl = document.getElementById('file-list');
+
+  function prettySize(n){
+    if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    return Math.max(1, Math.round(n / 1024)) + ' KB';
+  }
+  function selectedFiles(){
+    return filesEl && filesEl.files ? Array.prototype.slice.call(filesEl.files) : [];
+  }
+  /** Null when the selection is fine, otherwise the message to show. */
+  function fileSelectionError(list){
+    if (list.length > MAX_FILES) return 'Please attach at most ' + MAX_FILES + ' files.';
+    var total = 0;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].size > MAX_FILE_BYTES) return '"' + list[i].name + '" is larger than 6 MB.';
+      total += list[i].size;
+    }
+    if (total > MAX_TOTAL_BYTES) return 'Your attachments add up to more than 15 MB in total.';
+    return null;
+  }
+  function renderFileList(){
+    if (!fileListEl) return;
+    var list = selectedFiles();
+    if (!list.length) { fileListEl.textContent = ''; return; }
+    var names = list.map(function(f){ return f.name + ' (' + prettySize(f.size) + ')'; });
+    fileListEl.textContent = names.join(', ');
+  }
+  if (filesEl) {
+    filesEl.addEventListener('change', function(){
+      clearErr();
+      renderFileList();
+      var problem = fileSelectionError(selectedFiles());
+      if (problem) showErr(problem);
+    });
+  }
+  /** Read one File into base64, without the data: prefix. */
+  function readFileBase64(file){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){
+        var out = String(reader.result || '');
+        var comma = out.indexOf(',');
+        resolve({ filename: file.name, dataBase64: comma === -1 ? out : out.slice(comma + 1) });
+      };
+      reader.onerror = function(){ reject(new Error('read failed')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
   document.getElementById('intake-form').addEventListener('submit', async function(e){
     e.preventDefault();
     clearErr();
@@ -247,10 +310,18 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     if (!payload.requesterEmail || payload.requesterEmail.indexOf('@') === -1) { showErr('Please enter a valid email so the team can reach you.'); return; }
     if (!payload.details) { showErr('Please add a few details about your request.'); return; }
 
+    var chosen = selectedFiles();
+    var fileProblem = fileSelectionError(chosen);
+    if (fileProblem) { showErr(fileProblem); return; }
+
     var btn = document.getElementById('submit-btn');
     btn.disabled = true; btn.textContent = 'Submitting…';
     var res, data;
     try {
+      if (chosen.length) {
+        btn.textContent = 'Uploading…';
+        payload.files = await Promise.all(chosen.map(readFileBase64));
+      }
       res = await fetch('/api/support/intake', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       data = await res.json().catch(function(){ return {}; });
     } catch (e2) {
@@ -269,6 +340,7 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   document.getElementById('another-link').addEventListener('click', function(e){
     e.preventDefault();
     document.getElementById('intake-form').reset();
+    renderFileList();
     syncBranches();
     document.getElementById('intake-success-view').classList.add('hidden');
     document.getElementById('intake-form-view').classList.remove('hidden');

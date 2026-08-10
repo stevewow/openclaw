@@ -797,7 +797,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     -- table owner_id points at, so cascade is handled in the delete paths.
     CREATE TABLE IF NOT EXISTS admin_attachments (
       id TEXT PRIMARY KEY,
-      owner_type TEXT NOT NULL CHECK(owner_type IN ('task','project')),
+      owner_type TEXT NOT NULL CHECK(owner_type IN ('task','project','ticket')),
       owner_id TEXT NOT NULL,
       type TEXT NOT NULL CHECK(type IN ('link','file')),
       title TEXT NOT NULL,
@@ -1147,6 +1147,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
   `);
   migrateTicketCategoryCheck(db);
+  migrateAttachmentOwnerCheck(db);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {
     db.exec(
@@ -1506,6 +1507,56 @@ function migrateTicketCategoryCheck(db: import("node:sqlite").DatabaseSync): voi
       CREATE INDEX IF NOT EXISTS admin_tickets_department ON admin_tickets(department);
       CREATE INDEX IF NOT EXISTS admin_tickets_created_at ON admin_tickets(created_at);
       CREATE INDEX IF NOT EXISTS admin_tickets_order ON admin_tickets(order_id);
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys=ON");
+  }
+}
+
+/**
+ * Widen `admin_attachments.owner_type` to allow 'ticket'. SQLite cannot drop a
+ * CHECK in place, so the table is rebuilt. Same shape as the category migration
+ * above, including the foreign_keys=OFF outside the transaction — a PRAGMA is a
+ * no-op inside one, and this table's rows must survive the drop.
+ */
+function migrateAttachmentOwnerCheck(db: import("node:sqlite").DatabaseSync): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='admin_attachments'")
+    .get() as { sql?: string } | undefined;
+  // Already widened (or a fresh DB built from the current DDL) — nothing to do.
+  if (!row?.sql?.includes("CHECK(owner_type IN") || row.sql.includes("'ticket'")) {
+    return;
+  }
+
+  db.exec("PRAGMA foreign_keys=OFF");
+  try {
+    db.exec("BEGIN");
+    db.exec(`
+      CREATE TABLE admin_attachments_rebuild (
+        id TEXT PRIMARY KEY,
+        owner_type TEXT NOT NULL CHECK(owner_type IN ('task','project','ticket')),
+        owner_id TEXT NOT NULL,
+        type TEXT NOT NULL CHECK(type IN ('link','file')),
+        title TEXT NOT NULL,
+        url TEXT,
+        filename TEXT,
+        stored_filename TEXT,
+        mimetype TEXT,
+        filesize INTEGER,
+        created_by TEXT,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO admin_attachments_rebuild SELECT
+        id, owner_type, owner_id, type, title, url, filename, stored_filename,
+        mimetype, filesize, created_by, created_at
+      FROM admin_attachments;
+      DROP TABLE admin_attachments;
+      ALTER TABLE admin_attachments_rebuild RENAME TO admin_attachments;
+      CREATE INDEX IF NOT EXISTS admin_attachments_owner ON admin_attachments(owner_type, owner_id);
     `);
     db.exec("COMMIT");
   } catch (err) {

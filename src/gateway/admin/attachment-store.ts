@@ -9,7 +9,7 @@ import { getAdminDb } from "./user-store.js";
  * Resources library: these travel with the item they were attached to and
  * inherit its visibility, rather than joining a searchable shared catalog.
  */
-export type AttachmentOwnerType = "task" | "project";
+export type AttachmentOwnerType = "task" | "project" | "ticket";
 export type AttachmentType = "link" | "file";
 
 export type Attachment = {
@@ -157,6 +157,35 @@ export async function createAttachment(params: CreateAttachmentParams): Promise<
     })
     .execute();
   return (await getAttachment(id))!;
+}
+
+/**
+ * Write an uploaded blob to disk and record it, generating the stored name so a
+ * caller-supplied filename can never steer the path. `filename` is kept for
+ * display only.
+ */
+export async function saveUploadedAttachment(params: {
+  ownerType: AttachmentOwnerType;
+  ownerId: string;
+  filename: string;
+  mimetype: string;
+  bytes: Buffer;
+  createdBy?: string | null;
+}): Promise<Attachment> {
+  await ensureAttachmentsDir();
+  const storedFilename = `${crypto.randomUUID()}${path.extname(params.filename).slice(0, 12)}`;
+  await fs.writeFile(resolveAttachmentFilePath(storedFilename), params.bytes, { mode: 0o600 });
+  return createAttachment({
+    ownerType: params.ownerType,
+    ownerId: params.ownerId,
+    type: "file",
+    title: params.filename,
+    filename: params.filename,
+    storedFilename,
+    mimetype: params.mimetype,
+    filesize: params.bytes.byteLength,
+    createdBy: params.createdBy ?? null,
+  });
 }
 
 /**

@@ -1926,6 +1926,7 @@ ${MARKET_CSS}
       </div>
     </div>
     <div id="ticket-modal-desc" style="font-size:0.9rem;white-space:pre-wrap;background:var(--surface-2,rgba(0,0,0,0.03));padding:0.75rem;border-radius:8px;margin-bottom:1.25rem"></div>
+    <div id="ticket-modal-files" style="margin-bottom:1.25rem"></div>
     <div style="font-weight:700;margin-bottom:0.5rem">Activity</div>
     <div id="ticket-modal-thread" style="margin-bottom:0.75rem"></div>
     <form id="ticket-comment-form" style="display:flex;gap:0.5rem">
@@ -7350,10 +7351,33 @@ ${MARKET_COMPONENT_JS}
     el.innerHTML = events.length ? events.map(ticketEventLine).join('') : '<div class="text-muted" style="font-size:0.85rem">No activity yet.</div>';
   }
 
+  function ticketFileSize(n){
+    if (!n && n !== 0) return '';
+    if (n >= 1024*1024) return (n/(1024*1024)).toFixed(1)+' MB';
+    return Math.max(1, Math.round(n/1024))+' KB';
+  }
+  // What the client attached on the form. Downloads go through the authenticated
+  // fetch helper, so these are links in look only.
+  function renderTicketFiles(files){
+    var el = document.getElementById('ticket-modal-files');
+    if (!files.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div style="font-weight:700;font-size:0.85rem;margin-bottom:0.4rem">Client attachments ('+files.length+')</div>'+
+      files.map(function(f){
+        return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px solid var(--border)">'+
+          '<span style="font-size:0.9rem;flex:1">'+esc(f.filename||f.title||'file')+
+          ' <span class="text-muted" style="font-size:0.78rem">'+esc(ticketFileSize(f.filesize))+'</span></span>'+
+          '<button class="btn btn-ghost btn-sm tkt-file" data-id="'+esc(f.id)+'" data-name="'+esc(f.filename||'file')+'">Download</button>'+
+          '</div>';
+      }).join('');
+    el.querySelectorAll('.tkt-file').forEach(function(btn){
+      btn.addEventListener('click', function(){ downloadAttachment(btn.dataset.id, btn.dataset.name); });
+    });
+  }
+
   async function openTicket(id){
     var r = await api('GET','/tickets/'+id);
     if(!r.ok){ alert((r.data&&r.data.error)||'Failed to open ticket.'); return; }
-    var t = r.data.ticket; var events = r.data.events || [];
+    var t = r.data.ticket; var events = r.data.events || []; var files = r.data.attachments || [];
     currentTicketId = t.id;
     document.getElementById('ticket-modal-title').textContent = t.number + ' · ' + ticketCategoryLabel(t.category);
     var meta = [];
@@ -7379,6 +7403,7 @@ ${MARKET_COMPONENT_JS}
     populateTicketDeptSelect(document.getElementById('ticket-modal-department'), t.department);
     populateTicketAssignee(document.getElementById('ticket-modal-assignee'), t.assignedTo);
     renderTicketThread(events);
+    renderTicketFiles(files);
     document.getElementById('ticket-modal').classList.remove('hidden');
   }
 

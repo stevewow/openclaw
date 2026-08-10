@@ -1060,8 +1060,11 @@ export async function handleAdminHttpRequest(
             subPath === "/tasks" ||
             subPath.startsWith("/tasks/") ||
             // Attachments hang off tasks/projects, so they ride the same grant.
+            // Ticket attachments ride the tickets grant instead; which one applies
+            // depends on the owner, so this prefix admits either and the
+            // per-attachment owner check below makes the real decision.
             subPath.startsWith("/attachments/")
-          ? ["projects"]
+          ? ["projects", "tickets"]
           : subPath === "/tickets" || subPath.startsWith("/tickets/")
             ? ticketFeaturesForRequest(subPath, req.method ?? "GET")
             : null;
@@ -2110,10 +2113,14 @@ export async function handleAdminHttpRequest(
       return true;
     }
     const viewer = { userId: sessionUser.id, role: sessionUser.role };
+    // Tickets have no per-row ownership — whoever can work the queue can open
+    // what a client attached to it. Tasks and projects stay per-row.
     const canAccess =
-      attachment.ownerType === "task"
-        ? await canAccessTask(viewer, attachment.ownerId)
-        : await canAccessProject(viewer, attachment.ownerId);
+      attachment.ownerType === "ticket"
+        ? await hasFeatureAccess("tickets")
+        : attachment.ownerType === "task"
+          ? await canAccessTask(viewer, attachment.ownerId)
+          : await canAccessProject(viewer, attachment.ownerId);
     if (!canAccess) {
       sendForbidden(res);
       return true;
@@ -2436,7 +2443,8 @@ export async function handleAdminHttpRequest(
       return true;
     }
     const events = await listTicketEvents(ticket.id);
-    sendJson(res, 200, { ticket, events });
+    const attachments = await listAttachments("ticket", ticket.id);
+    sendJson(res, 200, { ticket, events, attachments });
     return true;
   }
   if (ticketIdMatch && req.method === "PUT") {
@@ -2483,6 +2491,9 @@ export async function handleAdminHttpRequest(
       sendNotFound(res);
       return true;
     }
+    // Take the client's uploads with it; otherwise the blobs outlive the only
+    // row that pointed at them.
+    await deleteAttachmentsForOwner("ticket", ticketIdMatch[1]);
     await deleteTicket(ticketIdMatch[1]!);
     sendJson(res, 200, { ok: true });
     return true;

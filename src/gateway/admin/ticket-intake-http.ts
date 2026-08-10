@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
+import { saveUploadedAttachment } from "./attachment-store.js";
+import { MAX_INTAKE_BODY_BYTES, parseIntakeFiles } from "./ticket-attachment-intake.js";
 import {
   ensureCategorySeed,
   listCategories,
@@ -16,7 +18,6 @@ import { verifyTestToken } from "./ticket-test-token.js";
 const INTAKE_PAGE_PATH = "/support";
 const INTAKE_SUBMIT_PATH = "/api/support/intake";
 const INBOUND_PATH = "/api/support/inbound";
-const MAX_BODY_BYTES = 16 * 1024;
 const INBOUND_MAX_BODY_BYTES = 512 * 1024; // email bodies + quoted history
 
 /** Extra addresses allowed to drive ticket state, beyond the department desks. */
@@ -163,7 +164,9 @@ export async function handleTicketIntakeRequest(
       return true;
     }
 
-    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    // Sized for attachments; the per-IP throttle above is what bounds how often
+    // a body this large can be pushed at us.
+    const body = await readJsonBody(req, MAX_INTAKE_BODY_BYTES);
     if (!body.ok) {
       sendJson(res, 400, { error: body.error });
       return true;
@@ -193,6 +196,14 @@ export async function handleTicketIntakeRequest(
     }
     if (!details) {
       sendJson(res, 400, { error: "Please add a few details about your request." });
+      return true;
+    }
+
+    // Validated before the ticket exists, so a rejected attachment reports a
+    // fixable error instead of leaving a ticket whose file silently vanished.
+    const parsedFiles = parseIntakeFiles(data.files);
+    if (!parsedFiles.ok) {
+      sendJson(res, 400, { error: parsedFiles.error });
       return true;
     }
 
@@ -226,12 +237,39 @@ export async function handleTicketIntakeRequest(
       isTest: Boolean(testGrant),
     });
 
+    // Files are written after the ticket so they can hang off its id. A write
+    // that fails must not lose the ticket the client already submitted — the
+    // details text is the substance, the screenshot is supporting evidence.
+    let savedFiles = 0;
+    for (const file of parsedFiles.files) {
+      try {
+        await saveUploadedAttachment({
+          ownerType: "ticket",
+          ownerId: ticket.id,
+          filename: file.filename,
+          mimetype: file.mimetype,
+          bytes: file.bytes,
+        });
+        savedFiles += 1;
+      } catch (err) {
+        console.error(`[tickets] could not store "${file.filename}" on ${ticket.number}:`, err);
+      }
+    }
+
     // Notify the department out-of-band; a slow/failed email must not delay or
     // fail the client's submission (the ticket is already saved). A test ticket
     // diverts to the admin-authorized override address.
-    void notifyDepartment(ticket, testGrant ? { overrideTo: testGrant.email } : {}).catch(() => {});
+    void notifyDepartment(ticket, {
+      attachmentCount: savedFiles,
+      ...(testGrant ? { overrideTo: testGrant.email } : {}),
+    }).catch(() => {});
 
-    sendJson(res, 201, { ok: true, number: ticket.number, test: Boolean(testGrant) });
+    sendJson(res, 201, {
+      ok: true,
+      number: ticket.number,
+      test: Boolean(testGrant),
+      attachments: savedFiles,
+    });
     return true;
   }
 
