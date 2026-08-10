@@ -239,6 +239,7 @@ import {
   getCategory,
   listCategories,
   removeCategory,
+  reorderCategories,
   type UpdateCategoryParams,
   updateCategory,
 } from "./ticket-category-store.js";
@@ -2300,6 +2301,24 @@ export async function handleAdminHttpRequest(
     const category = await createCategory({ ...readCategoryParams(data), key, label });
     await setCategoryRoute(category.key, department);
     sendJson(res, 201, { category, routes: await getCategoryRoutes() });
+    return true;
+  }
+
+  // PUT /api/admin/tickets/categories/reorder — set the order shown on the form.
+  // Must precede the :key route below, which would otherwise take "reorder" as a
+  // category key.
+  if (subPath === "/tickets/categories/reorder" && req.method === "PUT") {
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    if (!Array.isArray(data.keys) || data.keys.some((k) => typeof k !== "string")) {
+      sendBadRequest(res, "keys must be an array of category keys");
+      return true;
+    }
+    sendJson(res, 200, { categories: await reorderCategories(data.keys as string[]) });
     return true;
   }
 

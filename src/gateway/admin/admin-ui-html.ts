@@ -1205,6 +1205,7 @@ ${MARKET_CSS}
           <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">
             The options a client picks from on the intake form. Add or edit them here and the form updates immediately — no redeploy.
             Each type can ask its own follow-up question and route to its own department.
+            Use ↑ / ↓ to set the order clients see them in.
           </p>
           <div class="table-wrap">
             <table>
@@ -7520,7 +7521,7 @@ ${MARKET_COMPONENT_JS}
   function renderCategoryTable(){
     var body = document.getElementById('cat-body');
     if(!ticketCategories.length){ body.innerHTML='<tr><td colspan="5" class="empty-state">No request types yet.</td></tr>'; return; }
-    body.innerHTML = ticketCategories.map(function(c){
+    body.innerHTML = ticketCategories.map(function(c, i){
       var dept = ticketCategoryRoutes[c.key];
       return '<tr data-key="'+esc(c.key)+'">'+
         '<td><strong>'+esc(c.label)+'</strong><div class="text-muted" style="font-size:0.72rem">'+esc(c.shortLabel)+' · '+esc(c.key)+'</div></td>'+
@@ -7529,11 +7530,32 @@ ${MARKET_COMPONENT_JS}
         '<td>'+(c.active
           ? '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;color:#fff;background:#16a34a">Live</span>'
           : '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;color:#fff;background:#6b7280">Retired</span>')+'</td>'+
-        '<td style="white-space:nowrap"><button class="btn btn-sm cat-edit">Edit</button> <button class="btn btn-ghost btn-sm cat-del" title="Remove">✕</button></td>'+
+        '<td style="white-space:nowrap">'+
+          '<button class="btn btn-ghost btn-sm cat-up" title="Move up"'+(i===0?' disabled':'')+'>↑</button> '+
+          '<button class="btn btn-ghost btn-sm cat-down" title="Move down"'+(i===ticketCategories.length-1?' disabled':'')+'>↓</button> '+
+          '<button class="btn btn-sm cat-edit">Edit</button> '+
+          '<button class="btn btn-ghost btn-sm cat-del" title="Remove">✕</button>'+
+        '</td>'+
         '</tr>';
     }).join('');
     body.querySelectorAll('.cat-edit').forEach(function(btn){ btn.addEventListener('click', function(){ openCategoryModal(btn.closest('tr').getAttribute('data-key')); }); });
     body.querySelectorAll('.cat-del').forEach(function(btn){ btn.addEventListener('click', function(){ removeCategoryRow(btn.closest('tr').getAttribute('data-key')); }); });
+    body.querySelectorAll('.cat-up').forEach(function(btn){ btn.addEventListener('click', function(){ moveCategory(btn.closest('tr').getAttribute('data-key'), -1); }); });
+    body.querySelectorAll('.cat-down').forEach(function(btn){ btn.addEventListener('click', function(){ moveCategory(btn.closest('tr').getAttribute('data-key'), 1); }); });
+  }
+
+  // Reorder by sending the whole key order, not "move this one" — the server
+  // rewrites every sort_order from it, so the list cannot drift into ties.
+  async function moveCategory(key, delta){
+    var keys = ticketCategories.map(function(c){ return c.key; });
+    var from = keys.indexOf(key);
+    var to = from + delta;
+    if (from < 0 || to < 0 || to >= keys.length) return;
+    keys.splice(to, 0, keys.splice(from, 1)[0]);
+    var r = await api('PUT','/tickets/categories/reorder',{keys:keys});
+    if(!r.ok){ alert((r.data&&r.data.error)||'Reorder failed.'); return; }
+    ticketCategories = (r.data && r.data.categories) || ticketCategories;
+    renderCategoryTable();
   }
 
   function syncCategoryExtraFields(){

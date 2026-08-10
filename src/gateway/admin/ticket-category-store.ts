@@ -324,6 +324,46 @@ export async function updateCategory(
   return getCategory(key);
 }
 
+/**
+ * Rewrite the form order from a list of keys, first to last.
+ *
+ * Takes the whole order rather than a single move so two admins reordering at
+ * once cannot interleave into a half-applied sequence, and rewrites every row's
+ * `sort_order` to its index so the ties and gaps left by `max + 1` creation
+ * cannot make the order ambiguous. Keys the caller omits (and unknown keys it
+ * invents) are not dropped or created — omitted categories keep their relative
+ * order and settle after the ones named here.
+ */
+export async function reorderCategories(orderedKeys: string[]): Promise<TicketCategoryDef[]> {
+  const db = getAdminDb();
+  const current = await listCategories();
+  const known = new Set(current.map((c) => c.key));
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const key of orderedKeys) {
+    if (known.has(key) && !seen.has(key)) {
+      seen.add(key);
+      ordered.push(key);
+    }
+  }
+  for (const c of current) {
+    if (!seen.has(c.key)) {
+      ordered.push(c.key);
+    }
+  }
+  const now = Date.now();
+  await db.transaction().execute(async (trx) => {
+    for (const [index, key] of ordered.entries()) {
+      await trx
+        .updateTable("admin_ticket_categories")
+        .set({ sort_order: index, updated_at: now })
+        .where("key", "=", key)
+        .execute();
+    }
+  });
+  return listCategories();
+}
+
 /** How many tickets still reference a category. Drives delete-vs-deactivate. */
 export async function countTicketsInCategory(key: string): Promise<number> {
   const db = getAdminDb();
