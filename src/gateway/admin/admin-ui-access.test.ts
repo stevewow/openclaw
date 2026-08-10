@@ -31,7 +31,7 @@ function loadAccessModel(role: string, permissions: Perm[]) {
     const currentUser = ${JSON.stringify({ role, permissions })};
     function isAdmin() { return currentUser.role === 'admin' || currentUser.role === 'superadmin'; }
     function isSuperAdmin() { return currentUser.role === 'superadmin'; }
-    var REPORTS = [{ key: 'report-cancellations' }, { key: 'rankings' }, { key: 'photographers' }];
+    var REPORTS = [{ key: 'report-cancellations' }, { key: 'rankings-agents' }, { key: 'rankings-companies' }, { key: 'photographers' }];
   `;
   // Evaluating the block is the point of this suite: it tests the JS that
   // actually ships inside the template string, which no type or lint pass sees.
@@ -85,7 +85,7 @@ describe("admin SPA page access", () => {
       feature("chat"),
       feature("projects"),
       feature("resources"),
-      report("rankings"),
+      report("rankings-agents"),
       report("photographers"),
       report("report-cancellations"),
     ]);
@@ -95,8 +95,10 @@ describe("admin SPA page access", () => {
   });
 
   it("gates report sub-pages on their individual report grant", () => {
-    const m = loadAccessModel("user", [report("rankings")]);
-    expect(m.canAccessPage("rankings")).toBe(true);
+    const m = loadAccessModel("user", [report("rankings-agents")]);
+    expect(m.canAccessPage("rankings-agents")).toBe(true);
+    // The agent and company rankings are separate reports with separate grants.
+    expect(m.canAccessPage("rankings-companies")).toBe(false);
     expect(m.canAccessPage("photographers")).toBe(false);
     // The landing opens when any single report is granted.
     expect(m.canAccessPage("reports")).toBe(true);
@@ -120,7 +122,7 @@ describe("admin SPA page access", () => {
       loadAccessModel("user", [
         feature("chat"),
         feature("projects"),
-        report("rankings"),
+        report("rankings-agents"),
       ]).needsAdminSpa(),
     ).toBe(false);
     expect(loadAccessModel("user", []).needsAdminSpa()).toBe(false);
@@ -133,7 +135,7 @@ describe("admin SPA page access", () => {
     for (const perms of [
       [feature("tickets")],
       [feature("ticket-form")],
-      [report("rankings")],
+      [report("rankings-agents")],
       [],
     ]) {
       const m = loadAccessModel("user", perms);

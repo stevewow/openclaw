@@ -151,6 +151,20 @@ ${BRAND_FAVICON_TAG}
 
   /* Resources */
   .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+  .resources-toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .resources-breadcrumb { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.85rem; font-size: 0.85rem; }
+  .resources-breadcrumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .resources-breadcrumb a:hover { text-decoration: underline; }
+  .resources-breadcrumb .crumb-sep { color: var(--text-muted); }
+  .resources-breadcrumb .crumb-current { font-weight: 700; }
+  .folder-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.9rem 1.1rem; display: flex; align-items: center; gap: 0.65rem; cursor: pointer; }
+  .folder-card:hover { border-color: var(--accent); }
+  .folder-card-icon { font-size: 1.35rem; flex-shrink: 0; }
+  .folder-card-main { flex: 1; min-width: 0; }
+  .folder-card-name { font-weight: 700; font-size: 0.9rem; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .folder-card-meta { font-size: 0.75rem; color: var(--text-muted); }
+  .fav-star { background: none; border: none; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0.1rem 0.25rem; color: var(--text-muted); font-family: inherit; }
+  .fav-star.is-fav { color: #f59e0b; }
   .resource-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
   .resource-card-body { padding: 1rem 1.25rem; }
   .resource-title { font-weight: 700; font-size: 0.9rem; letter-spacing: -0.01em; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem; }
@@ -577,7 +591,8 @@ ${MARKET_COMPONENT_JS}
 
   var PORTAL_REPORTS = [
     { key: 'report-cancellations', title: 'Agent Cancellation Report' },
-    { key: 'rankings', title: 'Agent & Company Rankings' },
+    { key: 'rankings-agents', title: 'Agent Ranking' },
+    { key: 'rankings-companies', title: 'Company Ranking' },
     { key: 'photographers', title: 'Photographers' },
     { key: 'focus', title: 'Sales Focus' },
     { key: 'market', title: 'Housing Market' },
@@ -616,14 +631,15 @@ ${MARKET_COMPONENT_JS}
     { key:'reschedules', label:'Reschedules', type:'num', value:function(r){ return r.reschedules; } },
     { key:'pct', label:'% Cancelled/Rescheduled', type:'num', value:function(r){ return Number(r.cancelledOrRescheduledPct.toFixed(1)); }, render:function(r){ return r.cancelledOrRescheduledPct.toFixed(1) + '%'; } }
   ]; }
-  function portalRankCols(nameLabel){ return [
+  function portalRankCols(nameLabel, extra){ return [
     { key:'rank', label:'#', type:'num', value:function(r){ return r.rank; } },
-    { key:'name', label:nameLabel, value:function(r){ return r.name; } },
+    { key:'name', label:nameLabel, value:function(r){ return r.name; } }
+  ].concat(extra || []).concat([
     { key:'totalOrders', label:'Orders', type:'num', value:function(r){ return r.totalOrders; } },
     { key:'cancellations', label:'Cancellations', type:'num', value:function(r){ return r.cancellations; } },
     { key:'reschedules', label:'Reschedules', type:'num', value:function(r){ return r.reschedules; } },
     { key:'pct', label:'% Canc./Resch.', type:'num', value:function(r){ return Number(r.cancelledOrRescheduledPct.toFixed(1)); }, render:function(r){ return r.cancelledOrRescheduledPct.toFixed(1) + '%'; } }
-  ]; }
+  ]); }
   function portalPhotographerCols(){ return [
     { key:'name', label:'Photographer', value:function(r){ return r.name; } },
     { key:'markets', label:'Markets', value:function(r){ return (r.markets || []).join(', '); } },
@@ -633,21 +649,31 @@ ${MARKET_COMPONENT_JS}
   // Same columns the dashboard draws, so a BDS and their manager read one
   // report rather than two that drift.
   function pFocusMoney(n){ return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
-  /** Mirrors focusTagList on the dashboard; the two must read the same. */
-  function pFocusTags(r){
+  // Mirrors agentBadgeColumn on the dashboard; the two must read the same. VIP
+  // is Spiro's flag, Top 20% the stored trailing-12-month regional cut, and both
+  // follow an agent onto every report the portal shows them on.
+  function pAgentBadges(r){
     var out = [];
     if (r.vip) out.push('VIP');
     if (r.topPercent) out.push('Top 20%');
     return out;
   }
+  function pAgentBadgeColumn(){ return {
+    key:'tags', label:'Tags', type:'num',
+    value:function(r){ return (r.vip ? 2 : 0) + (r.topPercent ? 1 : 0); },
+    csv:function(r){ return pAgentBadges(r).join(' '); },
+    render:function(r){
+      var region = r.region ? ' in ' + r.region : '';
+      return pAgentBadges(r).map(function(t){
+        var vip = t === 'VIP';
+        var title = vip ? 'Marked VIP in Spiro' : 'Top 20% by revenue over the last 12 months' + region;
+        return '<span class="focus-tag focus-tag-' + (vip ? 'vip' : 'top') + '" title="' + esc(title) + '">' + esc(t) + '</span>';
+      }).join('') || '<span class="text-muted">—</span>';
+    }
+  }; }
   function portalFocusCols(){ return [
     { key:'agent', label:'Client', value:function(r){ return r.agentName; } },
-    { key:'tags', label:'Tags', type:'num',
-      value:function(r){ return (r.vip ? 2 : 0) + (r.topPercent ? 1 : 0); },
-      csv:function(r){ return pFocusTags(r).join(' '); },
-      render:function(r){ return pFocusTags(r).map(function(t){
-        return '<span class="focus-tag focus-tag-' + (t === 'VIP' ? 'vip' : 'top') + '">' + esc(t) + '</span>';
-      }).join('') || '<span class="text-muted">—</span>'; } },
+    pAgentBadgeColumn(),
     { key:'company', label:'Brokerage', value:function(r){ return r.companyName || '—'; } },
     { key:'region', label:'Region', value:function(r){ return r.region; } },
     { key:'bds', label:'BDS', value:function(r){ return r.bds || 'Unassigned'; } },
@@ -695,7 +721,8 @@ ${MARKET_COMPONENT_JS}
       // Persistent containers so the shared table instances keep a live element.
       area.innerHTML =
         '<div class="report-view" data-view="report-cancellations" style="display:none"><div class="card" style="padding:0" id="prt-cancel"></div></div>' +
-        '<div class="report-view" data-view="rankings" style="display:none"><div class="card" style="padding:0;margin-bottom:1rem"><div class="report-subhead">🧑‍💼 Agent Ranking</div><div id="prt-rank-agents"></div></div><div class="card" style="padding:0"><div class="report-subhead">🏢 Company Ranking</div><div id="prt-rank-companies"></div></div></div>' +
+        '<div class="report-view" data-view="rankings-agents" style="display:none"><div class="card" style="padding:0"><div id="prt-rank-agents"></div></div></div>' +
+        '<div class="report-view" data-view="rankings-companies" style="display:none"><div class="card" style="padding:0"><div id="prt-rank-companies"></div></div></div>' +
         '<div class="report-view" data-view="photographers" style="display:none"><div class="card" style="padding:0" id="prt-photographers"></div></div>' +
         '<div class="report-view" data-view="focus" style="display:none">' +
           '<div class="card" style="margin-bottom:1rem;padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">' +
@@ -719,7 +746,7 @@ ${MARKET_COMPONENT_JS}
         '<div class="report-view" data-view="pipedrive-cleanup" style="display:none"><div id="prt-pdc"></div></div>' +
         '<div class="report-view" data-view="past-due" style="display:none"><div id="prt-pastdue"></div></div>';
       portalReportTables['report-cancellations'] = createReportTable({ containerId:'prt-cancel', reportKey:'p-cancellations', frozenFirst:true, emptyMsg:'No data cached for this range yet.', columns: portalCancelCols() });
-      portalReportTables['rankings-agents'] = createReportTable({ containerId:'prt-rank-agents', reportKey:'p-rankings-agents', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Agent') });
+      portalReportTables['rankings-agents'] = createReportTable({ containerId:'prt-rank-agents', reportKey:'p-rankings-agents', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Agent', [pAgentBadgeColumn()]) });
       portalReportTables['rankings-companies'] = createReportTable({ containerId:'prt-rank-companies', reportKey:'p-rankings-companies', emptyMsg:'No data cached for this range yet.', columns: portalRankCols('Company') });
       portalReportTables['photographers'] = createReportTable({ containerId:'prt-photographers', reportKey:'p-photographers', frozenFirst:true, emptyMsg:'No photographers cached yet.', columns: portalPhotographerCols() });
       portalReportTables['focus'] = createReportTable({ containerId:'prt-focus', reportKey:'p-focus', frozenFirst:true, emptyMsg:'No orders cached for this range yet. Ask an admin to refresh it.', columns: portalFocusCols() });
@@ -768,11 +795,10 @@ ${MARKET_COMPONENT_JS}
       var r = await api('GET', '/reports/agent-cancellations?' + qs);
       if (!r.ok){ portalReportTables['report-cancellations'].setError(); return; }
       portalReportTables['report-cancellations'].setData(r.data.report.rows);
-    } else if (key === 'rankings'){
-      var r2 = await api('GET', '/reports/rankings?' + qs);
-      if (!r2.ok){ portalReportTables['rankings-agents'].setError(); portalReportTables['rankings-companies'].setError(); return; }
-      portalReportTables['rankings-agents'].setData(r2.data.report.agents);
-      portalReportTables['rankings-companies'].setData(r2.data.report.companies);
+    } else if (key === 'rankings-agents' || key === 'rankings-companies'){
+      var r2 = await api('GET', '/reports/' + key + '?' + qs);
+      if (!r2.ok){ portalReportTables[key].setError(); return; }
+      portalReportTables[key].setData(r2.data.report.rows);
     } else if (key === 'photographers'){
       var r3 = await api('GET', '/reports/photographers?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
       if (!r3.ok){ portalReportTables['photographers'].setError(); return; }
@@ -1084,6 +1110,37 @@ ${MARKET_COMPONENT_JS}
     return '📦';
   }
 
+  // Folder navigation and favorites mirror the dashboard's, minus the editing:
+  // the portal browses and stars, it never files or renames.
+  let portalFolderId = null;
+  let portalFavoritesOnly = false;
+  let portalResourceMap = {};
+  let portalFolderMap = {};
+
+  function portalFavStar(type, id, isFav) {
+    return '<button class="fav-star' + (isFav ? ' is-fav' : '') + '"' +
+      ' title="' + (isFav ? 'Remove from favorites' : 'Add to favorites') + '"' +
+      ' onclick="portalToggleFavorite(event, \\'' + esc(type) + '\\', \\'' + esc(id) + '\\')">' +
+      (isFav ? '★' : '☆') + '</button>';
+  }
+
+  window.portalToggleFavorite = async function(ev, itemType, itemId) {
+    ev.stopPropagation();
+    const map = itemType === 'folder' ? portalFolderMap : portalResourceMap;
+    const item = map[itemId];
+    if (!item) return;
+    const next = !item.favorite;
+    const r = await api('PUT', '/resources/favorites', { itemType, itemId, favorite: next });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not update favorites.'); return; }
+    item.favorite = next;
+    loadResources();
+  };
+
+  window.portalOpenFolder = function(id) {
+    portalFolderId = id;
+    loadResources();
+  };
+
   function resourceCardHtml(r) {
     const tags = (r.tags ?? []).map(t => '<span class="resource-tag">' + esc(t) + '</span>').join('');
     let footer = '';
@@ -1098,24 +1155,78 @@ ${MARKET_COMPONENT_JS}
         (r.description ? '<div class="resource-desc">' + esc(r.description) + '</div>' : '') +
         (tags ? '<div class="resource-tags">' + tags + '</div>' : '') +
       '</div>' +
-      (footer ? '<div class="resource-card-footer">' + footer + '</div>' : '') +
+      '<div class="resource-card-footer">' + portalFavStar('resource', r.id, !!r.favorite) + (footer || '') + '</div>' +
     '</div>';
   }
+
+  function portalFolderCardHtml(f) {
+    const counts = [];
+    if (f.folderCount) counts.push(f.folderCount + (f.folderCount === 1 ? ' folder' : ' folders'));
+    if (f.resourceCount) counts.push(f.resourceCount + (f.resourceCount === 1 ? ' item' : ' items'));
+    return '<div class="folder-card" onclick="portalOpenFolder(\\'' + esc(f.id) + '\\')">' +
+      '<span class="folder-card-icon">📁</span>' +
+      '<div class="folder-card-main">' +
+        '<div class="folder-card-name">' + esc(f.name) + '</div>' +
+        '<div class="folder-card-meta">' + (counts.join(' · ') || 'Empty') + '</div>' +
+      '</div>' +
+      portalFavStar('folder', f.id, !!f.favorite) +
+    '</div>';
+  }
+
+  function portalBreadcrumbHtml(breadcrumb) {
+    if (portalFavoritesOnly) return '<div class="resources-breadcrumb"><span class="crumb-current">★ My favorites</span></div>';
+    const parts = ['<a onclick="portalOpenFolder(null)">📚 All resources</a>'];
+    (breadcrumb || []).forEach(function(f, i) {
+      const last = i === breadcrumb.length - 1;
+      parts.push('<span class="crumb-sep">/</span>');
+      parts.push(last
+        ? '<span class="crumb-current">' + esc(f.name) + '</span>'
+        : '<a onclick="portalOpenFolder(\\'' + esc(f.id) + '\\')">' + esc(f.name) + '</a>');
+    });
+    return '<div class="resources-breadcrumb">' + parts.join(' ') + '</div>';
+  }
+
+  window.portalToggleFavoritesView = function() {
+    portalFavoritesOnly = !portalFavoritesOnly;
+    loadResources();
+  };
 
   async function loadResources() {
     const container = document.getElementById('resources-container');
     container.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
-    const r = await api('GET', '/resources');
+    const params = new URLSearchParams();
+    if (portalFavoritesOnly) params.set('favorites', '1');
+    else if (portalFolderId) params.set('folder', portalFolderId);
+    const qs = params.toString();
+    const r = await api('GET', '/resources' + (qs ? '?' + qs : ''));
     const resources = r.ok ? (r.data.resources ?? []) : [];
-    if (!resources.length) {
-      container.innerHTML =
-        '<div class="empty-state">' +
-          '<p>No resources are available to you yet.</p>' +
-          '<p style="margin-top:0.35rem;font-size:0.8rem">An admin can make resources available by enabling <strong>User Access</strong> in the Resource Library.</p>' +
-        '</div>';
+    const folders = r.ok ? (r.data.folders ?? []) : [];
+    portalFolderId = r.ok ? (r.data.folderId ?? null) : null;
+    portalResourceMap = {};
+    for (const item of resources) portalResourceMap[item.id] = item;
+    portalFolderMap = {};
+    for (const item of folders) portalFolderMap[item.id] = item;
+
+    const toolbar = '<div class="resources-toolbar" style="margin-bottom:0.75rem">' +
+      '<button class="btn btn-ghost btn-sm" onclick="portalToggleFavoritesView()">' +
+      (portalFavoritesOnly ? '★ Showing favorites' : '☆ Favorites') + '</button></div>';
+
+    if (!resources.length && !folders.length) {
+      // At the root with nothing at all is a different problem from an empty
+      // folder or an empty favorites list, so each says its own thing.
+      const body = portalFavoritesOnly
+        ? '<p>Nothing favorited yet.</p><p style="margin-top:0.35rem;font-size:0.8rem">Tap the ☆ on any folder or resource to keep it here.</p>'
+        : portalFolderId
+          ? '<p>This folder is empty.</p>'
+          : '<p>No resources are available to you yet.</p>' +
+            '<p style="margin-top:0.35rem;font-size:0.8rem">An admin can make resources available by enabling <strong>User Access</strong> in the Resource Library.</p>';
+      container.innerHTML = toolbar + portalBreadcrumbHtml(r.ok ? r.data.breadcrumb : []) +
+        '<div class="empty-state">' + body + '</div>';
       return;
     }
-    container.innerHTML = '<div class="resources-grid">' + resources.map(resourceCardHtml).join('') + '</div>';
+    container.innerHTML = toolbar + portalBreadcrumbHtml(r.ok ? r.data.breadcrumb : []) +
+      (folders.length ? '<div class="resources-grid" style="margin-bottom:1rem">' + folders.map(portalFolderCardHtml).join('') + '</div>' : '') +
+      (resources.length ? '<div class="resources-grid">' + resources.map(resourceCardHtml).join('') + '</div>' : '');
   }
 
   // ── Projects & Tasks ────────────────────────────────────────────────────────

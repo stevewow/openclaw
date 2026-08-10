@@ -1504,7 +1504,9 @@ describe("the Focus report is gated like every other report", () => {
   });
 
   it("denies it to someone without the grant", async () => {
-    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "rankings" }]);
+    await userStore.setUserPermissions(userId, [
+      { permissionType: "report", value: "rankings-agents" },
+    ]);
     const r = await call("GET", "/reports/focus", { token: userToken });
     expect(r.status).toBe(403);
   });
@@ -1552,7 +1554,9 @@ describe("the Market report is gated like every other report", () => {
   });
 
   it("denies it to someone without the grant", async () => {
-    await userStore.setUserPermissions(userId, [{ permissionType: "report", value: "rankings" }]);
+    await userStore.setUserPermissions(userId, [
+      { permissionType: "report", value: "rankings-agents" },
+    ]);
     const r = await call("GET", "/reports/market", { token: userToken });
     expect(r.status).toBe(403);
   });
@@ -1572,5 +1576,90 @@ describe("the Market report is gated like every other report", () => {
     if (saved !== undefined) {
       process.env.REALTYAPI_KEY = saved;
     }
+  });
+});
+
+describe("resource folders and favorites", () => {
+  it("keeps folder creation, editing and deletion to admins", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "feature", value: "resources" }]);
+    const created = await call("POST", "/resources/folders", {
+      token: adminToken,
+      body: { name: "Sales", userAccess: true },
+    });
+    expect(created.status).toBe(201);
+    const folderId = (created.json?.folder as { id: string }).id;
+
+    for (const [method, path, body] of [
+      ["POST", "/resources/folders", { name: "Sneaky" }],
+      ["PUT", `/resources/folders/${folderId}`, { name: "Renamed" }],
+      ["DELETE", `/resources/folders/${folderId}`, undefined],
+    ] as const) {
+      const r = await call(method, path, { token: userToken, body });
+      expect(`${method} ${path} => ${r.status}`).toBe(`${method} ${path} => 403`);
+    }
+  });
+
+  it("refuses a folder move that would detach it from the root", async () => {
+    const parent = await call("POST", "/resources/folders", {
+      token: adminToken,
+      body: { name: "Parent" },
+    });
+    const parentId = (parent.json?.folder as { id: string }).id;
+    const child = await call("POST", "/resources/folders", {
+      token: adminToken,
+      body: { name: "Child", parentId },
+    });
+    const childId = (child.json?.folder as { id: string }).id;
+
+    const r = await call("PUT", `/resources/folders/${parentId}`, {
+      token: adminToken,
+      body: { parentId: childId },
+    });
+    expect(r.status).toBe(400);
+    expect(String(r.json?.error ?? "")).toMatch(/inside itself/);
+  });
+
+  it("lets any viewer keep their own favorites", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "feature", value: "resources" }]);
+    const created = await call("POST", "/resources/folders", {
+      token: adminToken,
+      body: { name: "Shared", userAccess: true },
+    });
+    const folderId = (created.json?.folder as { id: string }).id;
+
+    const star = await call("PUT", "/resources/favorites", {
+      token: userToken,
+      body: { itemType: "folder", itemId: folderId, favorite: true },
+    });
+    expect(star.status).toBe(200);
+
+    const mine = await call("GET", "/resources?favorites=1", { token: userToken });
+    expect((mine.json?.folders as Array<{ id: string }>).map((f) => f.id)).toContain(folderId);
+    // A different viewer's list is untouched by that star.
+    const theirs = await call("GET", "/resources?favorites=1", { token: adminToken });
+    expect((theirs.json?.folders as unknown[]).length).toBe(0);
+  });
+
+  it("refuses to star something the viewer cannot see", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "feature", value: "resources" }]);
+    const hidden = await call("POST", "/resources/folders", {
+      token: adminToken,
+      body: { name: "Internal", userAccess: false },
+    });
+    const hiddenId = (hidden.json?.folder as { id: string }).id;
+    const r = await call("PUT", "/resources/favorites", {
+      token: userToken,
+      body: { itemType: "folder", itemId: hiddenId, favorite: true },
+    });
+    // 404, not 403: a denied viewer learns nothing about what exists.
+    expect(r.status).toBe(404);
+  });
+
+  it("rejects an unknown favorite item type rather than storing it", async () => {
+    const r = await call("PUT", "/resources/favorites", {
+      token: adminToken,
+      body: { itemType: "agent", itemId: "whatever", favorite: true },
+    });
+    expect(r.status).toBe(400);
   });
 });

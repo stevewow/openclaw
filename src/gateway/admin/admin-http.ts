@@ -141,14 +141,21 @@ import {
   type UpdateTaskParams,
 } from "./project-store.js";
 import {
+  createFolder,
   createResource,
+  deleteFolder,
   deleteResource,
   ensureResourcesDir,
   getAllTags,
+  getFolderPath,
   getResource,
+  listFolders,
   listResources,
   resolveResourceFilePath,
+  updateFolder,
+  type UpdateFolderParams,
   updateResource,
+  setFavorite,
 } from "./resource-store.js";
 import {
   ensurePhotographersScheduler,
@@ -158,7 +165,8 @@ import {
 import {
   ensureSpiroReportScheduler,
   getAgentCancellationReport,
-  getRankingsReport,
+  getAgentRankingsReport,
+  getCompanyRankingsReport,
   getRefreshStatus,
   last12Months,
   listAvailableMarkets,
@@ -1069,7 +1077,10 @@ export async function handleAdminHttpRequest(
     }
   }
 
-  // GET /api/admin/resources — list resources
+  // GET /api/admin/resources — list one folder's contents, or search the library.
+  //
+  // Browsing is folder-scoped; searching and the favorites view deliberately are
+  // not, since looking for something you cannot place is the point of both.
   if (subPath === "/resources" && req.method === "GET") {
     const search = url.searchParams.get("search") ?? undefined;
     const tagsParam = url.searchParams.get("tags");
@@ -1080,13 +1091,172 @@ export async function handleAdminHttpRequest(
           .filter(Boolean)
       : [];
     const isUser = !isAdmin;
+    const favoritesOnly = url.searchParams.get("favorites") === "1";
+    const searching = !!search?.trim() || tags.length > 0 || favoritesOnly;
+    // "" and a missing param both mean the root; only an explicit id narrows.
+    const folderParam = url.searchParams.get("folder");
+    const folderId = searching ? undefined : (normalizeString(folderParam) ?? null);
+    const listOptions = {
+      userAccessOnly: isUser ? true : undefined,
+      viewerId,
+      favoritesOnly,
+    };
     const resources = await listResources({
+      ...listOptions,
       search,
       tags: tags.length > 0 ? tags : undefined,
-      userAccessOnly: isUser ? true : undefined,
+      folderId,
     });
+    const folders = await listFolders({ ...listOptions, parentId: folderId });
+    const breadcrumb = folderId ? await getFolderPath(folderId) : [];
     const allTags = await getAllTags();
-    sendJson(res, 200, { resources, allTags });
+    sendJson(res, 200, { resources, folders, breadcrumb, folderId: folderId ?? null, allTags });
+    return true;
+  }
+
+  // GET /api/admin/resources/folders — the whole tree, for move pickers.
+  if (subPath === "/resources/folders" && req.method === "GET") {
+    const folders = await listFolders({
+      userAccessOnly: isAdmin ? undefined : true,
+      viewerId,
+    });
+    sendJson(res, 200, { folders });
+    return true;
+  }
+
+  // POST /api/admin/resources/folders — create a folder (admin only)
+  if (subPath === "/resources/folders" && req.method === "POST") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const payload = body.value as Record<string, unknown>;
+    const name = normalizeString(payload.name);
+    if (!name) {
+      sendBadRequest(res, "name is required");
+      return true;
+    }
+    try {
+      const folder = await createFolder({
+        name,
+        description: normalizeString(payload.description) ?? null,
+        parentId: normalizeString(payload.parentId) ?? null,
+        userAccess: payload.userAccess === true,
+        createdBy: sessionUser.id,
+      });
+      sendJson(res, 201, { folder });
+    } catch (err) {
+      sendBadRequest(res, err instanceof Error ? err.message : "could not create folder");
+    }
+    return true;
+  }
+
+  const folderEditMatch = subPath.match(/^\/resources\/folders\/([^/]+)$/);
+
+  // PUT /api/admin/resources/folders/:id — rename, move or re-scope (admin only)
+  if (folderEditMatch && req.method === "PUT") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const payload = body.value as Record<string, unknown>;
+    const updates: UpdateFolderParams = {};
+    if (payload.name !== undefined) {
+      const name = normalizeString(payload.name);
+      if (!name) {
+        sendBadRequest(res, "name cannot be empty");
+        return true;
+      }
+      updates.name = name;
+    }
+    if (payload.description !== undefined) {
+      updates.description = normalizeString(payload.description) ?? null;
+    }
+    if (payload.parentId !== undefined) {
+      updates.parentId = normalizeString(payload.parentId) ?? null;
+    }
+    if (payload.userAccess !== undefined) {
+      updates.userAccess = payload.userAccess === true;
+    }
+    try {
+      const folder = await updateFolder(folderEditMatch[1], updates);
+      if (!folder) {
+        sendJson(res, 404, { error: "not_found" });
+        return true;
+      }
+      sendJson(res, 200, { folder });
+    } catch (err) {
+      sendBadRequest(res, err instanceof Error ? err.message : "could not update folder");
+    }
+    return true;
+  }
+
+  // DELETE /api/admin/resources/folders/:id — delete, keeping its contents (admin only)
+  if (folderEditMatch && req.method === "DELETE") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const deleted = await deleteFolder(folderEditMatch[1]);
+    if (!deleted) {
+      sendJson(res, 404, { error: "not_found" });
+      return true;
+    }
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // PUT /api/admin/resources/favorites — star or unstar a folder or resource.
+  // Every viewer keeps their own list, so this needs no admin check.
+  if (subPath === "/resources/favorites" && req.method === "PUT") {
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const payload = body.value as Record<string, unknown>;
+    const itemType = normalizeString(payload.itemType);
+    const itemId = normalizeString(payload.itemId);
+    if (itemType !== "folder" && itemType !== "resource") {
+      sendBadRequest(res, "itemType must be 'folder' or 'resource'");
+      return true;
+    }
+    if (!itemId) {
+      sendBadRequest(res, "itemId is required");
+      return true;
+    }
+    // A viewer may only star what they can already see, so a favorite can never
+    // become a probe for the existence of a resource they were denied.
+    const visible =
+      itemType === "folder"
+        ? (await listFolders({ userAccessOnly: isAdmin ? undefined : true })).some(
+            (f) => f.id === itemId,
+          )
+        : await (async () => {
+            const resource = await getResource(itemId);
+            return !!resource && (isAdmin || resource.userAccess);
+          })();
+    if (!visible) {
+      sendJson(res, 404, { error: "not_found" });
+      return true;
+    }
+    await setFavorite({
+      userId: viewerId,
+      itemType,
+      itemId,
+      favorite: payload.favorite === true,
+    });
+    sendJson(res, 200, { ok: true });
     return true;
   }
 
@@ -1130,6 +1300,7 @@ export async function handleAdminHttpRequest(
           : [],
         aiAccess: data.aiAccess !== false,
         userAccess: !!data.userAccess,
+        folderId: normalizeString(data.folderId) ?? null,
         createdBy: sessionUser.id,
       });
       sendJson(res, 201, { resource });
@@ -1161,6 +1332,7 @@ export async function handleAdminHttpRequest(
           : [],
         aiAccess: data.aiAccess !== false,
         userAccess: !!data.userAccess,
+        folderId: normalizeString(data.folderId) ?? null,
         createdBy: sessionUser.id,
       });
       sendJson(res, 201, { resource });
@@ -1221,7 +1393,17 @@ export async function handleAdminHttpRequest(
     }
     if (data.aiAccess !== undefined) updates.aiAccess = !!data.aiAccess;
     if (data.userAccess !== undefined) updates.userAccess = !!data.userAccess;
-    const updated = await updateResource(resourceId, updates);
+    // Moving a resource between folders is this same update.
+    if (data.folderId !== undefined) {
+      updates.folderId = normalizeString(data.folderId) ?? null;
+    }
+    let updated: Awaited<ReturnType<typeof updateResource>>;
+    try {
+      updated = await updateResource(resourceId, updates);
+    } catch (err) {
+      sendBadRequest(res, err instanceof Error ? err.message : "could not update resource");
+      return true;
+    }
     if (!updated) {
       sendNotFound(res);
       return true;
@@ -2287,10 +2469,11 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/reports/rankings — agent + company order-volume rankings (admin only).
-  // Shares the same cached orders, date range, and market filter as the cancellation report.
-  if (subPath === "/reports/rankings" && req.method === "GET") {
-    if (!(await hasReportAccess("rankings"))) {
+  // GET /api/admin/reports/rankings-agents — agents ranked by order volume, with
+  // their VIP / top-20% badges. Shares the cached orders, date range and market
+  // filter with the cancellation and company-ranking reports.
+  if (subPath === "/reports/rankings-agents" && req.method === "GET") {
+    if (!(await hasReportAccess("rankings-agents"))) {
       sendForbidden(res);
       return true;
     }
@@ -2298,7 +2481,22 @@ export async function handleAdminHttpRequest(
     const from = normalizeString(url.searchParams.get("from")) ?? months[0]!;
     const to = normalizeString(url.searchParams.get("to")) ?? months[months.length - 1]!;
     const market = normalizeString(url.searchParams.get("market"));
-    const report = await getRankingsReport({ from, to, market });
+    const report = await getAgentRankingsReport({ from, to, market });
+    sendJson(res, 200, { report });
+    return true;
+  }
+
+  // GET /api/admin/reports/rankings-companies — brokerages ranked by order volume.
+  if (subPath === "/reports/rankings-companies" && req.method === "GET") {
+    if (!(await hasReportAccess("rankings-companies"))) {
+      sendForbidden(res);
+      return true;
+    }
+    const months = last12Months();
+    const from = normalizeString(url.searchParams.get("from")) ?? months[0];
+    const to = normalizeString(url.searchParams.get("to")) ?? months[months.length - 1];
+    const market = normalizeString(url.searchParams.get("market"));
+    const report = await getCompanyRankingsReport({ from, to, market });
     sendJson(res, 200, { report });
     return true;
   }
@@ -2306,7 +2504,11 @@ export async function handleAdminHttpRequest(
   // GET /api/admin/reports/agent-cancellations/markets — distinct markets in range.
   // Shared by the cancellation + rankings views, so either report grants it.
   if (subPath === "/reports/agent-cancellations/markets" && req.method === "GET") {
-    if (!(await hasReportAccess("report-cancellations")) && !(await hasReportAccess("rankings"))) {
+    if (
+      !(await hasReportAccess("report-cancellations")) &&
+      !(await hasReportAccess("rankings-agents")) &&
+      !(await hasReportAccess("rankings-companies"))
+    ) {
       sendForbidden(res);
       return true;
     }
@@ -2320,7 +2522,11 @@ export async function handleAdminHttpRequest(
 
   // GET /api/admin/reports/agent-cancellations/status — last-refreshed per month.
   if (subPath === "/reports/agent-cancellations/status" && req.method === "GET") {
-    if (!(await hasReportAccess("report-cancellations")) && !(await hasReportAccess("rankings"))) {
+    if (
+      !(await hasReportAccess("report-cancellations")) &&
+      !(await hasReportAccess("rankings-agents")) &&
+      !(await hasReportAccess("rankings-companies"))
+    ) {
       sendForbidden(res);
       return true;
     }

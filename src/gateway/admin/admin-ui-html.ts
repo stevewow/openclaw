@@ -320,6 +320,20 @@ ${BRAND_FAVICON_TAG}
   .tag-filter-chip:hover { border-color: var(--accent); color: var(--accent); }
   .tag-filter-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
   .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+  .resources-breadcrumb { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.85rem; font-size: 0.85rem; }
+  .resources-breadcrumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .resources-breadcrumb a:hover { text-decoration: underline; }
+  .resources-breadcrumb .crumb-sep { color: var(--text-muted); }
+  .resources-breadcrumb .crumb-current { font-weight: 700; }
+  .folder-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.9rem 1.1rem; display: flex; align-items: center; gap: 0.65rem; cursor: pointer; }
+  .folder-card:hover { border-color: var(--accent); }
+  .folder-card-icon { font-size: 1.35rem; flex-shrink: 0; }
+  .folder-card-main { flex: 1; min-width: 0; }
+  .folder-card-name { font-weight: 700; font-size: 0.92rem; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .folder-card-meta { font-size: 0.75rem; color: var(--text-muted); }
+  /* The star sits on both folder and resource cards, so it is styled once. */
+  .fav-star { background: none; border: none; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0.1rem 0.25rem; color: var(--text-muted); font-family: inherit; }
+  .fav-star.is-fav { color: #f59e0b; }
   .resource-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; }
   .resource-card-body { padding: 1.125rem 1.25rem; flex: 1; }
   .resource-card-title { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
@@ -706,12 +720,16 @@ ${MARKET_CSS}
               <span class="search-icon">🔍</span>
               <input id="resources-search" type="search" placeholder="Search title, description, tags…">
             </div>
+            <button class="btn btn-ghost btn-sm" id="resources-fav-btn" title="Show only my favorites">☆ Favorites</button>
           </div>
-          <div style="margin-left:0.75rem">
+          <div style="margin-left:0.75rem;display:flex;gap:0.5rem">
+            <button class="btn btn-ghost admin-only" id="add-folder-btn">+ New Folder</button>
             <button class="btn btn-primary" id="add-resource-btn">+ Add Resource</button>
           </div>
         </div>
+        <div id="resources-breadcrumb" class="resources-breadcrumb"></div>
         <div id="resources-tag-filters" class="tag-filters"></div>
+        <div id="resources-folder-grid" class="resources-grid" style="margin-bottom:1rem"></div>
         <div id="resources-grid" class="resources-grid">
           <div class="empty-state" style="grid-column:1/-1"><span class="spin">⟳</span> Loading…</div>
         </div>
@@ -842,39 +860,56 @@ ${MARKET_CSS}
         <div class="card" style="padding:0"><div id="report-table"></div></div>
       </div>
 
-      <!-- Rankings page -->
-      <div id="page-rankings" class="page hidden">
+      <!-- Agent Ranking report -->
+      <div id="page-rankings-agents" class="page hidden">
         <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
         <div class="card" style="margin-bottom:1rem">
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div class="form-group" style="margin:0">
               <label>From</label>
-              <select id="rank-from-sel"></select>
+              <select id="ranka-from-sel"></select>
             </div>
             <div class="form-group" style="margin:0">
               <label>To</label>
-              <select id="rank-to-sel"></select>
+              <select id="ranka-to-sel"></select>
             </div>
             <div class="form-group" style="margin:0">
               <label>Market</label>
-              <select id="rank-market-sel"><option value="">All markets</option></select>
+              <select id="ranka-market-sel"><option value="">All markets</option></select>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
-              <span class="text-muted" id="rank-refreshed-at" style="font-size:0.8rem"></span>
-              <button class="btn btn-primary btn-sm" id="rank-refresh-btn">↻ Refresh now</button>
+              <span class="text-muted" id="ranka-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-primary btn-sm" id="ranka-refresh-btn">↻ Refresh now</button>
             </div>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;align-items:start">
-          <div class="card" style="padding:0">
-            <div style="padding:0.875rem 1.25rem;font-weight:700;border-bottom:1px solid var(--border)">🧑‍💼 Agent Ranking</div>
-            <div id="rank-agents-table"></div>
-          </div>
-          <div class="card" style="padding:0">
-            <div style="padding:0.875rem 1.25rem;font-weight:700;border-bottom:1px solid var(--border)">🏢 Company Ranking</div>
-            <div id="rank-companies-table"></div>
+        <div class="card" style="padding:0"><div id="ranka-table"></div></div>
+      </div>
+
+      <!-- Company Ranking report -->
+      <div id="page-rankings-companies" class="page hidden">
+        <div style="margin-bottom:0.75rem"><a href="#reports" class="report-back">← All reports</a></div>
+        <div class="card" style="margin-bottom:1rem">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label>From</label>
+              <select id="rankc-from-sel"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>To</label>
+              <select id="rankc-to-sel"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Market</label>
+              <select id="rankc-market-sel"><option value="">All markets</option></select>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+              <span class="text-muted" id="rankc-refreshed-at" style="font-size:0.8rem"></span>
+              <button class="btn btn-primary btn-sm" id="rankc-refresh-btn">↻ Refresh now</button>
+            </div>
           </div>
         </div>
+        <div class="card" style="padding:0"><div id="rankc-table"></div></div>
       </div>
 
       <!-- Photographers report -->
@@ -1474,9 +1509,49 @@ ${MARKET_CSS}
           <label class="toggle"><input type="checkbox" id="resource-user-access"><span class="toggle-slider"></span></label>
         </div>
       </div>
+      <div class="form-group">
+        <label>Folder</label>
+        <select id="resource-folder"><option value="">📚 All resources (no folder)</option></select>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="resource-modal-cancel">Cancel</button>
         <button type="submit" class="btn btn-primary" id="resource-modal-submit">Add Resource</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Folder Modal: create, rename or move a resource folder. -->
+<div id="folder-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-title" id="folder-modal-title">New Folder</div>
+    <div id="folder-modal-error" class="alert alert-error hidden"></div>
+    <form id="folder-modal-form">
+      <input type="hidden" id="folder-modal-id">
+      <div class="form-group">
+        <label>Name</label>
+        <input id="folder-name" required placeholder="e.g. Sales Playbooks">
+      </div>
+      <div class="form-group">
+        <label>Description <span style="font-weight:400;text-transform:none">(optional)</span></label>
+        <textarea id="folder-desc" rows="2" style="resize:vertical" placeholder="What lives in here…"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Parent folder</label>
+        <select id="folder-parent"><option value="">📚 All resources (top level)</option></select>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:1rem">
+        <div class="toggle-row" style="padding:0.75rem 1rem">
+          <div>
+            <div class="toggle-label">👥 User Access</div>
+            <div class="toggle-sublabel">Show this folder in the user portal</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="folder-user-access"><span class="toggle-slider"></span></label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="folder-modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="folder-modal-submit">Create Folder</button>
       </div>
     </form>
   </div>
@@ -2047,7 +2122,8 @@ ${MARKET_CSS}
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false, feature: 'projects' },
     reports: { el: 'page-reports-home', title: 'Reports', adminOnly: false, superAdminOnly: false, reportAny: true },
     'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: false, superAdminOnly: false, report: 'report-cancellations' },
-    rankings: { el: 'page-rankings', title: 'Agent & Company Rankings', adminOnly: false, superAdminOnly: false, report: 'rankings' },
+    'rankings-agents': { el: 'page-rankings-agents', title: 'Agent Ranking', adminOnly: false, superAdminOnly: false, report: 'rankings-agents' },
+    'rankings-companies': { el: 'page-rankings-companies', title: 'Company Ranking', adminOnly: false, superAdminOnly: false, report: 'rankings-companies' },
     photographers: { el: 'page-photographers', title: 'Photographers', adminOnly: false, superAdminOnly: false, report: 'photographers' },
     focus: { el: 'page-focus', title: 'Sales Focus', adminOnly: false, superAdminOnly: false, report: 'focus' },
     market: { el: 'page-market', title: 'Housing Market', adminOnly: false, superAdminOnly: false, report: 'market' },
@@ -2136,7 +2212,7 @@ ${MARKET_CSS}
     // Report sub-pages are reached from the Reports landing, not their own nav
     // item, so keep the Reports nav entry highlighted while viewing one.
     let navKey = page;
-    if (page === 'report-cancellations' || page === 'rankings' || page === 'photographers' || page === 'pipedrive-cleanup' || page === 'churn' || page === 'market') navKey = 'reports';
+    if (page === 'report-cancellations' || page === 'rankings-agents' || page === 'rankings-companies' || page === 'photographers' || page === 'pipedrive-cleanup' || page === 'churn' || page === 'market') navKey = 'reports';
     // Past Due keeps its own Financials nav entry highlighted even when it was
     // opened from the Reports landing under its report key.
     if (page === 'past-due') navKey = 'financials';
@@ -2163,7 +2239,8 @@ ${MARKET_CSS}
     }
     if (page === 'reports') loadReportsHome();
     if (page === 'report-cancellations') loadReports();
-    if (page === 'rankings') loadRankings();
+    if (page === 'rankings-agents') loadRankingsAgents();
+    if (page === 'rankings-companies') loadRankingsCompanies();
     if (page === 'photographers') loadPhotographers();
     if (page === 'focus') loadFocus();
     if (page === 'market') loadMarket();
@@ -2596,6 +2673,85 @@ ${MARKET_CSS}
   let resourceModalTags = [];
   let resourceEditId = null;
   let resourceDataMap = {};
+  // null is the library root. Search and the favorites view ignore this and
+  // look across every folder, since narrowing defeats the purpose of both.
+  let resourceFolderId = null;
+  let resourceFavoritesOnly = false;
+  let folderDataMap = {};
+
+  /** True while the view is a cross-folder one, so folders are not listed. */
+  function resourcesSearching() {
+    return !!document.getElementById('resources-search').value.trim()
+      || resourceActiveTags.size > 0
+      || resourceFavoritesOnly;
+  }
+
+  function favStarHtml(type, id, isFav) {
+    return '<button class="fav-star' + (isFav ? ' is-fav' : '') + '"'
+      + ' title="' + (isFav ? 'Remove from favorites' : 'Add to favorites') + '"'
+      + ' onclick="toggleFavorite(event, \\'' + esc(type) + '\\', \\'' + esc(id) + '\\')">'
+      + (isFav ? '★' : '☆') + '</button>';
+  }
+
+  window.toggleFavorite = async function(ev, itemType, itemId) {
+    // The star sits inside a clickable folder card; starring must not navigate.
+    ev.stopPropagation();
+    const map = itemType === 'folder' ? folderDataMap : resourceDataMap;
+    const item = map[itemId];
+    if (!item) return;
+    const next = !item.favorite;
+    const r = await api('PUT', '/resources/favorites', { itemType, itemId, favorite: next });
+    if (!r.ok) { alert(r.data.error || 'Could not update favorites.'); return; }
+    item.favorite = next;
+    loadResources();
+  };
+
+  function renderBreadcrumb(breadcrumb) {
+    const el = document.getElementById('resources-breadcrumb');
+    if (resourcesSearching()) {
+      el.innerHTML = '<span class="text-muted">Searching the whole library</span>';
+      return;
+    }
+    const parts = ['<a onclick="openFolder(null)">📚 All resources</a>'];
+    (breadcrumb || []).forEach(function(f, i) {
+      const last = i === breadcrumb.length - 1;
+      parts.push('<span class="crumb-sep">/</span>');
+      parts.push(last
+        ? '<span class="crumb-current">' + esc(f.name) + '</span>'
+        : '<a onclick="openFolder(\\'' + esc(f.id) + '\\')">' + esc(f.name) + '</a>');
+    });
+    el.innerHTML = parts.join(' ');
+  }
+
+  window.openFolder = function(id) {
+    resourceFolderId = id;
+    loadResources();
+  };
+
+  function renderFolderCards(folders) {
+    const grid = document.getElementById('resources-folder-grid');
+    folderDataMap = {};
+    for (const f of folders) folderDataMap[f.id] = f;
+    if (resourcesSearching() || !folders.length) { grid.innerHTML = ''; return; }
+    grid.innerHTML = folders.map(function(f) {
+      const counts = [];
+      if (f.folderCount) counts.push(f.folderCount + (f.folderCount === 1 ? ' folder' : ' folders'));
+      if (f.resourceCount) counts.push(f.resourceCount + (f.resourceCount === 1 ? ' item' : ' items'));
+      const admin = isAdmin()
+        ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openEditFolder(\\'' + esc(f.id) + '\\')">Edit</button>'
+          + '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteFolder(\\'' + esc(f.id) + '\\',\\'' + esc(f.name) + '\\')">Delete</button>'
+        : '';
+      return '<div class="folder-card" onclick="openFolder(\\'' + esc(f.id) + '\\')">'
+        + '<span class="folder-card-icon">📁</span>'
+        + '<div class="folder-card-main">'
+          + '<div class="folder-card-name">' + esc(f.name) + '</div>'
+          + '<div class="folder-card-meta">' + (counts.join(' · ') || 'Empty') + '</div>'
+        + '</div>'
+        + favStarHtml('folder', f.id, !!f.favorite)
+        + admin
+      + '</div>';
+    }).join('');
+  }
 
   function renderResourceCards(resources, allTags) {
     const grid = document.getElementById('resources-grid');
@@ -2608,7 +2764,13 @@ ${MARKET_CSS}
       <span class="tag-filter-chip\${resourceActiveTags.has(t) ? ' active' : ''}" onclick="toggleTagFilter('\${esc(t)}')">\${esc(t)}</span>\`
     ).join('');
     if (!resources.length) {
-      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No resources found.</div>';
+      // An empty folder is a different situation from an empty search, and
+      // saying "no resources found" in a folder you just made reads as a bug.
+      const msg = resourceFavoritesOnly ? 'Nothing favorited yet. Tap a ☆ to add something here.'
+        : resourcesSearching() ? 'No resources found.'
+        : document.getElementById('resources-folder-grid').innerHTML ? 'No resources directly in this folder.'
+        : 'No resources yet.';
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' + msg + '</div>';
       return;
     }
     grid.innerHTML = resources.map(r => {
@@ -2645,6 +2807,7 @@ ${MARKET_CSS}
           <div class="resource-card-footer">
             <span class="resource-date">\${formatTimeAgo(new Date(r.createdAt).toISOString())}</span>
             <div class="flex gap-2">
+              \${favStarHtml('resource', r.id, !!r.favorite)}
               \${fileLink}
               \${adminActions}
             </div>
@@ -2667,13 +2830,29 @@ ${MARKET_CSS}
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><span class="spin">⟳</span> Loading…</div>';
     const search = document.getElementById('resources-search').value.trim();
     const tags = Array.from(resourceActiveTags).join(',');
-    let qs = '';
-    if (search) qs += \`search=\${encodeURIComponent(search)}\`;
-    if (tags) qs += (qs ? '&' : '') + \`tags=\${encodeURIComponent(tags)}\`;
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (tags) params.set('tags', tags);
+    if (resourceFavoritesOnly) params.set('favorites', '1');
+    if (resourceFolderId) params.set('folder', resourceFolderId);
+    const qs = params.toString();
     const r = await api('GET', '/resources' + (qs ? '?' + qs : ''));
     if (!r.ok) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">Failed to load resources.</div>'; return; }
+    // The server decides which folder was actually served, so a stale id from a
+    // deleted folder falls back to the root rather than showing an empty page.
+    resourceFolderId = r.data.folderId ?? null;
+    renderBreadcrumb(r.data.breadcrumb);
+    renderFolderCards(r.data.folders || []);
     renderResourceCards(r.data.resources, r.data.allTags);
+    const favBtn = document.getElementById('resources-fav-btn');
+    favBtn.textContent = (resourceFavoritesOnly ? '★' : '☆') + ' Favorites';
+    favBtn.classList.toggle('btn-primary', resourceFavoritesOnly);
   }
+
+  document.getElementById('resources-fav-btn').addEventListener('click', () => {
+    resourceFavoritesOnly = !resourceFavoritesOnly;
+    loadResources();
+  });
 
   window.toggleTagFilter = function(tag) {
     if (resourceActiveTags.has(tag)) resourceActiveTags.delete(tag);
@@ -2742,6 +2921,8 @@ ${MARKET_CSS}
     document.getElementById('resource-user-access').checked = false;
     document.getElementById('resource-modal-submit').textContent = 'Add Resource';
     document.getElementById('resource-modal-error').classList.add('hidden');
+    // New resources land in the folder the user is currently looking at.
+    loadFolderOptions('resource-folder', resourceFolderId);
     renderModalTags();
     onResourceTypeChange();
     document.getElementById('resource-modal').classList.remove('hidden');
@@ -2763,6 +2944,7 @@ ${MARKET_CSS}
     document.getElementById('resource-user-access').checked = !!r.userAccess;
     document.getElementById('resource-modal-submit').textContent = 'Save Changes';
     document.getElementById('resource-modal-error').classList.add('hidden');
+    loadFolderOptions('resource-folder', r.folderId);
     renderModalTags();
     onResourceTypeChange();
     document.getElementById('resource-modal').classList.remove('hidden');
@@ -2807,6 +2989,7 @@ ${MARKET_CSS}
     const description = document.getElementById('resource-desc').value.trim() || null;
     const aiAccess = document.getElementById('resource-ai-access').checked;
     const userAccess = document.getElementById('resource-user-access').checked;
+    const folderId = document.getElementById('resource-folder').value || null;
     const tags = [...resourceModalTags];
     // Add any unsaved tag still in input
     const pendingTag = document.getElementById('tag-input').value.trim().replace(/,/g, '');
@@ -2815,7 +2998,7 @@ ${MARKET_CSS}
     let r;
     if (id) {
       // Edit
-      const body = { title, description, tags, aiAccess, userAccess };
+      const body = { title, description, tags, aiAccess, userAccess, folderId };
       const url = document.getElementById('resource-url').value.trim();
       if (type === 'link' && url) body.url = url;
       r = await api('PUT', '/resources/' + id, body);
@@ -2830,7 +3013,7 @@ ${MARKET_CSS}
           submitBtn.textContent = 'Add Resource';
           return;
         }
-        r = await api('POST', '/resources', { type: 'link', title, description, url, tags, aiAccess, userAccess });
+        r = await api('POST', '/resources', { type: 'link', title, description, url, tags, aiAccess, userAccess, folderId });
       } else {
         const fileInput = document.getElementById('resource-file');
         const file = fileInput.files[0];
@@ -2864,6 +3047,7 @@ ${MARKET_CSS}
           tags,
           aiAccess,
           userAccess,
+          folderId,
         });
       }
     }
@@ -2885,6 +3069,108 @@ ${MARKET_CSS}
     await api('DELETE', '/resources/' + id);
     loadResources();
   };
+
+  // ── Resource folders ──────────────────────────────────────────────────────
+  let folderEditId = null;
+  let folderTree = [];
+
+  /**
+   * Every folder as indented options, so a nested tree is pickable from a plain
+   * select. excludeSubtreeOf drops a folder and its descendants — the server
+   * refuses to move a folder inside itself, and the picker should not offer it.
+   */
+  async function loadFolderOptions(selectId, selectedId, excludeSubtreeOf) {
+    const r = await api('GET', '/resources/folders');
+    folderTree = r.ok ? (r.data.folders || []) : [];
+    const childrenOf = {};
+    for (const f of folderTree) {
+      const key = f.parentId || '';
+      (childrenOf[key] = childrenOf[key] || []).push(f);
+    }
+    const excluded = new Set();
+    if (excludeSubtreeOf) {
+      const queue = [excludeSubtreeOf];
+      while (queue.length) {
+        const id = queue.pop();
+        if (excluded.has(id)) continue;
+        excluded.add(id);
+        for (const child of childrenOf[id] || []) queue.push(child.id);
+      }
+    }
+    const options = [];
+    (function walk(parentKey, depth) {
+      for (const f of childrenOf[parentKey] || []) {
+        if (excluded.has(f.id)) continue;
+        options.push('<option value="' + esc(f.id) + '">'
+          + '&nbsp;'.repeat(depth * 4) + esc(f.name) + '</option>');
+        walk(f.id, depth + 1);
+      }
+    })('', 0);
+    const sel = document.getElementById(selectId);
+    sel.innerHTML = sel.options[0].outerHTML + options.join('');
+    sel.value = selectedId || '';
+  }
+
+  function openFolderModal(opts) {
+    folderEditId = opts.id || null;
+    document.getElementById('folder-modal-title').textContent = folderEditId ? 'Edit Folder' : 'New Folder';
+    document.getElementById('folder-modal-id').value = folderEditId || '';
+    document.getElementById('folder-name').value = opts.name || '';
+    document.getElementById('folder-desc').value = opts.description || '';
+    document.getElementById('folder-user-access').checked = !!opts.userAccess;
+    document.getElementById('folder-modal-submit').textContent = folderEditId ? 'Save Changes' : 'Create Folder';
+    document.getElementById('folder-modal-error').classList.add('hidden');
+    loadFolderOptions('folder-parent', opts.parentId, folderEditId);
+    document.getElementById('folder-modal').classList.remove('hidden');
+  }
+
+  window.openEditFolder = function(id) {
+    const f = folderDataMap[id];
+    if (!f) return;
+    openFolderModal(f);
+  };
+
+  window.deleteFolder = async function(id, name) {
+    if (!confirm('Delete the folder "' + name + '"?\\n\\nAnything inside it moves up a level — nothing is deleted with it.')) return;
+    const r = await api('DELETE', '/resources/folders/' + id);
+    if (!r.ok) { alert(r.data.error || 'Could not delete the folder.'); return; }
+    loadResources();
+  };
+
+  document.getElementById('add-folder-btn').addEventListener('click', () => {
+    // A new folder defaults to being made where the user is standing.
+    openFolderModal({ parentId: resourceFolderId });
+  });
+  document.getElementById('folder-modal-cancel').addEventListener('click', () => {
+    document.getElementById('folder-modal').classList.add('hidden');
+  });
+
+  document.getElementById('folder-modal-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const errEl = document.getElementById('folder-modal-error');
+    errEl.classList.add('hidden');
+    const submitBtn = document.getElementById('folder-modal-submit');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving…';
+    const body = {
+      name: document.getElementById('folder-name').value.trim(),
+      description: document.getElementById('folder-desc').value.trim() || null,
+      parentId: document.getElementById('folder-parent').value || null,
+      userAccess: document.getElementById('folder-user-access').checked,
+    };
+    const r = folderEditId
+      ? await api('PUT', '/resources/folders/' + folderEditId, body)
+      : await api('POST', '/resources/folders', body);
+    submitBtn.disabled = false;
+    submitBtn.textContent = folderEditId ? 'Save Changes' : 'Create Folder';
+    if (!r.ok) {
+      errEl.textContent = r.data.error || 'An error occurred.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    document.getElementById('folder-modal').classList.add('hidden');
+    loadResources();
+  });
 
   // ── Agents ───────────────────────────────────────────────────────────────
   async function loadAgents() {
@@ -3113,7 +3399,8 @@ ${MARKET_COMPONENT_JS}
   // wiring. Later this list is filtered by the viewer's report permissions.
   var REPORTS = [
     { key: 'report-cancellations', icon: '📉', title: 'Agent Cancellation Report', desc: 'Cancellations and reschedules per client over a chosen date range and market.' },
-    { key: 'rankings', icon: '🏆', title: 'Agent & Company Rankings', desc: 'Agents and companies ranked by order volume, with cancellation and reschedule rates.' },
+    { key: 'rankings-agents', icon: '🧑‍💼', title: 'Agent Ranking', desc: 'Agents ranked by order volume, with cancellation and reschedule rates, VIP and top-20% badges.' },
+    { key: 'rankings-companies', icon: '🏢', title: 'Company Ranking', desc: 'Brokerages ranked by order volume, with cancellation and reschedule rates.' },
     { key: 'photographers', icon: '📸', title: 'Photographers', desc: 'Roster with the markets each serves and how many shoots they completed in a selectable range.' },
     { key: 'pipedrive-cleanup', icon: '🧹', title: 'Pipedrive Cleanup', desc: 'Suggested CRM fixes to verify. Approved items become a worklist for whoever you grant access.' },
     { key: 'focus', icon: '🎯', title: 'Sales Focus', desc: 'Each BDS\\'s clients ranked by shoots and revenue over a period, with growth on the same period last year and when they were last contacted.' },
@@ -3725,100 +4012,147 @@ ${MARKET_COMPONENT_JS}
     await Promise.all([loadReportTable(), loadReportStatus()]);
   });
 
-  // ── Rankings (agent + company order volume) ────────────────────────────────
-  function populateRankMonthSelects() {
-    const fromSel = document.getElementById('rank-from-sel');
-    const toSel = document.getElementById('rank-to-sel');
-    if (fromSel.options.length) return;
-    const opts = reportMonths.map(m => \`<option value="\${m}">\${monthLabel(m)}</option>\`).join('');
-    fromSel.innerHTML = opts;
-    toSel.innerHTML = opts;
-    fromSel.value = reportMonths[0];
-    toSel.value = reportMonths[reportMonths.length - 1];
+  // ── Agent badges ───────────────────────────────────────────────────────────
+  // VIP comes from Spiro; Top 20% is the stored trailing-12-month cut within the
+  // agent's own region. Both live here so every table that shows an agent —
+  // Sales Focus, Agent Ranking, anything added later — badges them identically.
+
+  /** The badges an agent row carries, in the order they should read. */
+  function agentBadgeList(r) {
+    var out = [];
+    if (r.vip) out.push('VIP');
+    if (r.topPercent) out.push('Top 20%');
+    return out;
   }
 
-  async function loadRankMarkets() {
-    const from = document.getElementById('rank-from-sel').value;
-    const to = document.getElementById('rank-to-sel').value;
-    const r = await api('GET', '/reports/agent-cancellations/markets?from=' + from + '&to=' + to);
-    const sel = document.getElementById('rank-market-sel');
-    const current = sel.value;
-    const markets = r.ok ? (r.data.markets || []) : [];
-    sel.innerHTML = '<option value="">All markets</option>' + markets.map(m => \`<option value="\${esc(m)}">\${esc(m)}</option>\`).join('');
-    if (markets.includes(current)) sel.value = current;
+  /** Sort weight, so a badge column is worth clicking rather than decoration. */
+  function agentBadgeRank(r) {
+    return (r.vip ? 2 : 0) + (r.topPercent ? 1 : 0);
   }
 
-  async function loadRankStatus() {
-    const r = await api('GET', '/reports/agent-cancellations/status');
-    const el = document.getElementById('rank-refreshed-at');
-    if (!r.ok) { el.textContent = ''; return; }
-    const statuses = (r.data.status || []).filter(s => s.refreshedAt);
-    if (statuses.length === 0) { el.textContent = 'Never refreshed'; return; }
-    const latest = statuses.reduce((a, b) => (b.refreshedAt > a.refreshedAt ? b : a));
-    el.textContent = 'Last refreshed: ' + new Date(latest.refreshedAt).toLocaleString();
+  function agentBadgesHtml(r) {
+    var region = r.region ? ' in ' + r.region : '';
+    return agentBadgeList(r).map(function(t){
+      var vip = t === 'VIP';
+      var title = vip ? 'Marked VIP in Spiro' : 'Top 20% by revenue over the last 12 months' + region;
+      return '<span class="focus-tag focus-tag-' + (vip ? 'vip' : 'top') + '" title="' + esc(title) + '">' + esc(t) + '</span>';
+    }).join('') || '<span class="text-muted">—</span>';
   }
 
-  function rankCols(nameLabel) {
+  function agentBadgeColumn() {
+    return { key: 'tags', label: 'Tags', type: 'num',
+      value: agentBadgeRank,
+      csv: function(r){ return agentBadgeList(r).join(' '); },
+      render: agentBadgesHtml };
+  }
+
+  // ── Rankings (agent and company order volume, one report each) ─────────────
+  // Both pages read the same cached orders and the same date/market controls,
+  // so one factory wires each page from its element-id prefix.
+  function createRankingsPage(opts) {
+    var p = opts.prefix;
+    var el = function(suffix){ return document.getElementById(p + '-' + suffix); };
+    var table = null;
+
+    function populateMonths() {
+      const fromSel = el('from-sel');
+      const toSel = el('to-sel');
+      if (fromSel.options.length) return;
+      const options = reportMonths.map(m => \`<option value="\${m}">\${monthLabel(m)}</option>\`).join('');
+      fromSel.innerHTML = options;
+      toSel.innerHTML = options;
+      fromSel.value = reportMonths[0];
+      toSel.value = reportMonths[reportMonths.length - 1];
+    }
+
+    async function loadMarkets() {
+      const r = await api('GET', '/reports/agent-cancellations/markets?from=' + el('from-sel').value + '&to=' + el('to-sel').value);
+      const sel = el('market-sel');
+      const current = sel.value;
+      const markets = r.ok ? (r.data.markets || []) : [];
+      sel.innerHTML = '<option value="">All markets</option>' + markets.map(m => \`<option value="\${esc(m)}">\${esc(m)}</option>\`).join('');
+      if (markets.includes(current)) sel.value = current;
+    }
+
+    async function loadStatus() {
+      const r = await api('GET', '/reports/agent-cancellations/status');
+      const target = el('refreshed-at');
+      if (!r.ok) { target.textContent = ''; return; }
+      const statuses = (r.data.status || []).filter(s => s.refreshedAt);
+      if (statuses.length === 0) { target.textContent = 'Never refreshed'; return; }
+      const latest = statuses.reduce((a, b) => (b.refreshedAt > a.refreshedAt ? b : a));
+      target.textContent = 'Last refreshed: ' + new Date(latest.refreshedAt).toLocaleString();
+    }
+
+    async function loadTable() {
+      const qs = new URLSearchParams({ from: el('from-sel').value, to: el('to-sel').value });
+      const market = el('market-sel').value;
+      if (market) qs.set('market', market);
+      if (!table) table = createReportTable({ containerId: p + '-table', reportKey: opts.reportKey, emptyMsg: opts.emptyMsg, columns: opts.columns() });
+      const r = await api('GET', '/reports/' + opts.reportKey + '?' + qs.toString());
+      if (!r.ok) { table.setError(); return; }
+      table.setData(r.data.report.rows);
+    }
+
+    async function load() {
+      if (reportMonths.length === 0) {
+        reportMonths = Array.from({ length: 12 }, (_, i) => {
+          const d = new Date();
+          d.setUTCDate(1);
+          d.setUTCMonth(d.getUTCMonth() - (11 - i));
+          return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+        });
+      }
+      populateMonths();
+      await loadMarkets();
+      await Promise.all([loadTable(), loadStatus()]);
+    }
+
+    el('from-sel').addEventListener('change', () => { loadMarkets(); loadTable(); });
+    el('to-sel').addEventListener('change', () => { loadMarkets(); loadTable(); });
+    el('market-sel').addEventListener('change', loadTable);
+    // Both reports share one order cache, so either page's button refreshes it.
+    el('refresh-btn').addEventListener('click', async () => {
+      const btn = el('refresh-btn');
+      btn.disabled = true;
+      btn.textContent = 'Refreshing…';
+      const r = await api('POST', '/reports/agent-cancellations/refresh', { from: el('from-sel').value, to: el('to-sel').value });
+      btn.disabled = false;
+      btn.innerHTML = '↻ Refresh now';
+      if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
+      await loadMarkets();
+      await Promise.all([loadTable(), loadStatus()]);
+    });
+
+    return { load: load };
+  }
+
+  function rankCols(nameLabel, extra) {
     return [
       { key: 'rank', label: '#', type: 'num', value: function(r){ return r.rank; } },
-      { key: 'name', label: nameLabel, value: function(r){ return r.name; } },
+      { key: 'name', label: nameLabel, value: function(r){ return r.name; } }
+    ].concat(extra || []).concat([
       { key: 'totalOrders', label: 'Orders', type: 'num', value: function(r){ return r.totalOrders; } },
       { key: 'cancellations', label: 'Cancellations', type: 'num', value: function(r){ return r.cancellations; } },
       { key: 'reschedules', label: 'Reschedules', type: 'num', value: function(r){ return r.reschedules; } },
       { key: 'pct', label: '% Canc./Resch.', type: 'num', value: function(r){ return Number(r.cancelledOrRescheduledPct.toFixed(1)); }, render: function(r){ return r.cancelledOrRescheduledPct.toFixed(1) + '%'; } }
-    ];
-  }
-  var rankAgentsTable = null;
-  var rankCompaniesTable = null;
-  async function loadRankTables() {
-    const from = document.getElementById('rank-from-sel').value;
-    const to = document.getElementById('rank-to-sel').value;
-    const market = document.getElementById('rank-market-sel').value;
-    const qs = new URLSearchParams({ from, to });
-    if (market) qs.set('market', market);
-    if (!rankAgentsTable) rankAgentsTable = createReportTable({ containerId: 'rank-agents-table', reportKey: 'rankings-agents', emptyMsg: 'No orders cached for this range yet. Try Refresh now.', columns: rankCols('Agent') });
-    if (!rankCompaniesTable) rankCompaniesTable = createReportTable({ containerId: 'rank-companies-table', reportKey: 'rankings-companies', emptyMsg: 'No company data yet — click Refresh now to pull it.', columns: rankCols('Company') });
-    const r = await api('GET', '/reports/rankings?' + qs.toString());
-    if (!r.ok) {
-      rankAgentsTable.setError();
-      rankCompaniesTable.setError();
-      return;
-    }
-    const report = r.data.report;
-    rankAgentsTable.setData(report.agents);
-    rankCompaniesTable.setData(report.companies);
+    ]);
   }
 
-  async function loadRankings() {
-    if (reportMonths.length === 0) {
-      reportMonths = Array.from({ length: 12 }, (_, i) => {
-        const d = new Date();
-        d.setUTCDate(1);
-        d.setUTCMonth(d.getUTCMonth() - (11 - i));
-        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
-      });
-    }
-    populateRankMonthSelects();
-    await loadRankMarkets();
-    await Promise.all([loadRankTables(), loadRankStatus()]);
-  }
-
-  document.getElementById('rank-from-sel').addEventListener('change', () => { loadRankMarkets(); loadRankTables(); });
-  document.getElementById('rank-to-sel').addEventListener('change', () => { loadRankMarkets(); loadRankTables(); });
-  document.getElementById('rank-market-sel').addEventListener('change', loadRankTables);
-  document.getElementById('rank-refresh-btn').addEventListener('click', async () => {
-    const btn = document.getElementById('rank-refresh-btn');
-    const from = document.getElementById('rank-from-sel').value;
-    const to = document.getElementById('rank-to-sel').value;
-    btn.disabled = true;
-    btn.textContent = 'Refreshing…';
-    const r = await api('POST', '/reports/agent-cancellations/refresh', { from, to });
-    btn.disabled = false;
-    btn.innerHTML = '↻ Refresh now';
-    if (!r.ok) { alert(r.data.error || 'Refresh failed.'); return; }
-    await loadRankMarkets();
-    await Promise.all([loadRankTables(), loadRankStatus()]);
+  var rankingsAgentsPage = createRankingsPage({
+    prefix: 'ranka',
+    reportKey: 'rankings-agents',
+    emptyMsg: 'No orders cached for this range yet. Try Refresh now.',
+    columns: function(){ return rankCols('Agent', [agentBadgeColumn()]); }
   });
+  var rankingsCompaniesPage = createRankingsPage({
+    prefix: 'rankc',
+    reportKey: 'rankings-companies',
+    emptyMsg: 'No company data yet — click Refresh now to pull it.',
+    columns: function(){ return rankCols('Company'); }
+  });
+  function loadRankingsAgents() { return rankingsAgentsPage.load(); }
+  function loadRankingsCompanies() { return rankingsCompaniesPage.load(); }
 
   // ── Photographers report ────────────────────────────────────────────────────
   function photographerCols() {
@@ -3878,25 +4212,12 @@ ${MARKET_COMPONENT_JS}
     return sign + v.toFixed(1) + '%';
   }
 
-  /** The tags a Focus row carries, in the order they should read. */
-  function focusTagList(r) {
-    var out = [];
-    if (r.vip) out.push('VIP');
-    if (r.topPercent) out.push('Top 20%');
-    return out;
-  }
-
   function focusCols() {
     return [
       { key: 'agent', label: 'Client', value: function(r){ return r.agentName; } },
-      // Sorts VIPs above top-20% above everyone else, so the tag column is
-      // worth clicking rather than being decoration.
-      { key: 'tags', label: 'Tags', type: 'num',
-        value: function(r){ return (r.vip ? 2 : 0) + (r.topPercent ? 1 : 0); },
-        csv: function(r){ return focusTagList(r).join(' '); },
-        render: function(r){ return focusTagList(r).map(function(t){
-          return '<span class="focus-tag focus-tag-' + (t === 'VIP' ? 'vip' : 'top') + '">' + esc(t) + '</span>';
-        }).join('') || '<span class="text-muted">—</span>'; } },
+      // Same badge column as the Agent Ranking report, from the same helpers, so
+      // the two reports can never disagree about who is a VIP.
+      agentBadgeColumn(),
       { key: 'company', label: 'Brokerage', value: function(r){ return r.companyName || '—'; } },
       { key: 'region', label: 'Region', value: function(r){ return r.region; } },
       { key: 'bds', label: 'BDS', value: function(r){ return r.bds || 'Unassigned'; } },
