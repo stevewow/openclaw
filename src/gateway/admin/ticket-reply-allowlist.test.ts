@@ -66,7 +66,7 @@ describe("a department replying to its own ticket", () => {
       department: "editing",
       requesterName: "Agent",
       requesterEmail: "agent@example.com",
-      body: "Please reshoot.",
+      description: "Please reshoot.",
     });
 
     const outcome = await inbound.applyInboundReply(
@@ -86,7 +86,7 @@ describe("a department replying to its own ticket", () => {
       department: "editing",
       requesterName: "Agent",
       requesterEmail: "agent@example.com",
-      body: "Please reshoot.",
+      description: "Please reshoot.",
     });
 
     const outcome = await inbound.applyInboundReply(

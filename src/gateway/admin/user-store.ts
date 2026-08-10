@@ -599,7 +599,6 @@ export async function verifyPassword(password: string, stored: string): Promise<
 }
 
 let dbInstance: Kysely<AdminDb> | undefined;
-let walMaintenance: { close: () => boolean } | undefined;
 
 function resolveAdminDbPath(): string {
   return path.join(resolveStateDir(), "admin.db");
@@ -628,7 +627,10 @@ export function getAdminDb(): Kysely<AdminDb> {
     dialect: new NodeSqliteKyselyDialect({ database: db }),
   });
 
-  walMaintenance = configureSqliteWalMaintenance(db);
+  // Called for the side effect (WAL pragmas + an unref'd checkpoint timer). The
+  // returned handle only exists to stop that timer, and this database is a
+  // process-lifetime singleton with no close path, so there is nothing to hold.
+  configureSqliteWalMaintenance(db);
 
   initSchema(db);
   return dbInstance;

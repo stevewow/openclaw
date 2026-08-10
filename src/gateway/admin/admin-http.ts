@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { getRuntimeConfig } from "../../config/io.js";
+import { resolveAgentModelPrimaryValue } from "../../config/model-input.js";
 import type { ResolvedGatewayAuth } from "../auth-resolve.js";
 import { readJsonBody } from "../hooks.js";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
@@ -287,11 +288,6 @@ function sendNotFound(res: ServerResponse) {
 
 function sendBadRequest(res: ServerResponse, message: string) {
   sendJson(res, 400, { error: message });
-}
-
-function sendMethodNotAllowed(res: ServerResponse) {
-  res.setHeader("Allow", "GET, POST, PUT, DELETE");
-  sendJson(res, 405, { error: "method_not_allowed" });
 }
 
 function normalizeString(v: unknown): string | null {
@@ -928,7 +924,11 @@ export async function handleAdminHttpRequest(
         ...a,
         emoji: agentCfg?.identity?.emoji ?? null,
         theme: agentCfg?.identity?.theme ?? null,
-        model: agentCfg?.model ?? cfg.agents?.model ?? cfg.model ?? null,
+        // The global default lives at agents.defaults.model; the older
+        // agents.model / model spellings never existed on the config, so the
+        // fallback silently produced null for any agent without its own model.
+        model:
+          resolveAgentModelPrimaryValue(agentCfg?.model ?? cfg.agents?.defaults?.model) ?? null,
       };
     });
     sendJson(res, 200, { agents, defaultId: result.defaultId });
@@ -1013,7 +1013,7 @@ export async function handleAdminHttpRequest(
       nodeVersion: process.version,
       platform: process.platform,
       uptime: Math.floor(process.uptime()),
-      model: cfg.agents?.model ?? cfg.model ?? null,
+      model: resolveAgentModelPrimaryValue(cfg.agents?.defaults?.model) ?? null,
     });
     return true;
   }
