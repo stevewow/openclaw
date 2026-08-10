@@ -708,7 +708,6 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_resources_created_at ON admin_resources(created_at);
-    CREATE INDEX IF NOT EXISTS admin_resources_folder ON admin_resources(folder_id);
     CREATE TABLE IF NOT EXISTS admin_projects (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -1250,8 +1249,11 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (!resourceColumns.some((c) => c.name === "folder_id")) {
     db.exec("ALTER TABLE admin_resources ADD COLUMN folder_id TEXT");
-    db.exec("CREATE INDEX IF NOT EXISTS admin_resources_folder ON admin_resources(folder_id)");
   }
+  // Indexing a column added by migration has to wait until the column exists.
+  // Creating it alongside the table would throw on every pre-folder database
+  // and abort the rest of initSchema.
+  db.exec("CREATE INDEX IF NOT EXISTS admin_resources_folder ON admin_resources(folder_id)");
   expandRankingsReportGrants(db);
 }
 
