@@ -221,7 +221,16 @@ async function sweepCompanies(): Promise<number> {
   return rows.size;
 }
 
-/** Agents, for the email that joins a client to the CRM. */
+/**
+ * Agents, for the email that joins a client to the CRM and the VIP flag that
+ * badges them everywhere.
+ *
+ * Deliberately unfiltered by status. This used to ask Spiro for `status:
+ * "current"` only, which quietly dropped more than half the VIP roster — 179
+ * agents carry `settings.vip`, but only 79 of them are "current" — so any VIP
+ * who had gone former or was never classified rendered as an ordinary client.
+ * Status is stored instead of filtered on, leaving that judgement to the reader.
+ */
 async function sweepAgents(): Promise<number> {
   const tool = await resolveTool("search_spiro_agents", [/agent/i], "agents");
   const rows = new Map<
@@ -232,11 +241,12 @@ async function sweepAgents(): Promise<number> {
       email: string | null;
       company_id: string | null;
       vip: number;
+      status: string | null;
     }
   >();
   for (let page = 1; page <= MAX_PAGES; page++) {
     const { rows: batch, hasNextPage } = parsePaged(
-      await callTool(tool, { page, pageSize: PAGE_SIZE, status: "current" }),
+      await callTool(tool, { page, pageSize: PAGE_SIZE }),
     );
     for (const raw of batch) {
       const identity = asObject(raw.identity) ?? raw;
@@ -255,6 +265,7 @@ async function sweepAgents(): Promise<number> {
         company_id: str(company?.companyId),
         // Spiro carries VIP on the agent's settings; absent means not VIP.
         vip: settings?.vip === true ? 1 : 0,
+        status: str(identity.status),
       });
     }
     if (!hasNextPage || batch.length === 0) {
@@ -271,6 +282,11 @@ async function sweepAgents(): Promise<number> {
       email: r.email,
       company_id: r.company_id,
       vip: r.vip,
+      status: r.status,
+      // Filled by refreshRosterTopPercent once the orders are in; the roster
+      // sweep on its own has no revenue to rank anyone by.
+      region: null,
+      top_percent: null,
       cached_at: now,
     }));
     for (let i = 0; i < list.length; i += INSERT_CHUNK) {
@@ -369,6 +385,69 @@ async function sweepOrders(fromMs: number, toMs: number): Promise<number> {
 }
 
 /**
+ * Cut the canonical top-20% badge and store it on the roster.
+ *
+ * The Focus table cuts its own slice from whatever window the reader picked,
+ * which is right for that table but useless as a badge: the same agent would be
+ * "top 20%" on one screen and not on the next. This cuts one fixed slice —
+ * trailing twelve months, each region ranked on its own, from the orders
+ * already cached — so the badge means one thing wherever an agent is shown.
+ *
+ * Runs after the sweeps, since it reads the caches they just filled.
+ */
+export async function refreshRosterTopPercent(now: number = Date.now()): Promise<number> {
+  const db = getAdminDb();
+  const windowStart = new Date(now);
+  windowStart.setFullYear(windowStart.getFullYear() - 1);
+
+  const companies = await db.selectFrom("admin_focus_companies").selectAll().execute();
+  const regionByCompany = new Map(companies.map((c) => [c.company_id, c.region]));
+  const agents = await db.selectFrom("admin_focus_agents").selectAll().execute();
+  const orders = await db
+    .selectFrom("admin_focus_orders")
+    .select(["agent_id", "company_id", "total", "status"])
+    .where("order_date", ">=", windowStart.getTime())
+    .where("order_date", "<=", now)
+    .execute();
+
+  const revenue = new Map<string, number>();
+  const companyByAgent = new Map<string, string>();
+  for (const o of orders) {
+    if (NON_SHOOT_STATUSES.has(o.status)) {
+      continue;
+    }
+    revenue.set(o.agent_id, (revenue.get(o.agent_id) ?? 0) + o.total);
+    if (o.company_id) {
+      companyByAgent.set(o.agent_id, o.company_id);
+    }
+  }
+
+  // Every agent on the roster is ranked, not only those with orders: an agent
+  // billing nothing this year is not top of anything, and saying so explicitly
+  // clears a stale badge from a previous refresh.
+  const ranking = agents.map((a) => {
+    const companyId = companyByAgent.get(a.agent_id) ?? a.company_id;
+    return {
+      key: a.agent_id,
+      region: (companyId ? regionByCompany.get(companyId) : null) ?? null,
+      revenue: revenue.get(a.agent_id) ?? 0,
+    };
+  });
+  const top = assignRegionTopPercentile(ranking);
+
+  await db.transaction().execute(async (tx) => {
+    for (const row of ranking) {
+      await tx
+        .updateTable("admin_focus_agents")
+        .set({ region: row.region, top_percent: top.has(row.key) ? 1 : 0 })
+        .where("agent_id", "=", row.key)
+        .execute();
+    }
+  });
+  return top.size;
+}
+
+/**
  * Pull everything the report needs for a window and its comparison period.
  * Slow by nature (dozens of Spiro requests), so it is manual or scheduled,
  * never triggered by opening the page.
@@ -389,6 +468,8 @@ export async function refreshFocusData(params: {
   const prior = comparisonWindow(fromMs, toMs, params.compare ?? "yoy");
   // The comparison period is swept too, or every client reads as new business.
   const orders = (await sweepOrders(prior.from, prior.to)) + (await sweepOrders(fromMs, toMs));
+  // Badges are cut from the caches above, so this has to follow both sweeps.
+  await refreshRosterTopPercent();
 
   const now = Date.now();
   await getAdminDb()

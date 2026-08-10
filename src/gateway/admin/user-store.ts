@@ -54,9 +54,35 @@ type ResourcesTable = {
   tags: string;
   ai_access: number;
   user_access: number;
+  /** Owning folder, or null for a resource that sits at the library root. */
+  folder_id: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
+};
+
+type ResourceFoldersTable = {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Parent folder, or null for a top-level folder. */
+  parent_id: string | null;
+  /** Mirrors admin_resources.user_access: whether the portal may see it. */
+  user_access: number;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+/**
+ * A user's starred folders and resources. Keyed by item type as well as id so
+ * one table serves both without the ids having to be unique across them.
+ */
+type ResourceFavoritesTable = {
+  user_id: string;
+  item_type: string;
+  item_id: string;
+  created_at: number;
 };
 
 type ProjectsTable = {
@@ -123,6 +149,10 @@ type SpiroOrdersTable = {
   company: string | null;
   market: string | null;
   status: string;
+  /** Spiro's `client.agentId`, so rankings can key on the agent, not their name. */
+  agent_id: string | null;
+  /** Spiro's `client.companyId`, the same idea for the company ranking. */
+  company_id: string | null;
   cached_at: number;
 };
 
@@ -224,6 +254,20 @@ type FocusAgentsTable = {
   company_id: string | null;
   /** Spiro's `settings.vip`, as 0/1. Null on rows cached before it was swept. */
   vip: number | null;
+  /**
+   * Spiro's CRM relationship status (current/former/prospective/unclassified).
+   * The roster deliberately holds every status: a VIP who is not "current"
+   * still bills, and still has to read as a VIP wherever they appear.
+   */
+  status: string | null;
+  /** Region key the top-slice cut below was made within. */
+  region: string | null;
+  /**
+   * In the top slice of their own region by trailing-12-month revenue, as 0/1.
+   * Stored rather than recomputed so the badge means the same thing on every
+   * screen instead of shifting with whatever window a report happens to show.
+   */
+  top_percent: number | null;
   cached_at: number;
 };
 
@@ -480,6 +524,8 @@ export type AdminDb = {
   admin_sessions: SessionsTable;
   admin_user_permissions: PermissionsTable;
   admin_resources: ResourcesTable;
+  admin_resource_folders: ResourceFoldersTable;
+  admin_resource_favorites: ResourceFavoritesTable;
   admin_projects: ProjectsTable;
   admin_project_members: ProjectMembersTable;
   admin_tasks: TasksTable;
@@ -621,6 +667,28 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       id TEXT PRIMARY KEY,
       applied_at INTEGER NOT NULL
     );
+    -- Deleting a folder re-parents its children to that folder's own parent
+    -- rather than cascading, so a mis-click can never take a subtree of
+    -- resources with it. resource-store.ts owns that re-parenting.
+    CREATE TABLE IF NOT EXISTS admin_resource_folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      parent_id TEXT REFERENCES admin_resource_folders(id) ON DELETE SET NULL,
+      user_access INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_resource_folders_parent ON admin_resource_folders(parent_id);
+    CREATE TABLE IF NOT EXISTS admin_resource_favorites (
+      user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+      item_type TEXT NOT NULL CHECK(item_type IN ('folder','resource')),
+      item_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, item_type, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS admin_resource_favorites_user ON admin_resource_favorites(user_id);
     CREATE TABLE IF NOT EXISTS admin_resources (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -634,11 +702,13 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       tags TEXT NOT NULL DEFAULT '[]',
       ai_access INTEGER NOT NULL DEFAULT 1,
       user_access INTEGER NOT NULL DEFAULT 0,
+      folder_id TEXT REFERENCES admin_resource_folders(id) ON DELETE SET NULL,
       created_by TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_resources_created_at ON admin_resources(created_at);
+    CREATE INDEX IF NOT EXISTS admin_resources_folder ON admin_resources(folder_id);
     CREATE TABLE IF NOT EXISTS admin_projects (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -855,8 +925,12 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       email TEXT,
       company_id TEXT,
       vip INTEGER,
+      status TEXT,
+      region TEXT,
+      top_percent INTEGER,
       cached_at INTEGER NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS admin_focus_agents_name ON admin_focus_agents(name);
     CREATE TABLE IF NOT EXISTS admin_focus_orders (
       order_id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -1152,6 +1226,59 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   if (!focusAgentColumns.some((c) => c.name === "vip")) {
     db.exec("ALTER TABLE admin_focus_agents ADD COLUMN vip INTEGER");
   }
+  // The roster used to hold only "current" agents and only for the Focus
+  // report. It now backs the VIP / top-20% badges everywhere an agent is
+  // shown, which needs their status and the region the top slice was cut in.
+  for (const col of ["status TEXT", "region TEXT", "top_percent INTEGER"]) {
+    const name = col.split(" ")[0];
+    if (!focusAgentColumns.some((c) => c.name === name)) {
+      db.exec(`ALTER TABLE admin_focus_agents ADD COLUMN ${col}`);
+    }
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS admin_focus_agents_name ON admin_focus_agents(name)");
+  // Rankings grouped by name string before the split into two reports; the ids
+  // let each row carry the agent's badges. Null until the next order refresh.
+  for (const col of ["agent_id TEXT", "company_id TEXT"]) {
+    const name = col.split(" ")[0];
+    if (!spiroOrderColumns.some((c) => c.name === name)) {
+      db.exec(`ALTER TABLE admin_spiro_orders ADD COLUMN ${col}`);
+    }
+  }
+  // Folders and per-user favorites postdate the resource library.
+  const resourceColumns = db.prepare("PRAGMA table_info(admin_resources)").all() as Array<{
+    name: string;
+  }>;
+  if (!resourceColumns.some((c) => c.name === "folder_id")) {
+    db.exec("ALTER TABLE admin_resources ADD COLUMN folder_id TEXT");
+    db.exec("CREATE INDEX IF NOT EXISTS admin_resources_folder ON admin_resources(folder_id)");
+  }
+  expandRankingsReportGrants(db);
+}
+
+/**
+ * The rankings report split into a separate agent report and company report.
+ * Anyone who could see the combined report keeps both halves — a split is not
+ * a reason to quietly take access away.
+ */
+function expandRankingsReportGrants(db: import("node:sqlite").DatabaseSync): void {
+  const existing = db
+    .prepare(
+      "SELECT user_id FROM admin_user_permissions WHERE permission_type = 'report' AND value = 'rankings'",
+    )
+    .all() as Array<{ user_id: string }>;
+  if (existing.length === 0) {
+    return;
+  }
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO admin_user_permissions (user_id, permission_type, value) VALUES (?, 'report', ?)",
+  );
+  for (const row of existing) {
+    insert.run(row.user_id, "rankings-agents");
+    insert.run(row.user_id, "rankings-companies");
+  }
+  db.prepare(
+    "DELETE FROM admin_user_permissions WHERE permission_type = 'report' AND value = 'rankings'",
+  ).run();
 }
 
 /**

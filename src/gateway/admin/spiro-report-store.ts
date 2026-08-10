@@ -1,4 +1,5 @@
 import { callTool, listTools } from "../../../extensions/spiro/api.js";
+import { loadAgentBadges } from "./agent-badges.js";
 import { getAdminDb } from "./user-store.js";
 
 export type AgentCancellationRow = {
@@ -26,12 +27,26 @@ export type RankingRow = {
   cancelledOrRescheduledPct: number;
 };
 
-export type RankingsReport = {
+/** An agent ranking row carries the same badges the agent has everywhere else. */
+export type AgentRankingRow = RankingRow & {
+  agentId: string | null;
+  vip: boolean;
+  topPercent: boolean;
+  region: string | null;
+};
+
+export type AgentRankingsReport = {
   from: string; // YYYY-MM
   to: string; // YYYY-MM
   market: string | null;
-  agents: RankingRow[];
-  companies: RankingRow[];
+  rows: AgentRankingRow[];
+};
+
+export type CompanyRankingsReport = {
+  from: string; // YYYY-MM
+  to: string; // YYYY-MM
+  market: string | null;
+  rows: RankingRow[];
 };
 
 export type MonthRefreshStatus = {
@@ -127,6 +142,19 @@ function extractCompanyName(raw: Record<string, unknown>): string | null {
     if (nested) return nested;
   }
   return null;
+}
+
+// Spiro's order carries the agent and brokerage ids on the nested client object
+// (client.agentId / client.companyId). Grouping the rankings on those instead of
+// on a display name is what lets an agent's badges follow them into the report,
+// and stops two agents who share a name from being ranked as one person.
+function extractClientId(raw: Record<string, unknown>, keys: string[]): string | null {
+  const direct = firstString(raw, keys);
+  if (direct) {
+    return direct;
+  }
+  const client = asObject(raw.client);
+  return client ? firstString(client, keys) : null;
 }
 
 // No single "market" field exists on an order. Spiro's MCP layer documents a "location" filter,
@@ -248,6 +276,8 @@ export async function refreshMonth(
             company,
             market,
             status,
+            agent_id: extractClientId(raw, ["agentId", "agent_id"]),
+            company_id: extractClientId(raw, ["companyId", "company_id"]),
             cached_at: now,
           };
         }),
@@ -374,23 +404,47 @@ export async function getAgentCancellationReport(params: {
   };
 }
 
-// Rank a set of orders grouped by a name field (agent or company) by total order
-// volume, descending. Rows with no name are skipped for that dimension.
-function rankByName(rows: Array<{ name: string | null; status: string }>): RankingRow[] {
-  const byName = new Map<string, { total: number; cancelled: number; rescheduled: number }>();
+type RankedEntity = RankingRow & { id: string | null };
+
+/**
+ * Rank orders by total volume, descending.
+ *
+ * Grouped on the Spiro id where the order carries one and on the display name
+ * otherwise, so two people who share a name stay two rows — and so rows cached
+ * before the ids were stored still rank rather than vanishing. Rows with
+ * neither an id nor a name are skipped for that dimension.
+ */
+function rankEntities(
+  rows: Array<{ id: string | null; name: string | null; status: string }>,
+): RankedEntity[] {
+  const groups = new Map<
+    string,
+    { id: string | null; name: string; total: number; cancelled: number; rescheduled: number }
+  >();
   for (const row of rows) {
     const name = row.name?.trim();
-    if (!name) continue;
-    const entry = byName.get(name) ?? { total: 0, cancelled: 0, rescheduled: 0 };
+    const id = row.id?.trim() || null;
+    const key = id ?? name;
+    if (!key || !name) {
+      continue;
+    }
+    const entry = groups.get(key) ?? {
+      id,
+      name,
+      total: 0,
+      cancelled: 0,
+      rescheduled: 0,
+    };
     entry.total += 1;
     const cls = classifyStatus(row.status);
     if (cls === "cancelled") entry.cancelled += 1;
     if (cls === "rescheduled") entry.rescheduled += 1;
-    byName.set(name, entry);
+    groups.set(key, entry);
   }
-  return Array.from(byName.entries())
-    .map(([name, v]) => ({
-      name,
+  return Array.from(groups.values())
+    .map((v) => ({
+      id: v.id,
+      name: v.name,
       totalOrders: v.total,
       cancellations: v.cancelled,
       reschedules: v.rescheduled,
@@ -400,32 +454,71 @@ function rankByName(rows: Array<{ name: string | null; status: string }>): Ranki
     .map((row, i) => ({ rank: i + 1, ...row }));
 }
 
-// Agent ranking + company ranking over the same cached orders and the same
-// date/market controls as getAgentCancellationReport.
-export async function getRankingsReport(params: {
+async function selectRankingOrders(params: {
   from: string;
   to: string;
   market?: string | null;
-}): Promise<RankingsReport> {
+}): Promise<
+  Array<{
+    client: string;
+    company: string | null;
+    agent_id: string | null;
+    company_id: string | null;
+    status: string;
+  }>
+> {
   const db = getAdminDb();
   let query = db
     .selectFrom("admin_spiro_orders")
-    .select(["client", "company", "status"])
+    .select(["client", "company", "agent_id", "company_id", "status"])
     .where("month", ">=", params.from)
     .where("month", "<=", params.to);
   if (params.market) query = query.where("market", "=", params.market);
-  const rows = (await query.execute()) as Array<{
-    client: string;
-    company: string | null;
-    status: string;
-  }>;
+  return await query.execute();
+}
 
+/**
+ * Agents ranked by order volume, each row carrying the VIP and top-20% badges
+ * the agent has everywhere else in the dashboard.
+ */
+export async function getAgentRankingsReport(params: {
+  from: string;
+  to: string;
+  market?: string | null;
+}): Promise<AgentRankingsReport> {
+  const rows = await selectRankingOrders(params);
+  const ranked = rankEntities(
+    rows.map((r) => ({ id: r.agent_id, name: r.client, status: r.status })),
+  );
+  const badges = await loadAgentBadges();
   return {
     from: params.from,
     to: params.to,
     market: params.market ?? null,
-    agents: rankByName(rows.map((r) => ({ name: r.client, status: r.status }))),
-    companies: rankByName(rows.map((r) => ({ name: r.company, status: r.status }))),
+    rows: ranked.map((row) => {
+      const b = badges.lookup({ agentId: row.id, name: row.name });
+      return Object.assign(row, {
+        agentId: row.id,
+        vip: b.vip,
+        topPercent: b.topPercent,
+        region: b.region,
+      });
+    }),
+  };
+}
+
+/** Brokerages ranked by order volume over the same cached orders and controls. */
+export async function getCompanyRankingsReport(params: {
+  from: string;
+  to: string;
+  market?: string | null;
+}): Promise<CompanyRankingsReport> {
+  const rows = await selectRankingOrders(params);
+  return {
+    from: params.from,
+    to: params.to,
+    market: params.market ?? null,
+    rows: rankEntities(rows.map((r) => ({ id: r.company_id, name: r.company, status: r.status }))),
   };
 }
 
