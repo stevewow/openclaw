@@ -225,6 +225,29 @@ export async function resolveDepartmentForCategory(category: string): Promise<st
   return FALLBACK_ROUTE[category as TicketCategory] ?? "general";
 }
 
+/**
+ * Every address we actually email a ticket to, lowercased. Inbound replies are
+ * verified against this: a desk that receives a ticket must be able to reply to
+ * it, and deriving the list here means adding a department cannot silently break
+ * replies the way a hand-maintained env allowlist did.
+ */
+export async function listDepartmentEmails(): Promise<string[]> {
+  const db = getAdminDb();
+  const rows = await db
+    .selectFrom("admin_ticket_departments")
+    .select("email")
+    .where("email", "is not", null)
+    .execute();
+  const out = new Set<string>();
+  for (const r of rows) {
+    const email = r.email?.trim().toLowerCase();
+    if (email) {
+      out.add(email);
+    }
+  }
+  return [...out];
+}
+
 /** The email address for a department key, or null when unset/unknown. */
 export async function getDepartmentEmail(key: string): Promise<string | null> {
   const dept = await getDepartment(key);

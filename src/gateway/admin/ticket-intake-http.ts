@@ -6,6 +6,7 @@ import {
   listCategories,
   type TicketCategoryDef,
 } from "./ticket-category-store.js";
+import { listDepartmentEmails } from "./ticket-department-store.js";
 import { applyInboundReply, type PostmarkInboundPayload } from "./ticket-inbound.js";
 import { renderTicketIntakeHtml } from "./ticket-intake-html.js";
 import { notifyDepartment } from "./ticket-mailer.js";
@@ -18,14 +19,26 @@ const INBOUND_PATH = "/api/support/inbound";
 const MAX_BODY_BYTES = 16 * 1024;
 const INBOUND_MAX_BODY_BYTES = 512 * 1024; // email bodies + quoted history
 
-/** Addresses allowed to drive ticket state via email reply (empty = allow all). */
-function staffAllowlist(env: NodeJS.ProcessEnv = process.env): string[] {
+/** Extra addresses allowed to drive ticket state, beyond the department desks. */
+export function staffAllowlist(env: NodeJS.ProcessEnv = process.env): string[] {
   const raw = env.TICKET_STAFF_ALLOWLIST?.trim();
   if (!raw) return [];
   return raw
     .split(/[,\s]+/)
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s.includes("@"));
+}
+
+/**
+ * Who may drive ticket state by replying: every department address we send to,
+ * plus any explicit extras in TICKET_STAFF_ALLOWLIST. The env var alone listed
+ * one person, so a reply from any other desk was parked in needs_review and its
+ * UPDATE/RESOLVED silently dropped. Empty (no desks, no extras) still means
+ * allow-all, matching the pre-configuration default.
+ */
+export async function replyAllowlist(env: NodeJS.ProcessEnv = process.env): Promise<string[]> {
+  const desks = await listDepartmentEmails();
+  return [...new Set([...staffAllowlist(env), ...desks])];
 }
 
 /** Constant-ish check that the inbound webhook carried the configured shared secret. */
@@ -239,8 +252,24 @@ export async function handleTicketIntakeRequest(
       return true;
     }
     const outcome = await applyInboundReply(body.value as PostmarkInboundPayload, {
-      allowlist: staffAllowlist(),
+      allowlist: await replyAllowlist(),
     });
+    // Every inbound reply leaves a line. Without one, a reply that changed
+    // nothing was indistinguishable from one that never arrived, which is most
+    // of why this was hard to trust.
+    if (outcome.status === "applied") {
+      console.log(
+        `[tickets] inbound ${outcome.ticketNumber}: ${outcome.command} → ${outcome.newStatus}`,
+      );
+    } else if (outcome.status === "unverified") {
+      console.error(
+        `[tickets] inbound ${outcome.ticketNumber}: sender ${outcome.fromEmail ?? "(unknown)"} not on the reply allowlist — parked in needs_review`,
+      );
+    } else if (outcome.status === "no_match") {
+      console.error(`[tickets] inbound: no ticket for reply token ${outcome.replyToken}`);
+    } else {
+      console.error("[tickets] inbound: no ticket token on the message");
+    }
     // Always 200 so the provider doesn't retry on unmatched mail.
     sendJson(res, 200, outcome);
     return true;
