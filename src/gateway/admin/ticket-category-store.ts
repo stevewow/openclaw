@@ -11,10 +11,60 @@ import { getAdminDb } from "./user-store.js";
 // Ticket rows store the key as free text; validation happens at the intake
 // boundary against this table.
 
-/** Shape of the follow-up question a category asks before the details box. */
-export type CategoryExtraField = "none" | "select" | "text";
+/**
+ * Shape of the follow-up question a category asks before the details box.
+ * "multiselect" lets a client tick several priced choices and see a running
+ * total; "select" stays single-choice.
+ */
+export type CategoryExtraField = "none" | "select" | "text" | "multiselect";
 
-export const CATEGORY_EXTRA_FIELDS: CategoryExtraField[] = ["none", "select", "text"];
+export const CATEGORY_EXTRA_FIELDS: CategoryExtraField[] = [
+  "none",
+  "select",
+  "text",
+  "multiselect",
+];
+
+/** True when the field presents a list of choices the client picks from. */
+export function isChoiceField(field: CategoryExtraField): boolean {
+  return field === "select" || field === "multiselect";
+}
+
+/**
+ * One choice on a select/multiselect question. Was a bare string; the object
+ * form adds an optional thumbnail and price. Legacy rows are still plain
+ * strings, so reads coerce and writes always emit the object form.
+ */
+export type CategoryOption = {
+  label: string;
+  /** Thumbnail shown beside the choice, or null. */
+  imageUrl: string | null;
+  /** Price in whole cents, or null when the choice isn't priced. */
+  priceCents: number | null;
+};
+
+/** Coerce a stored entry — string (legacy) or object — into a CategoryOption. */
+export function toCategoryOption(raw: unknown): CategoryOption | null {
+  if (typeof raw === "string") {
+    const label = raw.trim();
+    return label ? { label, imageUrl: null, priceCents: null } : null;
+  }
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const label = typeof record.label === "string" ? record.label.trim() : "";
+  if (!label) {
+    return null;
+  }
+  const imageUrl = typeof record.imageUrl === "string" ? record.imageUrl.trim() : "";
+  const price = record.priceCents;
+  // Prices are whole cents; anything fractional, negative or non-finite is
+  // treated as unpriced rather than silently rounded into a wrong number.
+  const priceCents =
+    typeof price === "number" && Number.isSafeInteger(price) && price >= 0 ? price : null;
+  return { label, imageUrl: imageUrl || null, priceCents };
+}
 
 export type TicketCategoryDef = {
   key: string;
@@ -25,8 +75,8 @@ export type TicketCategoryDef = {
   extraField: CategoryExtraField;
   /** Question shown above the extra field. */
   extraLabel: string | null;
-  /** Choices when extraField is "select". */
-  extraOptions: string[];
+  /** Choices when extraField is "select" or "multiselect". */
+  extraOptions: CategoryOption[];
   /** Placeholder when extraField is "text". */
   extraPlaceholder: string | null;
   detailsLabel: string;
@@ -38,7 +88,8 @@ export type TicketCategoryDef = {
   updatedAt: number;
 };
 
-const MEDIA_OPTIONS = [
+/** Unpriced, thumbnail-less choices — the shape the form shipped with. */
+const MEDIA_OPTIONS: CategoryOption[] = [
   "Photos",
   "Video / Walkthrough",
   "Aerial / Drone",
@@ -46,7 +97,7 @@ const MEDIA_OPTIONS = [
   "Virtual tour / Matterport",
   "Twilight",
   "Other",
-];
+].map((label) => ({ label, imageUrl: null, priceCents: null }));
 
 /** The original four, copy-for-copy identical to the pre-managed form. */
 const SEED_CATEGORIES: Array<Omit<TicketCategoryDef, "createdAt" | "updatedAt">> = [
@@ -120,7 +171,7 @@ type CategoryRow = {
   updated_at: number;
 };
 
-function parseOptions(raw: string | null): string[] {
+function parseOptions(raw: string | null): CategoryOption[] {
   if (!raw) {
     return [];
   }
@@ -129,10 +180,24 @@ function parseOptions(raw: string | null): string[] {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+    return parsed.map(toCategoryOption).filter((o): o is CategoryOption => o !== null);
   } catch {
     return [];
   }
+}
+
+/** Coerce whatever a caller supplied into storable options, dropping junk. */
+export function normalizeOptions(raw: unknown): CategoryOption[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map(toCategoryOption).filter((o): o is CategoryOption => o !== null);
+}
+
+/** "$150" / "$149.50" — trailing ".00" dropped because most prices are whole. */
+export function formatPriceCents(cents: number): string {
+  const dollars = cents / 100;
+  return `$${Number.isInteger(dollars) ? dollars.toString() : dollars.toFixed(2)}`;
 }
 
 function normalizeExtraField(raw: string): CategoryExtraField {
@@ -234,7 +299,7 @@ export type CreateCategoryParams = {
   shortLabel?: string;
   extraField?: CategoryExtraField;
   extraLabel?: string | null;
-  extraOptions?: string[];
+  extraOptions?: CategoryOption[];
   extraPlaceholder?: string | null;
   detailsLabel?: string;
   detailsHint?: string | null;
@@ -258,7 +323,7 @@ export async function createCategory(params: CreateCategoryParams): Promise<Tick
       short_label: params.shortLabel?.trim() || params.label.trim(),
       extra_field: params.extraField ?? "none",
       extra_label: params.extraLabel?.trim() || null,
-      extra_options: JSON.stringify(params.extraOptions ?? []),
+      extra_options: JSON.stringify(normalizeOptions(params.extraOptions)),
       extra_placeholder: params.extraPlaceholder?.trim() || null,
       details_label: params.detailsLabel?.trim() || "Details",
       details_hint: params.detailsHint?.trim() || null,
@@ -276,7 +341,7 @@ export type UpdateCategoryParams = {
   shortLabel?: string;
   extraField?: CategoryExtraField;
   extraLabel?: string | null;
-  extraOptions?: string[];
+  extraOptions?: CategoryOption[];
   extraPlaceholder?: string | null;
   detailsLabel?: string;
   detailsHint?: string | null;
@@ -303,7 +368,7 @@ export async function updateCategory(
     updates.extra_label = params.extraLabel?.trim() || null;
   }
   if (params.extraOptions !== undefined) {
-    updates.extra_options = JSON.stringify(params.extraOptions);
+    updates.extra_options = JSON.stringify(normalizeOptions(params.extraOptions));
   }
   if (params.extraPlaceholder !== undefined) {
     updates.extra_placeholder = params.extraPlaceholder?.trim() || null;

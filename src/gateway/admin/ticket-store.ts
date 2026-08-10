@@ -114,6 +114,8 @@ export type Ticket = {
   orderAddress: string | null;
   assignedTo: string | null;
   isTest: boolean;
+  /** Sum of the priced choices the client ticked, in whole cents. */
+  estimateCents: number | null;
   createdAt: number;
   updatedAt: number;
   resolvedAt: number | null;
@@ -135,6 +137,8 @@ export type CreateTicketParams = {
   createdBy?: string | null;
   /** A demonstration ticket — gets a TEST- number and is kept out of stats. */
   isTest?: boolean;
+  /** Server-computed total of the priced choices; never taken from the client. */
+  estimateCents?: number | null;
 };
 
 export type UpdateTicketParams = {
@@ -173,6 +177,7 @@ type TicketRow = {
   assigned_to: string | null;
   created_by: string | null;
   is_test: number;
+  estimate_cents: number | null;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -208,6 +213,7 @@ function rowToTicket(row: TicketRow): Ticket {
     orderAddress: row.order_address,
     assignedTo: row.assigned_to,
     isTest: row.is_test === 1,
+    estimateCents: row.estimate_cents,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     resolvedAt: row.resolved_at,
@@ -337,6 +343,7 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
         assigned_to: params.assignedTo ?? null,
         created_by: params.createdBy ?? null,
         is_test: isTest ? 1 : 0,
+        estimate_cents: params.estimateCents ?? null,
         created_at: now,
         updated_at: now,
         resolved_at: null,

@@ -2006,6 +2006,7 @@ ${MARKET_CSS}
         <select id="cat-extra-field">
           <option value="none">No follow-up question</option>
           <option value="select">Ask them to pick from a list</option>
+          <option value="multiselect">Let them pick several (adds up a total)</option>
           <option value="text">Ask them to type an answer</option>
         </select>
       </div>
@@ -2015,7 +2016,14 @@ ${MARKET_CSS}
       </div>
       <div class="form-group hidden" id="cat-extra-options-group">
         <label>Choices (one per line)</label>
-        <textarea id="cat-extra-options" rows="5" placeholder="Photos&#10;Video / Walkthrough&#10;Aerial / Drone"></textarea>
+        <textarea id="cat-extra-options" rows="6" placeholder="Photos&#10;Twilight photos | https://example.com/twilight.jpg | 75&#10;Aerial / Drone | | 150"></textarea>
+        <div class="text-muted" style="font-size:0.75rem;margin-top:0.3rem">
+          One choice per line. To add a thumbnail or a price, separate them with <code>|</code>:
+          <code>Label | image URL | price</code>. Both extras are optional — leave a gap
+          (<code>Label | | 150</code>) to price a choice with no image. Prices are in dollars and
+          show on the form; with "pick several" the client sees a running total, which is recorded
+          on the ticket as an estimate.
+        </div>
       </div>
       <div class="form-group hidden" id="cat-extra-placeholder-group">
         <label>Placeholder (optional)</label>
@@ -7387,6 +7395,11 @@ ${MARKET_COMPONENT_JS}
     if(t.orderAddress) meta.push('📍 '+esc(t.orderAddress));
     if(t.orderId) meta.push('Order '+esc(t.orderId));
     meta.push('via '+esc(t.source));
+    // An estimate the client saw while ticking priced choices — not a charge.
+    if(t.estimateCents !== null && t.estimateCents !== undefined){
+      var est = t.estimateCents/100;
+      meta.push('<strong title="Estimate from the choices the client picked">Est. $'+esc(est===Math.floor(est)?String(est):est.toFixed(2))+'</strong>');
+    }
     document.getElementById('ticket-modal-meta').innerHTML = meta.join(' · ');
     // Timing line: opened, and either how long it took or how long it's been open.
     var timing = ['Opened '+esc(tdate(t.createdAt))];
@@ -7583,10 +7596,39 @@ ${MARKET_COMPONENT_JS}
     renderCategoryTable();
   }
 
+  // Choices are edited as one line each, "Label | image URL | price", because a
+  // per-row widget buys little over a textarea an admin can paste into.
+  function optionsToText(options){
+    if (!options || !options.length) return '';
+    return options.map(function(o){
+      var price = (o.priceCents === null || o.priceCents === undefined) ? '' : String(o.priceCents / 100);
+      if (!o.imageUrl && !price) return o.label;
+      return o.label + ' | ' + (o.imageUrl || '') + (price ? ' | ' + price : '');
+    }).join('\\n');
+  }
+  /** Parse the textarea back. priceError marks a line we could not read. */
+  function textToOptions(text){
+    return String(text || '').split('\\n').map(function(line){
+      var parts = line.split('|');
+      var label = (parts[0] || '').trim();
+      if (!label) return null;
+      var imageUrl = (parts[1] || '').trim();
+      var rawPrice = (parts[2] || '').trim().replace(/^\\$/, '');
+      var priceCents = null, priceError = false;
+      if (rawPrice) {
+        var n = Number(rawPrice);
+        // Round to the nearest cent so 149.999 cannot become a fraction of one.
+        if (isFinite(n) && n >= 0) priceCents = Math.round(n * 100);
+        else priceError = true;
+      }
+      return { label: label, imageUrl: imageUrl || null, priceCents: priceCents, priceError: priceError };
+    }).filter(Boolean);
+  }
+
   function syncCategoryExtraFields(){
     var kind = document.getElementById('cat-extra-field').value;
     document.getElementById('cat-extra-label-group').classList.toggle('hidden', kind==='none');
-    document.getElementById('cat-extra-options-group').classList.toggle('hidden', kind!=='select');
+    document.getElementById('cat-extra-options-group').classList.toggle('hidden', kind!=='select' && kind!=='multiselect');
     document.getElementById('cat-extra-placeholder-group').classList.toggle('hidden', kind!=='text');
   }
   document.getElementById('cat-extra-field').addEventListener('change', syncCategoryExtraFields);
@@ -7600,7 +7642,7 @@ ${MARKET_COMPONENT_JS}
     document.getElementById('cat-short-label').value = c ? c.shortLabel : '';
     document.getElementById('cat-extra-field').value = c ? c.extraField : 'none';
     document.getElementById('cat-extra-label').value = (c && c.extraLabel) || '';
-    document.getElementById('cat-extra-options').value = (c && c.extraOptions) ? c.extraOptions.join('\\n') : '';
+    document.getElementById('cat-extra-options').value = optionsToText(c && c.extraOptions);
     document.getElementById('cat-extra-placeholder').value = (c && c.extraPlaceholder) || '';
     document.getElementById('cat-details-label').value = c ? c.detailsLabel : 'Details';
     document.getElementById('cat-details-hint').value = (c && c.detailsHint) || '';
@@ -7636,8 +7678,10 @@ ${MARKET_COMPONENT_JS}
     var label = document.getElementById('cat-label').value.trim();
     if(!label){ er.textContent='The form option is required.'; er.classList.remove('hidden'); return; }
     var kind = document.getElementById('cat-extra-field').value;
-    var options = document.getElementById('cat-extra-options').value.split('\\n').map(function(s){ return s.trim(); }).filter(Boolean);
-    if(kind==='select' && !options.length){ er.textContent='Add at least one choice, or switch the follow-up question off.'; er.classList.remove('hidden'); return; }
+    var options = textToOptions(document.getElementById('cat-extra-options').value);
+    if((kind==='select'||kind==='multiselect') && !options.length){ er.textContent='Add at least one choice, or switch the follow-up question off.'; er.classList.remove('hidden'); return; }
+    var badPrice = options.find(function(o){ return o.priceError; });
+    if(badPrice){ er.textContent='"'+badPrice.label+'" has a price we could not read. Use a plain number like 150 or 149.50.'; er.classList.remove('hidden'); return; }
     var extraLabel = document.getElementById('cat-extra-label').value.trim();
     if(kind!=='none' && !extraLabel){ er.textContent='Give the follow-up question some text.'; er.classList.remove('hidden'); return; }
     var department = document.getElementById('cat-department').value;

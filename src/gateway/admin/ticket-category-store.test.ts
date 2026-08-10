@@ -31,7 +31,10 @@ describe("category seeding", () => {
     expect(edit.shortLabel).toBe("Edit request");
     expect(edit.extraField).toBe("select");
     expect(edit.extraLabel).toBe("Which media?");
-    expect(edit.extraOptions).toContain("Aerial / Drone");
+    // Choices are objects now (label + optional thumbnail/price); the seeded
+    // ones stay unpriced and image-less, so the form reads as it always did.
+    expect(edit.extraOptions.map((o) => o.label)).toContain("Aerial / Drone");
+    expect(edit.extraOptions.every((o) => o.priceCents === null && o.imageUrl === null)).toBe(true);
     expect(edit.detailsLabel).toBe("What change would you like?");
 
     const service = list.find((c) => c.key === "additional_service")!;

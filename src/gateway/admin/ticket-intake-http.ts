@@ -4,7 +4,10 @@ import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { saveUploadedAttachment } from "./attachment-store.js";
 import { MAX_INTAKE_BODY_BYTES, parseIntakeFiles } from "./ticket-attachment-intake.js";
 import {
+  type CategoryOption,
   ensureCategorySeed,
+  formatPriceCents,
+  isChoiceField,
   listCategories,
   type TicketCategoryDef,
 } from "./ticket-category-store.js";
@@ -99,17 +102,71 @@ export function composeSubject(category: TicketCategoryDef, extraValue: string |
  * Lead with the follow-up question and its answer so the department reads the
  * specifics before the free text. The question doubles as the label, which keeps
  * custom categories self-describing without a second field to configure.
+ *
+ * A priced multi-select is itemized instead, so the desk sees what was ticked
+ * and what it adds up to without opening the dashboard.
  */
 export function composeDescription(
   category: TicketCategoryDef,
   extraValue: string | null,
   details: string,
+  picked: CategoryOption[] = [],
 ): string {
+  const label = category.extraLabel?.trim() || "Details";
+  const priced = picked.filter((o) => o.priceCents !== null);
+  if (picked.length > 1 || priced.length > 0) {
+    const lines = picked.map((o) =>
+      o.priceCents === null
+        ? `  • ${o.label}`
+        : `  • ${o.label} — ${formatPriceCents(o.priceCents)}`,
+    );
+    if (priced.length > 0) {
+      const total = priced.reduce((sum, o) => sum + (o.priceCents ?? 0), 0);
+      lines.push(`  Estimated total: ${formatPriceCents(total)}`);
+    }
+    return `${label}\n${lines.join("\n")}\n\n${details}`;
+  }
   if (!extraValue) {
     return details;
   }
-  const label = category.extraLabel?.trim() || "Details";
   return `${label} ${extraValue}\n\n${details}`;
+}
+
+/**
+ * Resolve what the client ticked against the category's own option list, and
+ * total it here. The browser sends labels only — the price of each choice is
+ * read from our table, never from the payload, so a tampered form cannot invent
+ * a $0 estimate or quote a number we never offered. Unknown labels are dropped.
+ */
+export function resolveSelectedOptions(
+  category: TicketCategoryDef,
+  raw: unknown,
+): { picked: CategoryOption[]; estimateCents: number | null } {
+  if (!isChoiceField(category.extraField)) {
+    return { picked: [], estimateCents: null };
+  }
+  const wanted = (Array.isArray(raw) ? raw : [raw])
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+
+  const picked: CategoryOption[] = [];
+  const seen = new Set<string>();
+  for (const label of wanted) {
+    const match = category.extraOptions.find((o) => o.label === label);
+    if (match && !seen.has(match.label)) {
+      seen.add(match.label);
+      picked.push(match);
+    }
+  }
+  // A single-choice question takes one answer however many arrive.
+  const limited = category.extraField === "select" ? picked.slice(0, 1) : picked;
+  const priced = limited.filter((o) => o.priceCents !== null);
+  return {
+    picked: limited,
+    estimateCents:
+      priced.length > 0 ? priced.reduce((sum, o) => sum + (o.priceCents ?? 0), 0) : null,
+  };
 }
 
 /**
@@ -222,18 +279,26 @@ export async function handleTicketIntakeRequest(
     }
 
     // `mediaType`/`serviceType` are the pre-managed field names, still accepted
-    // so an already-open form page keeps working across a deploy.
-    const extraValue = str(data.extraValue) ?? str(data.mediaType) ?? str(data.serviceType);
+    // so an already-open form page keeps working across a deploy. `extraValues`
+    // is the multi-select shape; a single `extraValue` still works either way.
+    const rawSelection = data.extraValues ?? data.extraValue ?? data.mediaType ?? data.serviceType;
+    const { picked, estimateCents } = resolveSelectedOptions(category, rawSelection);
+    const extraValue =
+      picked.length > 0
+        ? picked.map((o) => o.label).join(", ")
+        : (str(data.extraValue) ?? str(data.mediaType) ?? str(data.serviceType));
+
     const ticket = await createTicket({
       category: category.key,
       subject: composeSubject(category, extraValue),
-      description: composeDescription(category, extraValue, details),
+      description: composeDescription(category, extraValue, details, picked),
       source: "widget",
       requesterName,
       requesterEmail,
       requesterPhone: str(data.requesterPhone),
       orderId: str(data.orderId),
       orderAddress: str(data.orderAddress),
+      estimateCents,
       isTest: Boolean(testGrant),
     });
 

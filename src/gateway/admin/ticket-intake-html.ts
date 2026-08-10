@@ -8,13 +8,20 @@
 // string concatenation only (no template literals) so the outer TS template
 // string stays intact.
 
+/** One choice, with its optional thumbnail and price in whole cents. */
+export type IntakeOptionView = {
+  label: string;
+  imageUrl: string | null;
+  priceCents: number | null;
+};
+
 /** The per-category form config handed to the page. */
 export type IntakeCategoryView = {
   key: string;
   label: string;
-  extraField: "none" | "select" | "text";
+  extraField: "none" | "select" | "text" | "multiselect";
   extraLabel: string | null;
-  extraOptions: string[];
+  extraOptions: IntakeOptionView[];
   extraPlaceholder: string | null;
   detailsLabel: string;
   detailsHint: string | null;
@@ -59,6 +66,19 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   .row { display:flex; gap:0.75rem; flex-wrap:wrap; }
   .row > .field { flex:1; min-width:180px; }
   .hint { color:var(--muted); font-size:0.78rem; margin-top:0.3rem; }
+  /* Pickable choices, optionally with a thumbnail and a price. Sized so a phone
+     shows one per row and a laptop shows two or three. */
+  .choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:0.6rem; }
+  .choice { display:flex; align-items:center; gap:0.6rem; padding:0.55rem 0.65rem; border:1px solid var(--border); border-radius:10px; cursor:pointer; background:#fff; }
+  .choice:hover { border-color:var(--wow); }
+  .choice.picked { border-color:var(--wow); box-shadow:0 0 0 2px rgba(225,27,34,0.12); }
+  .choice input { margin:0; flex:none; width:auto; }
+  .choice img { width:44px; height:44px; object-fit:cover; border-radius:7px; flex:none; background:#f1f1f1; }
+  .choice .cl { font-size:0.87rem; line-height:1.25; }
+  .choice .cp { display:block; color:var(--muted); font-size:0.78rem; font-weight:700; }
+  .choice-total { margin-top:0.7rem; padding-top:0.6rem; border-top:1px solid var(--border); font-weight:700; font-size:0.92rem; display:flex; justify-content:space-between; }
+  .choice-total .amt { color:var(--wow-dark); }
+  .choice-total .note { display:block; font-weight:400; font-size:0.75rem; color:var(--muted); }
   .btn { background:var(--wow); color:#fff; border:none; border-radius:10px; padding:0.75rem 1.25rem; font-weight:700; font-size:0.95rem; cursor:pointer; width:100%; }
   .btn:hover { background:var(--wow-dark); }
   .btn:disabled { opacity:0.6; cursor:default; }
@@ -90,6 +110,8 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
             <label id="extra-label" for="f-extra-select"></label>
             <select id="f-extra-select" class="hidden"></select>
             <input type="text" id="f-extra-text" class="hidden" />
+            <div id="f-extra-choices" class="choices hidden"></div>
+            <div id="choice-total" class="choice-total hidden"></div>
           </div>
 
           <div class="field">
@@ -187,34 +209,115 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     return null;
   }
 
+  var choicesEl = document.getElementById('f-extra-choices');
+  var totalEl = document.getElementById('choice-total');
+
+  function money(cents){
+    var d = cents / 100;
+    return '$' + (d === Math.floor(d) ? String(d) : d.toFixed(2));
+  }
+  /** Labels currently ticked, in the order they appear on the form. */
+  function pickedLabels(){
+    var out = [];
+    choicesEl.querySelectorAll('input:checked').forEach(function(i){ out.push(i.value); });
+    return out;
+  }
+  // The server recomputes this from its own price list; this is the client's
+  // running preview, so a stale page can never quote a number we honour.
+  function renderTotal(){
+    var sum = 0, priced = 0;
+    choicesEl.querySelectorAll('input:checked').forEach(function(i){
+      var cents = i.getAttribute('data-price');
+      if (cents !== null && cents !== '') { sum += parseInt(cents, 10); priced++; }
+    });
+    choicesEl.querySelectorAll('.choice').forEach(function(el){
+      el.classList.toggle('picked', !!el.querySelector('input').checked);
+    });
+    if (!priced) { totalEl.classList.add('hidden'); totalEl.textContent = ''; return; }
+    totalEl.classList.remove('hidden');
+    totalEl.innerHTML = '<span>Estimated total<span class="note">A quote, not a charge — we confirm before any work starts.</span></span>' +
+      '<span class="amt">' + money(sum) + '</span>';
+  }
+  /** Build the checkbox/radio grid for a select or multiselect question. */
+  function renderChoices(c, multiple){
+    while (choicesEl.firstChild) choicesEl.removeChild(choicesEl.firstChild);
+    (c.extraOptions || []).forEach(function(opt, idx){
+      var wrap = document.createElement('label');
+      wrap.className = 'choice';
+      var input = document.createElement('input');
+      input.type = multiple ? 'checkbox' : 'radio';
+      input.name = 'extra-choice';
+      input.value = opt.label;
+      if (opt.priceCents !== null && opt.priceCents !== undefined) {
+        input.setAttribute('data-price', String(opt.priceCents));
+      }
+      input.addEventListener('change', renderTotal);
+      wrap.appendChild(input);
+      if (opt.imageUrl) {
+        var img = document.createElement('img');
+        // Set via property, not markup, so a URL can never inject attributes.
+        img.src = opt.imageUrl;
+        img.alt = '';
+        img.loading = 'lazy';
+        // A broken link should not leave a torn box on a customer page.
+        img.addEventListener('error', function(){ img.remove(); });
+        wrap.appendChild(img);
+      }
+      var text = document.createElement('span');
+      text.className = 'cl';
+      text.textContent = opt.label;
+      if (opt.priceCents !== null && opt.priceCents !== undefined) {
+        var price = document.createElement('span');
+        price.className = 'cp';
+        price.textContent = money(opt.priceCents);
+        text.appendChild(price);
+      }
+      wrap.appendChild(text);
+      choicesEl.appendChild(wrap);
+      void idx;
+    });
+    renderTotal();
+  }
+
   function syncBranches() {
     var c = currentCat();
     if (!c) return;
     var kind = c.extraField || 'none';
+    extraSelect.classList.add('hidden');
+    extraText.classList.add('hidden');
+    choicesEl.classList.add('hidden');
+    totalEl.classList.add('hidden');
     if (kind === 'none') {
       extraWrap.classList.add('hidden');
-      extraSelect.classList.add('hidden');
-      extraText.classList.add('hidden');
     } else {
       extraWrap.classList.remove('hidden');
       extraLabel.textContent = c.extraLabel || '';
-      if (kind === 'select') {
-        extraText.classList.add('hidden');
-        extraSelect.classList.remove('hidden');
-        extraLabel.setAttribute('for', 'f-extra-select');
-        while (extraSelect.firstChild) extraSelect.removeChild(extraSelect.firstChild);
-        var blank = document.createElement('option');
-        blank.value = '';
-        blank.textContent = 'Select…';
-        extraSelect.appendChild(blank);
-        (c.extraOptions || []).forEach(function(opt){
-          var o = document.createElement('option');
-          o.value = opt;
-          o.textContent = opt;
-          extraSelect.appendChild(o);
+      if (kind === 'select' || kind === 'multiselect') {
+        // A plain unpriced, image-less list stays the familiar dropdown; the
+        // richer grid appears only when there is something to show in it.
+        var rich = (c.extraOptions || []).some(function(o){
+          return o.imageUrl || o.priceCents !== null && o.priceCents !== undefined;
         });
+        if (kind === 'multiselect' || rich) {
+          choicesEl.classList.remove('hidden');
+          extraLabel.removeAttribute('for');
+          renderChoices(c, kind === 'multiselect');
+        } else {
+          extraSelect.classList.remove('hidden');
+          extraLabel.setAttribute('for', 'f-extra-select');
+          while (extraSelect.firstChild) extraSelect.removeChild(extraSelect.firstChild);
+          var blank = document.createElement('option');
+          blank.value = '';
+          blank.textContent = 'Select…';
+          extraSelect.appendChild(blank);
+          (c.extraOptions || []).forEach(function(opt){
+            var o = document.createElement('option');
+            o.value = opt.label;
+            o.textContent = opt.label;
+            extraSelect.appendChild(o);
+          });
+        }
       } else {
-        extraSelect.classList.add('hidden');
         extraText.classList.remove('hidden');
         extraLabel.setAttribute('for', 'f-extra-text');
         extraText.placeholder = c.extraPlaceholder || '';
@@ -292,12 +395,22 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     clearErr();
     var c = currentCat();
     var extraValue = null;
-    if (c && c.extraField === 'select') extraValue = extraSelect.value || null;
-    else if (c && c.extraField === 'text') extraValue = extraText.value.trim() || null;
+    var extraValues = null;
+    var kindNow = c ? (c.extraField || 'none') : 'none';
+    if (kindNow === 'select' || kindNow === 'multiselect') {
+      // Whichever control is on screen for this category.
+      extraValues = choicesEl.classList.contains('hidden')
+        ? (extraSelect.value ? [extraSelect.value] : [])
+        : pickedLabels();
+      extraValue = extraValues.length ? extraValues.join(', ') : null;
+    } else if (kindNow === 'text') {
+      extraValue = extraText.value.trim() || null;
+    }
 
     var payload = {
       category: catEl.value,
       extraValue: extraValue,
+      extraValues: extraValues,
       details: document.getElementById('f-details').value.trim(),
       requesterName: document.getElementById('f-name').value.trim(),
       requesterEmail: document.getElementById('f-email').value.trim(),

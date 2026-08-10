@@ -442,6 +442,8 @@ type TicketsTable = {
   assigned_to: string | null;
   created_by: string | null;
   is_test: number;
+  /** Sum of the priced choices the client ticked, in whole cents. */
+  estimate_cents: number | null;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -1134,7 +1136,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       key TEXT PRIMARY KEY,
       label TEXT NOT NULL,
       short_label TEXT NOT NULL,
-      extra_field TEXT NOT NULL DEFAULT 'none' CHECK(extra_field IN ('none','select','text')),
+      extra_field TEXT NOT NULL DEFAULT 'none' CHECK(extra_field IN ('none','select','text','multiselect')),
       extra_label TEXT,
       extra_options TEXT,
       extra_placeholder TEXT,
@@ -1148,6 +1150,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   `);
   migrateTicketCategoryCheck(db);
   migrateAttachmentOwnerCheck(db);
+  migrateCategoryExtraFieldCheck(db);
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {
     db.exec(
@@ -1192,6 +1195,11 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (!ticketColumns.some((c) => c.name === "is_test")) {
     db.exec("ALTER TABLE admin_tickets ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0");
+  }
+  // Total of the priced choices a client ticked. Nullable: most tickets carry no
+  // estimate, and 0 would read as "quoted at nothing" rather than "not quoted".
+  if (!ticketColumns.some((c) => c.name === "estimate_cents")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN estimate_cents INTEGER");
   }
   // Spiro reports amountPaid/amountDue per invoice; the snapshot predates both.
   // Nullable, so rows cached before the next refresh read as "not reported"
@@ -1557,6 +1565,56 @@ function migrateAttachmentOwnerCheck(db: import("node:sqlite").DatabaseSync): vo
       DROP TABLE admin_attachments;
       ALTER TABLE admin_attachments_rebuild RENAME TO admin_attachments;
       CREATE INDEX IF NOT EXISTS admin_attachments_owner ON admin_attachments(owner_type, owner_id);
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys=ON");
+  }
+}
+
+/**
+ * Widen `admin_ticket_categories.extra_field` to allow 'multiselect'. Rebuild
+ * rather than ALTER, for the same reason as the other two: SQLite cannot drop a
+ * CHECK in place. Nothing references this table by foreign key, so the rebuild
+ * only has to carry its own rows.
+ */
+function migrateCategoryExtraFieldCheck(db: import("node:sqlite").DatabaseSync): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='admin_ticket_categories'")
+    .get() as { sql?: string } | undefined;
+  if (!row?.sql?.includes("CHECK(extra_field IN") || row.sql.includes("'multiselect'")) {
+    return;
+  }
+
+  db.exec("PRAGMA foreign_keys=OFF");
+  try {
+    db.exec("BEGIN");
+    db.exec(`
+      CREATE TABLE admin_ticket_categories_rebuild (
+        key TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        short_label TEXT NOT NULL,
+        extra_field TEXT NOT NULL DEFAULT 'none' CHECK(extra_field IN ('none','select','text','multiselect')),
+        extra_label TEXT,
+        extra_options TEXT,
+        extra_placeholder TEXT,
+        details_label TEXT NOT NULL,
+        details_hint TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO admin_ticket_categories_rebuild SELECT
+        key, label, short_label, extra_field, extra_label, extra_options,
+        extra_placeholder, details_label, details_hint, sort_order, active,
+        created_at, updated_at
+      FROM admin_ticket_categories;
+      DROP TABLE admin_ticket_categories;
+      ALTER TABLE admin_ticket_categories_rebuild RENAME TO admin_ticket_categories;
     `);
     db.exec("COMMIT");
   } catch (err) {

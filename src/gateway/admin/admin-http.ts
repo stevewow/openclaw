@@ -238,6 +238,7 @@ import {
   ensureCategorySeed,
   getCategory,
   listCategories,
+  normalizeOptions,
   removeCategory,
   reorderCategories,
   type UpdateCategoryParams,
@@ -353,9 +354,9 @@ function readCategoryParams(data: Record<string, unknown>): UpdateCategoryParams
     params.extraLabel = normalizeString(data.extraLabel);
   }
   if (Array.isArray(data.extraOptions)) {
-    params.extraOptions = data.extraOptions
-      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-      .map((v) => v.trim());
+    // Accepts both the legacy bare-string form and the {label,imageUrl,priceCents}
+    // form, and drops anything that is neither — so a stale client still saves.
+    params.extraOptions = normalizeOptions(data.extraOptions);
   }
   if (data.extraPlaceholder !== undefined) {
     params.extraPlaceholder = normalizeString(data.extraPlaceholder);
