@@ -246,6 +246,7 @@ import {
   deleteDepartment,
   ensureDepartmentSeed,
   getCategoryRoutes,
+  getDepartment,
   listDepartments,
   setCategoryRoute,
   updateDepartment,
@@ -315,8 +316,9 @@ function normalizeString(v: unknown): string | null {
  */
 function ticketFeaturesForRequest(subPath: string, method: string): PortalFeature[] {
   const isRead = method === "GET" || method === "HEAD";
-  // Category routing is edited on the Departments page, so it travels with that
-  // grant rather than with request types.
+  // The bulk category-routes endpoint predates routing moving onto the request
+  // type itself. No UI calls it now, but it still edits desk assignments, so it
+  // keeps travelling with the Departments grant.
   if (
     subPath === "/tickets/departments" ||
     subPath.startsWith("/tickets/departments/") ||
@@ -2283,11 +2285,20 @@ export async function handleAdminHttpRequest(
       sendBadRequest(res, `category "${key}" already exists`);
       return true;
     }
-    const category = await createCategory({ ...readCategoryParams(data), key, label });
+    // Routing is required at creation: a request type with no desk silently fell
+    // through to General, which is not a decision anyone made. Validated against
+    // the real department list so a typo cannot strand tickets either.
     const department = normalizeString(data.department);
-    if (department) {
-      await setCategoryRoute(category.key, department);
+    if (!department) {
+      sendBadRequest(res, "department required");
+      return true;
     }
+    if (!(await getDepartment(department))) {
+      sendBadRequest(res, `unknown department "${department}"`);
+      return true;
+    }
+    const category = await createCategory({ ...readCategoryParams(data), key, label });
+    await setCategoryRoute(category.key, department);
     sendJson(res, 201, { category, routes: await getCategoryRoutes() });
     return true;
   }
@@ -2301,12 +2312,16 @@ export async function handleAdminHttpRequest(
       return true;
     }
     const data = body.value as Record<string, unknown>;
+    const department = normalizeString(data.department);
+    if (department && !(await getDepartment(department))) {
+      sendBadRequest(res, `unknown department "${department}"`);
+      return true;
+    }
     const updated = await updateCategory(categoryEditMatch[1], readCategoryParams(data));
     if (!updated) {
       sendNotFound(res);
       return true;
     }
-    const department = normalizeString(data.department);
     if (department) {
       await setCategoryRoute(updated.key, department);
     }

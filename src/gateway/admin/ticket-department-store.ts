@@ -18,8 +18,10 @@ export type Department = {
 const TICKET_CATEGORIES = ["edit_request", "additional_service", "missing_media", "other"] as const;
 type TicketCategory = (typeof TICKET_CATEGORIES)[number];
 
-// Fallback used when the routing table has no row yet (e.g. before seeding, or
-// in unit tests that don't seed). Keeps createTicket's defaults stable.
+// Last-resort routing for the seeded four, used before seeding runs and by unit
+// tests that don't seed. It is not a default an admin can land on: every request
+// type must name its department when it is created, so a live category always
+// has an explicit row here.
 const FALLBACK_ROUTE: Record<TicketCategory, string> = {
   edit_request: "editing",
   additional_service: "operations",

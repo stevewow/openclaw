@@ -1196,12 +1196,6 @@ ${MARKET_CSS}
             <button type="submit" class="btn btn-primary btn-sm">＋ Add department</button>
           </form>
         </div>
-        <div class="card">
-          <div style="font-weight:700;margin-bottom:0.35rem">Default routing</div>
-          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">Which department a new request lands in, by request type.</p>
-          <div id="route-rows" style="display:grid;gap:0.75rem;max-width:520px"></div>
-          <div style="margin-top:1rem"><button class="btn btn-primary btn-sm" id="route-save-btn">Save routing</button> <span id="route-saved" class="text-muted" style="font-size:0.8rem;margin-left:0.5rem"></span></div>
-        </div>
       </div>
 
       <!-- Request Types: the categories offered on the public intake form -->
@@ -1999,8 +1993,9 @@ ${MARKET_CSS}
           <div class="text-muted" style="font-size:0.78rem;margin-top:0.25rem">Used in email subjects: [WVT-1042] Address change — …</div>
         </div>
         <div class="form-group" style="flex:1;min-width:180px">
-          <label>Routes to department</label>
-          <select id="cat-department"></select>
+          <label>Routes to department <span style="color:#dc2626">*</span></label>
+          <select id="cat-department" required></select>
+          <div class="text-muted" style="font-size:0.78rem;margin-top:0.25rem">Where tickets of this type land, and which address they email.</div>
         </div>
       </div>
 
@@ -7461,7 +7456,6 @@ ${MARKET_COMPONENT_JS}
   async function loadDepartments(){
     await Promise.all([loadDepartmentList(), loadCategoryList()]);
     renderDeptTable();
-    renderRoutes();
   }
   function renderDeptTable(){
     var body = document.getElementById('dept-body');
@@ -7502,26 +7496,9 @@ ${MARKET_COMPONENT_JS}
     document.getElementById('dept-new-label').value=''; document.getElementById('dept-new-email').value='';
     await loadDepartments();
   });
-  // Routing rows follow the managed categories, so a request type added on the
-  // Request Types page shows up here too (both write the same routes table).
-  function renderRoutes(){
-    var wrap = document.getElementById('route-rows');
-    var cats = ticketCategories.filter(function(c){ return c.active; });
-    if(!cats.length){ wrap.innerHTML='<div class="text-muted" style="font-size:0.85rem">No request types on the form yet.</div>'; return; }
-    wrap.innerHTML = cats.map(function(c){
-      var opts = ticketDepartments.map(function(d){ return '<option value="'+esc(d.key)+'"'+(ticketCategoryRoutes[c.key]===d.key?' selected':'')+'>'+esc(d.label)+'</option>'; }).join('');
-      return '<div class="flex items-center gap-2" style="justify-content:space-between"><label style="margin:0">'+esc(c.shortLabel)+'</label><select data-cat="'+esc(c.key)+'" style="min-width:220px">'+opts+'</select></div>';
-    }).join('');
-  }
-  document.getElementById('route-save-btn').addEventListener('click', async function(){
-    var payload = {};
-    document.querySelectorAll('#route-rows select').forEach(function(sel){ payload[sel.getAttribute('data-cat')] = sel.value; });
-    var r = await api('PUT','/tickets/category-routes', payload);
-    var note = document.getElementById('route-saved');
-    if(!r.ok){ note.textContent = 'Save failed'; return; }
-    ticketCategoryRoutes = r.data.routes || ticketCategoryRoutes;
-    note.textContent = 'Saved ✓'; setTimeout(function(){ note.textContent=''; }, 2000);
-  });
+  // Routing is owned by the request type itself (Request Types page) so there is
+  // one place to set it. This page manages the desks; it no longer mirrors the
+  // same routes table behind a second, easily-forgotten Save button.
 
   // ── Request Types (categories) management ───────────────────────────────────
   var editingCategoryKey = null;   // null = creating a new one
@@ -7548,7 +7525,7 @@ ${MARKET_COMPONENT_JS}
       return '<tr data-key="'+esc(c.key)+'">'+
         '<td><strong>'+esc(c.label)+'</strong><div class="text-muted" style="font-size:0.72rem">'+esc(c.shortLabel)+' · '+esc(c.key)+'</div></td>'+
         '<td style="font-size:0.85rem">'+categoryExtraSummary(c)+'</td>'+
-        '<td style="font-size:0.85rem">'+esc(dept?deptLabel(dept):'General')+'</td>'+
+        '<td style="font-size:0.85rem">'+(dept?esc(deptLabel(dept)):'<span class="text-muted">Not routed</span>')+'</td>'+
         '<td>'+(c.active
           ? '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;color:#fff;background:#16a34a">Live</span>'
           : '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;color:#fff;background:#6b7280">Retired</span>')+'</td>'+
@@ -7584,6 +7561,14 @@ ${MARKET_COMPONENT_JS}
     var deptSel = document.getElementById('cat-department');
     deptSel.innerHTML='';
     var routed = c ? ticketCategoryRoutes[c.key] : null;
+    // An unselected placeholder rather than a silent first-department default:
+    // picking the desk is a decision, and a wrong guess mails the wrong team.
+    // A route pointing at a deleted department counts as unset, so the admin
+    // re-picks instead of the browser falling to whichever desk sorts first.
+    var known = !!routed && ticketDepartments.some(function(d){ return d.key===routed; });
+    var ph=document.createElement('option'); ph.value=''; ph.textContent='Select a department…';
+    ph.disabled=true; ph.selected=!known;
+    deptSel.appendChild(ph);
     ticketDepartments.forEach(function(d){
       var o=document.createElement('option'); o.value=d.key; o.textContent=d.label;
       if(d.key===routed) o.selected=true;
@@ -7608,6 +7593,8 @@ ${MARKET_COMPONENT_JS}
     if(kind==='select' && !options.length){ er.textContent='Add at least one choice, or switch the follow-up question off.'; er.classList.remove('hidden'); return; }
     var extraLabel = document.getElementById('cat-extra-label').value.trim();
     if(kind!=='none' && !extraLabel){ er.textContent='Give the follow-up question some text.'; er.classList.remove('hidden'); return; }
+    var department = document.getElementById('cat-department').value;
+    if(!department){ er.textContent='Pick the department this request type routes to.'; er.classList.remove('hidden'); return; }
     var payload = {
       label: label,
       shortLabel: document.getElementById('cat-short-label').value.trim() || label,
@@ -7618,7 +7605,7 @@ ${MARKET_COMPONENT_JS}
       detailsLabel: document.getElementById('cat-details-label').value.trim() || 'Details',
       detailsHint: document.getElementById('cat-details-hint').value.trim() || null,
       active: document.getElementById('cat-active').checked,
-      department: document.getElementById('cat-department').value || null,
+      department: department,
     };
     var r = editingCategoryKey
       ? await api('PUT','/tickets/categories/'+encodeURIComponent(editingCategoryKey), payload)
