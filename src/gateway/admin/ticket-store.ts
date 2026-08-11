@@ -114,8 +114,15 @@ export type Ticket = {
   orderAddress: string | null;
   assignedTo: string | null;
   isTest: boolean;
-  /** Sum of the priced choices the client ticked, in whole cents. */
+  /**
+   * Low end of the estimate in whole cents — the firm total when nothing on the
+   * ticket needs quoting, which is all this held before ranges existed.
+   */
   estimateCents: number | null;
+  /** High end, or null when every priced choice on the ticket is firm. */
+  estimateMaxCents: number | null;
+  /** Some line has to be quoted and accepted before work can start. */
+  quoteRequired: boolean;
   createdAt: number;
   updatedAt: number;
   resolvedAt: number | null;
@@ -139,6 +146,8 @@ export type CreateTicketParams = {
   isTest?: boolean;
   /** Server-computed total of the priced choices; never taken from the client. */
   estimateCents?: number | null;
+  estimateMaxCents?: number | null;
+  quoteRequired?: boolean;
 };
 
 export type UpdateTicketParams = {
@@ -178,6 +187,8 @@ type TicketRow = {
   created_by: string | null;
   is_test: number;
   estimate_cents: number | null;
+  estimate_max_cents: number | null;
+  quote_required: number;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -214,6 +225,8 @@ function rowToTicket(row: TicketRow): Ticket {
     assignedTo: row.assigned_to,
     isTest: row.is_test === 1,
     estimateCents: row.estimate_cents,
+    estimateMaxCents: row.estimate_max_cents,
+    quoteRequired: row.quote_required === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     resolvedAt: row.resolved_at,
@@ -344,6 +357,8 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
         created_by: params.createdBy ?? null,
         is_test: isTest ? 1 : 0,
         estimate_cents: params.estimateCents ?? null,
+        estimate_max_cents: params.estimateMaxCents ?? null,
+        quote_required: params.quoteRequired ? 1 : 0,
         created_at: now,
         updated_at: now,
         resolved_at: null,

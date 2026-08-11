@@ -113,6 +113,8 @@ const STAGING = [
     label: "Virtual staging",
     imageUrl: "https://example.com/vs.jpg",
     priceCents: 5000,
+    priceMaxCents: null,
+    quoteRequired: false,
     unitLabel: "per image",
     maxQuantity: 10,
     followUps: [
@@ -130,6 +132,8 @@ const STAGING = [
     label: "Twilight edit",
     imageUrl: null,
     priceCents: 7500,
+    priceMaxCents: null,
+    quoteRequired: false,
     unitLabel: null,
     maxQuantity: 1,
     followUps: [],
@@ -178,6 +182,106 @@ describe("the choice editor", () => {
     expect(options[1].unitLabel).toBe("per property");
   });
 
+  // A "To" price turns a fixed price into a range, and a range can never be
+  // started without a quote — so the tickbox follows the price, not the admin.
+  it("locks the quote tickbox on for a ranged price", () => {
+    const ui = mountEditor();
+    ui.load([{ label: "Item removal", priceCents: 2500, maxQuantity: 10, followUps: [] }]);
+    const box = ui.doc.querySelector(".ch-quote") as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(box.disabled).toBe(false);
+
+    const max = ui.doc.querySelector(".ch-price-max") as HTMLInputElement;
+    max.value = "75";
+    max.dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("input"));
+
+    expect(box.checked).toBe(true);
+    expect(box.disabled).toBe(true);
+    const options = ui.payload().options as Array<{
+      priceMaxCents: number | null;
+      quoteRequired: boolean;
+    }>;
+    expect(options[0].priceMaxCents).toBe(7500);
+    expect(options[0].quoteRequired).toBe(true);
+  });
+
+  it("releases the tickbox again when the range is cleared", () => {
+    const ui = mountEditor();
+    ui.load([
+      {
+        label: "Item removal",
+        priceCents: 2500,
+        priceMaxCents: 7500,
+        maxQuantity: 10,
+        followUps: [],
+      },
+    ]);
+    const box = ui.doc.querySelector(".ch-quote") as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+
+    const max = ui.doc.querySelector(".ch-price-max") as HTMLInputElement;
+    max.value = "";
+    max.dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("input"));
+
+    expect(box.disabled).toBe(false);
+    const options = ui.payload().options as Array<{
+      priceMaxCents: number | null;
+      quoteRequired: boolean;
+    }>;
+    expect(options[0].priceMaxCents).toBeNull();
+    expect(options[0].quoteRequired).toBe(false);
+  });
+
+  it("carries a quote flag with no price at all", () => {
+    const ui = mountEditor();
+    ui.load([{ label: "Custom retouching", priceCents: null, maxQuantity: 1, followUps: [] }]);
+    const box = ui.doc.querySelector(".ch-quote") as HTMLInputElement;
+    box.checked = true;
+    box.dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("change"));
+
+    const options = ui.payload().options as Array<{
+      priceCents: number | null;
+      quoteRequired: boolean;
+    }>;
+    expect(options[0].priceCents).toBeNull();
+    expect(options[0].quoteRequired).toBe(true);
+  });
+
+  it("names a backwards range instead of saving a band that reads wrong", () => {
+    const ui = mountEditor();
+    ui.load([
+      {
+        label: "Item removal",
+        priceCents: 7500,
+        priceMaxCents: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
+    ]);
+    const max = ui.doc.querySelector(".ch-price-max") as HTMLInputElement;
+    max.value = "25";
+    max.dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("input"));
+    expect(ui.payload().problem).toContain("not above");
+  });
+
+  it("names a To price with no From price", () => {
+    const ui = mountEditor();
+    ui.load([{ label: "Item removal", priceCents: null, maxQuantity: 1, followUps: [] }]);
+    const max = ui.doc.querySelector(".ch-price-max") as HTMLInputElement;
+    max.value = "75";
+    max.dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("input"));
+    expect(ui.payload().problem).toContain('no "From" price');
+  });
+
+  it("names a To price it could not read", () => {
+    const ui = mountEditor();
+    ui.load([{ label: "Item removal", priceCents: 2500, maxQuantity: 1, followUps: [] }]);
+    const max = ui.doc.querySelector(".ch-price-max") as HTMLInputElement;
+    max.value = "about double";
+    max.dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("input"));
+    expect(ui.payload().problem).toContain("Item removal");
+  });
+
   it("stores no unit at all when the box is cleared", () => {
     const ui = mountEditor();
     ui.load(STAGING);
@@ -196,6 +300,8 @@ describe("the choice editor", () => {
         label: "Photos",
         imageUrl: null,
         priceCents: null,
+        priceMaxCents: null,
+        quoteRequired: false,
         unitLabel: null,
         maxQuantity: 1,
         followUps: [],
@@ -204,6 +310,8 @@ describe("the choice editor", () => {
         label: "Aerial / Drone",
         imageUrl: null,
         priceCents: null,
+        priceMaxCents: null,
+        quoteRequired: false,
         unitLabel: null,
         maxQuantity: 1,
         followUps: [],

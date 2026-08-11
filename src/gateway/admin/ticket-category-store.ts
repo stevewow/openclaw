@@ -71,8 +71,25 @@ export type CategoryOption = {
   label: string;
   /** Thumbnail shown beside the choice, or null. */
   imageUrl: string | null;
-  /** Price in whole cents, or null when the choice isn't priced. */
+  /**
+   * Price in whole cents, or null when the choice isn't priced. With
+   * `priceMaxCents` set this is the low end of a range instead of a firm price.
+   */
   priceCents: number | null;
+  /**
+   * High end of a price range, or null for a firm price. Set only alongside a
+   * `priceCents` it exceeds. A range means the job has to be sized before it can
+   * be billed, so setting one also forces `quoteRequired`.
+   */
+  priceMaxCents: number | null;
+  /**
+   * Whether the desk has to quote this choice and have the client accept before
+   * work starts. Firm-priced choices start immediately; ranged and figure-less
+   * choices (custom retouching, decluttering) do not. Always true when
+   * `priceMaxCents` is set — normalization enforces it, so runtime code can read
+   * this one field instead of re-deriving the rule.
+   */
+  quoteRequired: boolean;
   /**
    * What one unit of the price is, written the way a client should read it —
    * "per image", "per room", "per 1,000 sq ft". Null falls back to "each",
@@ -166,7 +183,16 @@ export function toCategoryOption(raw: unknown): CategoryOption | null {
   if (typeof raw === "string") {
     const label = raw.trim();
     return label
-      ? { label, imageUrl: null, priceCents: null, unitLabel: null, maxQuantity: 1, followUps: [] }
+      ? {
+          label,
+          imageUrl: null,
+          priceCents: null,
+          priceMaxCents: null,
+          quoteRequired: false,
+          unitLabel: null,
+          maxQuantity: 1,
+          followUps: [],
+        }
       : null;
   }
   if (!raw || typeof raw !== "object") {
@@ -183,6 +209,20 @@ export function toCategoryOption(raw: unknown): CategoryOption | null {
   // treated as unpriced rather than silently rounded into a wrong number.
   const priceCents =
     typeof price === "number" && Number.isSafeInteger(price) && price >= 0 ? price : null;
+  const rawPriceMax = record.priceMaxCents;
+  // A ceiling is only a range if it sits above a floor. A max on its own, or one
+  // at or below the floor, is a typo — dropping it leaves a firm price, which is
+  // the reading that cannot over-quote a client.
+  const priceMaxCents =
+    typeof rawPriceMax === "number" &&
+    Number.isSafeInteger(rawPriceMax) &&
+    priceCents !== null &&
+    rawPriceMax > priceCents
+      ? rawPriceMax
+      : null;
+  // A range always needs sizing before it can be billed, so it implies the flag
+  // and every later read can trust this field alone.
+  const quoteRequired = priceMaxCents !== null || record.quoteRequired === true;
   // Wording only — it is never parsed back into a number, so anything an admin
   // types is honoured verbatim beyond a length cap.
   const unitLabel =
@@ -205,6 +245,8 @@ export function toCategoryOption(raw: unknown): CategoryOption | null {
     label,
     imageUrl: imageUrl || null,
     priceCents,
+    priceMaxCents,
+    quoteRequired,
     unitLabel: unitLabel || null,
     maxQuantity,
     followUps,
@@ -246,6 +288,8 @@ const MEDIA_OPTIONS: CategoryOption[] = [
   label,
   imageUrl: null,
   priceCents: null,
+  priceMaxCents: null,
+  quoteRequired: false,
   unitLabel: null,
   maxQuantity: 1,
   followUps: [],
@@ -362,18 +406,97 @@ export function optionUnitLabel(option: Pick<CategoryOption, "unitLabel">): stri
 }
 
 /**
- * "$50 each" / "$50 per image", or a bare "$50" when neither a custom unit nor
+ * "$50 each" / "$50 per image" / "$25–$75 per image", or "" for a choice with
+ * no figures at all. The bare "$50" form is used when neither a custom unit nor
  * a quantity picker gives the client anything to multiply.
  */
 export function formatUnitPrice(option: CategoryOption): string {
   if (option.priceCents === null) {
     return "";
   }
-  const price = formatPriceCents(option.priceCents);
+  const price =
+    option.priceMaxCents === null
+      ? formatPriceCents(option.priceCents)
+      : `${formatPriceCents(option.priceCents)}–${formatPriceCents(option.priceMaxCents)}`;
   if (option.unitLabel) {
     return `${price} ${option.unitLabel}`;
   }
   return option.maxQuantity > 1 ? `${price} each` : price;
+}
+
+/**
+ * What a set of picks adds up to, split by whether the desk can start on it.
+ *
+ * The two halves answer different questions and must not be blended: `firmCents`
+ * is money we can bill on submission, while the quoted band is an expectation we
+ * still have to confirm. `unquotedCount` is the choices carrying no figures at
+ * all — they belong to the quoted half but cannot move its numbers, so a total
+ * built from this has to say "and more to price" rather than imply the band is
+ * the whole story.
+ */
+export type EstimateBreakdown = {
+  /** Firm-priced lines: billable now, work can start. */
+  firmCents: number;
+  /** Low end of the ranged lines, 0 when none carry figures. */
+  quotedLowCents: number;
+  /** High end of the ranged lines, 0 when none carry figures. */
+  quotedHighCents: number;
+  /** Quote-required lines with no figures to contribute. */
+  unquotedCount: number;
+  /** True when anything picked has to be quoted and accepted first. */
+  needsQuote: boolean;
+  /** True when nothing picked carries a price at all. */
+  empty: boolean;
+};
+
+/** Add up already-resolved lines. Callers supply price × quantity per line. */
+export function summarizeEstimate(
+  lines: Array<{ option: CategoryOption; quantity: number }>,
+): EstimateBreakdown {
+  let firmCents = 0;
+  let quotedLowCents = 0;
+  let quotedHighCents = 0;
+  let unquotedCount = 0;
+  let needsQuote = false;
+  let priced = false;
+  for (const { option, quantity } of lines) {
+    if (option.quoteRequired) {
+      needsQuote = true;
+    }
+    if (option.priceCents === null) {
+      // A quote-required choice with no figures still has to be quoted; an
+      // ordinary unpriced choice is simply not part of the money at all.
+      if (option.quoteRequired) {
+        unquotedCount += 1;
+      }
+      continue;
+    }
+    priced = true;
+    const low = option.priceCents * quantity;
+    if (option.quoteRequired) {
+      quotedLowCents += low;
+      quotedHighCents += (option.priceMaxCents ?? option.priceCents) * quantity;
+    } else {
+      firmCents += low;
+    }
+  }
+  return {
+    firmCents,
+    quotedLowCents,
+    quotedHighCents,
+    unquotedCount,
+    needsQuote,
+    empty: !priced && unquotedCount === 0,
+  };
+}
+
+/** "$150" or "$125–$225" — the whole estimate as one span, ignoring figure-less lines. */
+export function formatEstimateRange(breakdown: EstimateBreakdown): string {
+  const low = breakdown.firmCents + breakdown.quotedLowCents;
+  const high = breakdown.firmCents + breakdown.quotedHighCents;
+  return low === high
+    ? formatPriceCents(low)
+    : `${formatPriceCents(low)}–${formatPriceCents(high)}`;
 }
 
 function normalizeExtraField(raw: string): CategoryExtraField {

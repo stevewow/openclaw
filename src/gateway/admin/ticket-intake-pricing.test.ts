@@ -19,6 +19,7 @@ let server: Server;
 let base: string;
 let serviceKey: string;
 let stagingKey: string;
+let editingKey: string;
 
 let clientCounter = 0;
 async function submit(body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -82,6 +83,25 @@ beforeAll(async () => {
     ],
   });
   stagingKey = staging.key;
+  // Firm, ranged, and figure-less side by side: the mix a real edit menu has.
+  const editing = await cats.createCategory({
+    label: "Order an edit",
+    shortLabel: "Edit",
+    extraField: "multiselect",
+    extraLabel: "Which edits?",
+    extraOptions: [
+      { label: "Twilight edit", priceCents: 7500 },
+      {
+        label: "Item removal",
+        priceCents: 2500,
+        priceMaxCents: 7500,
+        unitLabel: "per photo",
+        maxQuantity: 10,
+      },
+      { label: "Custom retouching", quoteRequired: true },
+    ],
+  });
+  editingKey = editing.key;
 
   server = createServer((req, res) => {
     void (async () => {
@@ -260,5 +280,80 @@ describe("the form the client is served", () => {
     expect(html).toContain("maxQuantity");
     expect(html).toContain("Preferred style");
     expect(html).toContain("Which image numbers / rooms?");
+  });
+});
+
+// The whole point of the split: a ticket that mixes firm and ranged work has to
+// reach the desk saying which half can be scheduled and which needs a quote
+// accepted first. Every figure here is recomputed server-side.
+describe("mixing fixed and quoted add-ons", () => {
+  function editSubmission(selections: unknown) {
+    return {
+      category: editingKey,
+      details: "Listing goes live Monday.",
+      requesterName: "Dana Agent",
+      requesterEmail: "dana@example.com",
+      extraSelections: selections,
+    };
+  }
+
+  it("stores the band and the quote flag on the ticket", async () => {
+    const res = await submit(
+      editSubmission(["Twilight edit", { label: "Item removal", quantity: 2 }]),
+    );
+    expect(res.status).toBe(201);
+
+    const ticket = await ticketFor(res.json.number as string);
+    expect(ticket.estimateCents).toBe(12500);
+    expect(ticket.estimateMaxCents).toBe(22500);
+    expect(ticket.quoteRequired).toBe(true);
+    expect(ticket.description).toContain("Starts right away: $75");
+    expect(ticket.description).toContain("Quoted before we start: $50–$150");
+    expect(ticket.description).toContain("Estimated total: $125–$225");
+  });
+
+  it("leaves a firm-only ticket unbanded and unflagged", async () => {
+    const res = await submit(editSubmission(["Twilight edit"]));
+    const ticket = await ticketFor(res.json.number as string);
+    expect(ticket.estimateCents).toBe(7500);
+    expect(ticket.estimateMaxCents).toBeNull();
+    expect(ticket.quoteRequired).toBe(false);
+    expect(ticket.description).toContain("Estimated total: $75");
+    expect(ticket.description).not.toContain("QUOTE FIRST");
+  });
+
+  it("flags a quote for a figure-less pick that moves no numbers", async () => {
+    const res = await submit(editSubmission(["Twilight edit", "Custom retouching"]));
+    const ticket = await ticketFor(res.json.number as string);
+    expect(ticket.estimateCents).toBe(7500);
+    expect(ticket.estimateMaxCents).toBeNull();
+    expect(ticket.quoteRequired).toBe(true);
+    expect(ticket.description).toContain("Estimated total: $75 + items still to price");
+  });
+
+  it("prices the range from our own list, not the payload", async () => {
+    const res = await submit(
+      editSubmission([
+        {
+          label: "Item removal",
+          quantity: 2,
+          priceCents: 1,
+          priceMaxCents: 2,
+          quoteRequired: false,
+        },
+      ]),
+    );
+    const ticket = await ticketFor(res.json.number as string);
+    expect(ticket.estimateCents).toBe(5000);
+    expect(ticket.estimateMaxCents).toBe(15000);
+    // A payload cannot talk its way out of needing a quote either.
+    expect(ticket.quoteRequired).toBe(true);
+  });
+
+  it("clamps a ranged quantity to the admin's ceiling before banding it", async () => {
+    const res = await submit(editSubmission([{ label: "Item removal", quantity: 999 }]));
+    const ticket = await ticketFor(res.json.number as string);
+    expect(ticket.estimateCents).toBe(25000);
+    expect(ticket.estimateMaxCents).toBe(75000);
   });
 });

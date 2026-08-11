@@ -78,6 +78,8 @@ describe("storing options", () => {
       label: "Twilight photos",
       imageUrl: "https://example.com/tw.jpg",
       priceCents: 7500,
+      priceMaxCents: null,
+      quoteRequired: false,
       unitLabel: null,
       maxQuantity: 1,
       followUps: [],
@@ -90,6 +92,8 @@ describe("storing options", () => {
       label: "Photos",
       imageUrl: null,
       priceCents: null,
+      priceMaxCents: null,
+      quoteRequired: false,
       unitLabel: null,
       maxQuantity: 1,
       followUps: [],
@@ -118,6 +122,8 @@ describe("storing options", () => {
         label: "ok",
         imageUrl: null,
         priceCents: null,
+        priceMaxCents: null,
+        quoteRequired: false,
         unitLabel: null,
         maxQuantity: 1,
         followUps: [],
@@ -180,6 +186,8 @@ describe("totalling what the client picked", () => {
       picked: [],
       selections: [],
       estimateCents: null,
+      estimateMaxCents: null,
+      quoteRequired: false,
       missingAnswer: null,
     });
   });
@@ -336,7 +344,7 @@ describe("what the department reads", () => {
   it("shows a half-dollar price without mangling it", () => {
     const option = cats.toCategoryOption({ label: "Retouch", priceCents: 14950 })!;
     const body = intake.composeDescription(priced, "Retouch", "please", [
-      { option, quantity: 1, answers: [], lineTotalCents: 14950 },
+      { option, quantity: 1, answers: [], lineTotalCents: 14950, lineTotalMaxCents: null },
     ]);
     expect(body).toContain("Retouch — $149.50");
   });
@@ -356,7 +364,7 @@ describe("what the department reads", () => {
       maxQuantity: 10,
     })!;
     const body = intake.composeDescription(priced, "Virtual staging ×3", "please", [
-      { option, quantity: 3, answers: [], lineTotalCents: 15000 },
+      { option, quantity: 3, answers: [], lineTotalCents: 15000, lineTotalMaxCents: null },
     ]);
     expect(body).toContain("• Virtual staging ×3 — $150 ($50 per image)");
   });
@@ -410,5 +418,209 @@ describe("unit wording", () => {
     expect(of({ label: "a", priceCents: 5000, maxQuantity: 10 })).toBe("$50 each");
     expect(of({ label: "a", priceCents: 7500 })).toBe("$75");
     expect(of({ label: "a", priceCents: null })).toBe("");
+  });
+});
+
+// Some add-ons are firm ($25 a twilight image) and some depend on how big the
+// job turns out to be (decluttering, item removal). A firm ticket can be
+// scheduled on arrival; a ranged one cannot start until the client accepts a
+// number. The two must never be blended into one confident-looking total.
+describe("choices that have to be quoted", () => {
+  const ranged = (over: Record<string, unknown> = {}) =>
+    cats.toCategoryOption({
+      label: "Item removal",
+      priceCents: 2500,
+      priceMaxCents: 7500,
+      unitLabel: "per photo",
+      maxQuantity: 10,
+      ...over,
+    })!;
+  const firm = (over: Record<string, unknown> = {}) =>
+    cats.toCategoryOption({ label: "Twilight edit", priceCents: 7500, ...over })!;
+
+  describe("storing the range", () => {
+    it("keeps a high end above the low one and forces the quote flag", () => {
+      const option = ranged();
+      expect(option.priceCents).toBe(2500);
+      expect(option.priceMaxCents).toBe(7500);
+      // Never a separate switch to forget: a range is quote-required by nature.
+      expect(option.quoteRequired).toBe(true);
+    });
+
+    it("drops a high end that is not above the low one", () => {
+      // Equal or inverted is a typo. Falling back to the firm low price is the
+      // reading that cannot over-quote a client.
+      expect(ranged({ priceMaxCents: 2500 }).priceMaxCents).toBeNull();
+      expect(ranged({ priceMaxCents: 1000 }).priceMaxCents).toBeNull();
+      expect(ranged({ priceMaxCents: 2500 }).quoteRequired).toBe(false);
+    });
+
+    it("drops a high end with no low end to anchor it", () => {
+      const option = cats.toCategoryOption({ label: "a", priceMaxCents: 7500 })!;
+      expect(option.priceMaxCents).toBeNull();
+      expect(option.priceCents).toBeNull();
+    });
+
+    it("refuses a fractional or negative high end", () => {
+      for (const bad of [10.5, -100, Number.NaN, "75", Number.POSITIVE_INFINITY]) {
+        expect(ranged({ priceMaxCents: bad }).priceMaxCents).toBeNull();
+      }
+    });
+
+    it("carries a bare quote flag with no figures at all", () => {
+      const option = cats.toCategoryOption({ label: "Custom retouching", quoteRequired: true })!;
+      expect(option.quoteRequired).toBe(true);
+      expect(option.priceCents).toBeNull();
+      expect(cats.formatUnitPrice(option)).toBe("");
+    });
+
+    it("survives a round trip through the store", async () => {
+      const saved = await cats.createCategory({
+        label: "Editing menu",
+        extraField: "multiselect",
+        extraLabel: "Which edits?",
+        extraOptions: [
+          { label: "Item removal", priceCents: 2500, priceMaxCents: 7500, maxQuantity: 10 },
+          { label: "Custom retouching", quoteRequired: true },
+          { label: "Twilight edit", priceCents: 7500 },
+        ],
+      });
+      const reloaded = (await cats.getCategory(saved.key))!;
+      expect(reloaded.extraOptions.map((o) => [o.priceMaxCents, o.quoteRequired])).toEqual([
+        [7500, true],
+        [null, true],
+        [null, false],
+      ]);
+    });
+  });
+
+  describe("wording the price", () => {
+    it("shows a range as a span", () => {
+      expect(cats.formatUnitPrice(ranged())).toBe("$25–$75 per photo");
+    });
+
+    it("still reads as each when a ranged choice has no unit wording", () => {
+      expect(cats.formatUnitPrice(ranged({ unitLabel: null }))).toBe("$25–$75 each");
+    });
+  });
+
+  describe("splitting the total", () => {
+    const sum = (lines: Array<[ReturnType<typeof firm>, number]>) =>
+      cats.summarizeEstimate(lines.map(([option, quantity]) => ({ option, quantity })));
+
+    it("keeps firm money apart from quoted money", () => {
+      const totals = sum([
+        [firm(), 1],
+        [ranged(), 2],
+      ]);
+      expect(totals.firmCents).toBe(7500);
+      expect(totals.quotedLowCents).toBe(5000);
+      expect(totals.quotedHighCents).toBe(15000);
+      expect(totals.needsQuote).toBe(true);
+      expect(cats.formatEstimateRange(totals)).toBe("$125–$225");
+    });
+
+    it("reads as a single firm number when nothing needs quoting", () => {
+      const totals = sum([[firm(), 2]]);
+      expect(totals.needsQuote).toBe(false);
+      expect(totals.quotedHighCents).toBe(0);
+      expect(cats.formatEstimateRange(totals)).toBe("$150");
+    });
+
+    it("counts a figure-less quoted choice without letting it move the numbers", () => {
+      const totals = sum([
+        [firm(), 1],
+        [cats.toCategoryOption({ label: "Custom", quoteRequired: true })!, 1],
+      ]);
+      expect(totals.firmCents).toBe(7500);
+      expect(totals.unquotedCount).toBe(1);
+      expect(totals.needsQuote).toBe(true);
+      // The band is complete for what we can price; the caller has to say the
+      // rest is still to come rather than imply $75 is the whole job.
+      expect(cats.formatEstimateRange(totals)).toBe("$75");
+    });
+
+    it("is empty when nothing picked carries a price or a quote", () => {
+      expect(sum([[cats.toCategoryOption({ label: "Photos" })!, 1]]).empty).toBe(true);
+    });
+  });
+
+  describe("what the client and the desk are told", () => {
+    let menu: Awaited<ReturnType<typeof cats.createCategory>>;
+    beforeAll(async () => {
+      menu = await cats.createCategory({
+        label: "Editing",
+        extraField: "multiselect",
+        extraLabel: "Which edits?",
+        extraOptions: [
+          { label: "Twilight edit", priceCents: 7500 },
+          {
+            label: "Item removal",
+            priceCents: 2500,
+            priceMaxCents: 7500,
+            unitLabel: "per photo",
+            maxQuantity: 10,
+          },
+          { label: "Custom retouching", quoteRequired: true },
+        ],
+      });
+    });
+
+    it("returns a banded estimate and the quote flag", () => {
+      const r = intake.resolveSelectedOptions(menu, [
+        "Twilight edit",
+        { label: "Item removal", quantity: 2 },
+      ]);
+      expect(r.estimateCents).toBe(12500);
+      expect(r.estimateMaxCents).toBe(22500);
+      expect(r.quoteRequired).toBe(true);
+    });
+
+    it("leaves a firm-only ticket reading exactly as it always did", () => {
+      const r = intake.resolveSelectedOptions(menu, ["Twilight edit"]);
+      expect(r.estimateCents).toBe(7500);
+      expect(r.estimateMaxCents).toBeNull();
+      expect(r.quoteRequired).toBe(false);
+    });
+
+    it("flags a quote even when the only quoted pick has no figures", () => {
+      const r = intake.resolveSelectedOptions(menu, ["Twilight edit", "Custom retouching"]);
+      expect(r.estimateCents).toBe(7500);
+      expect(r.estimateMaxCents).toBeNull();
+      expect(r.quoteRequired).toBe(true);
+    });
+
+    it("splits the department email so the desk knows what it can start", () => {
+      const { selections } = intake.resolveSelectedOptions(menu, [
+        "Twilight edit",
+        { label: "Item removal", quantity: 2 },
+      ]);
+      const body = intake.composeDescription(menu, null, "Before Friday", selections);
+      expect(body).toContain("• Twilight edit — $75");
+      expect(body).toContain("• Item removal ×2 — $50–$150 ($25–$75 per photo)  [QUOTE FIRST]");
+      expect(body).toContain("Starts right away: $75");
+      expect(body).toContain("Quoted before we start: $50–$150");
+      expect(body).toContain("Estimated total: $125–$225");
+      expect(body).toContain("Send a quote and get it accepted");
+    });
+
+    it("says a figure-less line is still to be priced", () => {
+      const { selections } = intake.resolveSelectedOptions(menu, [
+        "Twilight edit",
+        "Custom retouching",
+      ]);
+      const body = intake.composeDescription(menu, null, "thanks", selections);
+      expect(body).toContain("• Custom retouching — to be quoted  [QUOTE FIRST]");
+      expect(body).toContain("Quoted before we start: to be quoted");
+      expect(body).toContain("Estimated total: $75 + items still to price");
+    });
+
+    it("leaves a firm-only email without any quote wording", () => {
+      const { selections } = intake.resolveSelectedOptions(menu, ["Twilight edit"]);
+      const body = intake.composeDescription(menu, null, "thanks", selections);
+      expect(body).toContain("Estimated total: $75");
+      expect(body).not.toContain("QUOTE FIRST");
+      expect(body).not.toContain("Starts right away");
+    });
   });
 });

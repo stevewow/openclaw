@@ -442,8 +442,11 @@ type TicketsTable = {
   assigned_to: string | null;
   created_by: string | null;
   is_test: number;
-  /** Sum of the priced choices the client ticked, in whole cents. */
+  /** Low end of the estimate in whole cents; the firm total when nothing needs quoting. */
   estimate_cents: number | null;
+  /** High end, or null when every priced choice on the ticket is firm. */
+  estimate_max_cents: number | null;
+  quote_required: number;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -1200,6 +1203,17 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   // estimate, and 0 would read as "quoted at nothing" rather than "not quoted".
   if (!ticketColumns.some((c) => c.name === "estimate_cents")) {
     db.exec("ALTER TABLE admin_tickets ADD COLUMN estimate_cents INTEGER");
+  }
+  // A choice priced as a range makes the estimate a band rather than a number,
+  // and a banded or figure-less choice cannot be started until the client
+  // accepts a quote. Existing rows are firm by construction: they were taken
+  // when every choice carried one price, so a null high end and a 0 flag are
+  // the correct reading of them, not a default standing in for unknown.
+  if (!ticketColumns.some((c) => c.name === "estimate_max_cents")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN estimate_max_cents INTEGER");
+  }
+  if (!ticketColumns.some((c) => c.name === "quote_required")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN quote_required INTEGER NOT NULL DEFAULT 0");
   }
   // Spiro reports amountPaid/amountDue per invoice; the snapshot predates both.
   // Nullable, so rows cached before the next refresh read as "not reported"

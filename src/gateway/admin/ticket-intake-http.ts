@@ -6,10 +6,13 @@ import { MAX_INTAKE_BODY_BYTES, parseIntakeFiles } from "./ticket-attachment-int
 import {
   type CategoryOption,
   ensureCategorySeed,
+  type EstimateBreakdown,
+  formatEstimateRange,
   formatPriceCents,
+  formatUnitPrice,
   isChoiceField,
   listCategories,
-  optionUnitLabel,
+  summarizeEstimate,
   type TicketCategoryDef,
 } from "./ticket-category-store.js";
 import { listDepartmentEmails } from "./ticket-department-store.js";
@@ -101,13 +104,23 @@ export type SelectedOption = {
   answers: Array<{ id: string; label: string; value: string }>;
   /** price × quantity, or null when the choice isn't priced. */
   lineTotalCents: number | null;
+  /** high price × quantity, or null when the choice isn't ranged. */
+  lineTotalMaxCents: number | null;
 };
 
 export type ResolvedSelection = {
   /** The bare options, in form order — what the older callers wanted. */
   picked: CategoryOption[];
   selections: SelectedOption[];
+  /**
+   * Low end of the whole estimate. Equal to the firm total when nothing needs
+   * quoting, which is what it has always meant for a firm-only ticket.
+   */
   estimateCents: number | null;
+  /** High end, or null when every priced pick is firm. */
+  estimateMaxCents: number | null;
+  /** True when something picked has to be quoted and accepted before work starts. */
+  quoteRequired: boolean;
   /** First required follow-up left blank, or null when nothing is missing. */
   missingAnswer: { option: string; question: string } | null;
 };
@@ -118,6 +131,45 @@ const MAX_ANSWER_LENGTH = 2000;
 /** "Virtual staging ×3" once a choice carries a quantity, else just its label. */
 function selectionLabel(sel: SelectedOption): string {
   return sel.quantity > 1 ? `${sel.option.label} ×${sel.quantity}` : sel.option.label;
+}
+
+/**
+ * The money on one itemized line: its total, the per-unit price behind it when a
+ * quantity makes that worth checking, and a marker on anything that cannot be
+ * started until it is quoted.
+ */
+function lineMoney(sel: SelectedOption): string {
+  const tag = sel.option.quoteRequired ? "  [QUOTE FIRST]" : "";
+  if (sel.lineTotalCents === null) {
+    return sel.option.quoteRequired ? " — to be quoted  [QUOTE FIRST]" : "";
+  }
+  const total =
+    sel.lineTotalMaxCents === null
+      ? formatPriceCents(sel.lineTotalCents)
+      : `${formatPriceCents(sel.lineTotalCents)}–${formatPriceCents(sel.lineTotalMaxCents)}`;
+  // "×3 — $150 ($50 per image)": the unit price is what makes a quantity line
+  // checkable at a glance instead of arithmetic the desk has to redo. The unit
+  // wording is the admin's, so the email reads like the form did.
+  const each =
+    sel.quantity > 1 && sel.option.priceCents !== null ? ` (${formatUnitPrice(sel.option)})` : "";
+  return ` — ${total}${each}${tag}`;
+}
+
+/** The quoted half of a total: its band, or plain words when it has no figures. */
+function quotedSpan(totals: EstimateBreakdown): string {
+  if (totals.quotedHighCents === 0) {
+    return "to be quoted";
+  }
+  const span =
+    totals.quotedLowCents === totals.quotedHighCents
+      ? formatPriceCents(totals.quotedLowCents)
+      : `${formatPriceCents(totals.quotedLowCents)}–${formatPriceCents(totals.quotedHighCents)}`;
+  return totals.unquotedCount > 0 ? `${span}, plus items still to price` : span;
+}
+
+/** Flags a total that cannot be complete because some line carries no figures. */
+function moreToPrice(totals: EstimateBreakdown): string {
+  return totals.unquotedCount > 0 ? " + items still to price" : "";
 }
 
 /** The comma-joined answer that goes on the subject line and the ticket row. */
@@ -152,23 +204,26 @@ export function composeDescription(
   if (selections.length > 1 || priced.length > 0 || detailed) {
     const lines: string[] = [];
     for (const sel of selections) {
-      // "× 3 — $150 ($50 per image)": the unit price is what makes a quantity
-      // line checkable at a glance instead of arithmetic the desk has to redo.
-      // The unit wording is the admin's, so the email reads like the form did.
-      const each =
-        sel.quantity > 1 && sel.option.priceCents !== null
-          ? ` (${formatPriceCents(sel.option.priceCents)} ${optionUnitLabel(sel.option)})`
-          : "";
-      const money =
-        sel.lineTotalCents === null ? "" : ` — ${formatPriceCents(sel.lineTotalCents)}${each}`;
-      lines.push(`  • ${selectionLabel(sel)}${money}`);
+      lines.push(`  • ${selectionLabel(sel)}${lineMoney(sel)}`);
       for (const answer of sel.answers) {
         lines.push(`      ${answer.label}: ${answer.value}`);
       }
     }
-    if (priced.length > 0) {
-      const total = priced.reduce((sum, s) => sum + (s.lineTotalCents ?? 0), 0);
-      lines.push(`  Estimated total: ${formatPriceCents(total)}`);
+    const totals = summarizeEstimate(selections);
+    if (!totals.empty) {
+      // Split, because the two halves mean different things to the desk: the
+      // firm part is work that can be scheduled on receipt, the quoted part
+      // cannot start until the client accepts a number.
+      if (totals.needsQuote) {
+        if (totals.firmCents > 0) {
+          lines.push(`  Starts right away: ${formatPriceCents(totals.firmCents)}`);
+        }
+        lines.push(`  Quoted before we start: ${quotedSpan(totals)}`);
+        lines.push(`  Estimated total: ${formatEstimateRange(totals)}${moreToPrice(totals)}`);
+        lines.push("  ** Send a quote and get it accepted before starting the quoted items. **");
+      } else {
+        lines.push(`  Estimated total: ${formatPriceCents(totals.firmCents)}`);
+      }
     }
     return `${label}\n${lines.join("\n")}\n\n${details}`;
   }
@@ -218,7 +273,14 @@ export function resolveSelectedOptions(
   raw: unknown,
 ): ResolvedSelection {
   if (!isChoiceField(category.extraField)) {
-    return { picked: [], selections: [], estimateCents: null, missingAnswer: null };
+    return {
+      picked: [],
+      selections: [],
+      estimateCents: null,
+      estimateMaxCents: null,
+      quoteRequired: false,
+      missingAnswer: null,
+    };
   }
   const entries = (Array.isArray(raw) ? raw : [raw])
     .map((entry): { label: string; quantity: unknown; answers: unknown } | null => {
@@ -257,6 +319,7 @@ export function resolveSelectedOptions(
       quantity,
       answers,
       lineTotalCents: option.priceCents === null ? null : option.priceCents * quantity,
+      lineTotalMaxCents: option.priceMaxCents === null ? null : option.priceMaxCents * quantity,
     });
   }
   // A single-choice question takes one answer however many arrive.
@@ -273,12 +336,18 @@ export function resolveSelectedOptions(
     }
   }
 
-  const priced = limited.filter((s) => s.lineTotalCents !== null);
+  const totals = summarizeEstimate(limited);
+  const low = totals.firmCents + totals.quotedLowCents;
+  const high = totals.firmCents + totals.quotedHighCents;
+  const anyFigures = low > 0 || high > 0;
   return {
     picked: limited.map((s) => s.option),
     selections: limited,
-    estimateCents:
-      priced.length > 0 ? priced.reduce((sum, s) => sum + (s.lineTotalCents ?? 0), 0) : null,
+    // The low end doubles as the plain estimate for a firm-only ticket, which is
+    // what this field has always held — so old rows keep reading correctly.
+    estimateCents: anyFigures ? low : null,
+    estimateMaxCents: anyFigures && high !== low ? high : null,
+    quoteRequired: totals.needsQuote,
     missingAnswer,
   };
 }
@@ -402,10 +471,8 @@ export async function handleTicketIntakeRequest(
       data.extraValue ??
       data.mediaType ??
       data.serviceType;
-    const { selections, estimateCents, missingAnswer } = resolveSelectedOptions(
-      category,
-      rawSelection,
-    );
+    const { selections, estimateCents, estimateMaxCents, quoteRequired, missingAnswer } =
+      resolveSelectedOptions(category, rawSelection);
     // Asking a question and then filing the ticket without its answer is how a
     // job reaches the desk unbriefed; a stale page gets a fixable message.
     if (missingAnswer) {
@@ -431,6 +498,8 @@ export async function handleTicketIntakeRequest(
       orderId: str(data.orderId),
       orderAddress: str(data.orderAddress),
       estimateCents,
+      estimateMaxCents,
+      quoteRequired,
       isTest: Boolean(testGrant),
     });
 

@@ -23,6 +23,10 @@ export type IntakeOptionView = {
   label: string;
   imageUrl: string | null;
   priceCents: number | null;
+  /** High end of a price range, or null for a firm price. */
+  priceMaxCents: number | null;
+  /** Has to be quoted and accepted before work starts. Always true when ranged. */
+  quoteRequired: boolean;
   /** How the price is worded — "per image". Null reads as "each". */
   unitLabel: string | null;
   maxQuantity: number;
@@ -121,9 +125,16 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   .followup label { font-size:0.76rem; font-weight:600; }
   .followup .req { color:var(--wow); }
   .followup textarea { min-height:68px; }
-  .choice-total { margin-top:0.9rem; padding-top:0.75rem; border-top:1px solid var(--hairline); font-weight:700; font-size:0.88rem; letter-spacing:0.03em; text-transform:uppercase; display:flex; justify-content:space-between; gap:1rem; align-items:baseline; }
-  .choice-total .amt { color:var(--wow); font-size:1.25rem; letter-spacing:-0.02em; text-transform:none; white-space:nowrap; }
-  .choice-total .note { display:block; font-weight:400; font-size:0.72rem; letter-spacing:0; text-transform:none; color:var(--muted); margin-top:0.2rem; }
+  .choice .cq { display:inline-block; margin-top:0.3rem; font-size:0.62rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:0.12rem 0.45rem; }
+  /* The total is a small statement, not one number: what can start today and
+     what waits on a quote are different promises and are kept on their own rows. */
+  .choice-total { margin-top:0.9rem; padding-top:0.75rem; border-top:1px solid var(--hairline); }
+  .choice-total .tot-row { display:flex; justify-content:space-between; gap:1rem; align-items:baseline; padding:0.12rem 0; font-size:0.8rem; font-weight:600; color:var(--muted); }
+  .choice-total .tot-row .amt-sm { color:var(--ink); font-weight:700; white-space:nowrap; }
+  .choice-total .tot-grand { display:flex; justify-content:space-between; gap:1rem; align-items:baseline; margin-top:0.5rem; padding-top:0.55rem; border-top:1px solid var(--hairline); font-weight:700; font-size:0.88rem; letter-spacing:0.03em; text-transform:uppercase; }
+  .choice-total .tot-grand.solo { margin-top:0; padding-top:0; border-top:none; }
+  .choice-total .tot-grand .amt { color:var(--wow); font-size:1.25rem; letter-spacing:-0.02em; text-transform:none; white-space:nowrap; }
+  .choice-total .tot-note { font-weight:400; font-size:0.72rem; color:var(--muted); margin:0.45rem 0 0; line-height:1.45; }
   .btn { background:var(--wow); color:#fff; border:none; border-radius:999px; padding:0.9rem 1.5rem; font-family:inherit; font-weight:700; font-size:0.8rem; letter-spacing:0.09em; text-transform:uppercase; cursor:pointer; width:100%; transition:background 0.15s; }
   .btn:hover { background:var(--wow-dark); }
   .btn:disabled { opacity:0.5; cursor:default; }
@@ -278,13 +289,21 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   }
   function hasQuantity(opt){ return !!opt && Number(opt.maxQuantity) > 1; }
   // "$50 per image" when the admin worded the unit, "$50 each" when the client
-  // can order several, plain "$50" for a one-off. Mirrors formatUnitPrice on
-  // the server so the form and the ticket read the same.
+  // can order several, plain "$50" for a one-off, "$25–$75 per image" when the
+  // job has to be sized. Mirrors formatUnitPrice on the server so the form and
+  // the ticket read the same.
   function unitPrice(opt){
-    var price = money(opt.priceCents);
+    var price = hasRange(opt)
+      ? money(opt.priceCents) + '–' + money(opt.priceMaxCents)
+      : money(opt.priceCents);
     if (opt.unitLabel) return price + ' ' + opt.unitLabel;
     return hasQuantity(opt) ? price + ' each' : price;
   }
+  function hasPrice(opt){ return !!opt && opt.priceCents !== null && opt.priceCents !== undefined; }
+  function hasRange(opt){
+    return !!opt && opt.priceMaxCents !== null && opt.priceMaxCents !== undefined;
+  }
+  function needsQuote(opt){ return !!opt && opt.quoteRequired === true; }
   function followUpsOf(opt){ return (opt && opt.followUps) || []; }
 
   /** Every ticked choice, in form order, with its quantity and answers. */
@@ -305,18 +324,68 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     });
     return out;
   }
-  // The server recomputes this from its own price list; this is the client's
-  // running preview, so a stale page can never quote a number we honour.
-  function renderTotal(){
-    var sum = 0, priced = 0;
+  /**
+   * Split the picks into what we can start on and what we have to price first.
+   * Mirrors summarizeEstimate on the server — this is only the client's running
+   * preview, and the server recomputes every figure from its own list, so a
+   * stale page can never quote a number we honour.
+   */
+  function estimate(){
+    var firm = 0, quotedLow = 0, quotedHigh = 0, unquoted = 0, quote = false, priced = false;
     pickedSelections().forEach(function(s){
-      var cents = s.option.priceCents;
-      if (cents !== null && cents !== undefined) { sum += cents * s.quantity; priced++; }
+      var opt = s.option;
+      if (needsQuote(opt)) quote = true;
+      if (!hasPrice(opt)) {
+        if (needsQuote(opt)) unquoted++;
+        return;
+      }
+      priced = true;
+      var low = opt.priceCents * s.quantity;
+      if (needsQuote(opt)) {
+        quotedLow += low;
+        quotedHigh += (hasRange(opt) ? opt.priceMaxCents : opt.priceCents) * s.quantity;
+      } else {
+        firm += low;
+      }
     });
-    if (!priced) { totalEl.classList.add('hidden'); totalEl.textContent = ''; return; }
+    return {
+      firm: firm, quotedLow: quotedLow, quotedHigh: quotedHigh,
+      unquoted: unquoted, quote: quote, empty: !priced && unquoted === 0
+    };
+  }
+  function span(low, high){
+    return low === high ? money(low) : money(low) + '–' + money(high);
+  }
+  function row(label, amount){
+    return '<div class="tot-row"><span>' + label + '</span>' +
+      '<span class="amt-sm">' + amount + '</span></div>';
+  }
+  function renderTotal(){
+    var e = estimate();
+    if (e.empty) { totalEl.classList.add('hidden'); totalEl.textContent = ''; return; }
     totalEl.classList.remove('hidden');
-    totalEl.innerHTML = '<span>Estimated total<span class="note">A quote, not a charge — we confirm before any work starts.</span></span>' +
-      '<span class="amt">' + money(sum) + '</span>';
+    // Nothing needs quoting: one firm number, exactly as before.
+    if (!e.quote) {
+      totalEl.innerHTML =
+        '<div class="tot-grand solo"><span>Estimated total</span>' +
+        '<span class="amt">' + money(e.firm) + '</span></div>' +
+        '<p class="tot-note">A quote, not a charge — we confirm before any work starts.</p>';
+      return;
+    }
+    // The two halves are kept apart because they mean different things: one is
+    // work we can start today, the other waits on a number the client accepts.
+    var quoted = e.quotedHigh === 0
+      ? 'To be quoted'
+      : span(e.quotedLow, e.quotedHigh) + (e.unquoted > 0 ? ' +' : '');
+    var html = '';
+    if (e.firm > 0) html += row('Starts right away', money(e.firm));
+    html += row('Quoted before we start', quoted);
+    html += '<div class="tot-grand"><span>Estimated total</span><span class="amt">' +
+      span(e.firm + e.quotedLow, e.firm + e.quotedHigh) + (e.unquoted > 0 ? ' +' : '') +
+      '</span></div>';
+    html += '<p class="tot-note">We\\'ll email a quote for the items that need one. ' +
+      'Nothing is charged until you approve it.</p>';
+    totalEl.innerHTML = html;
   }
   /** One question's control, wired to write straight into the answers map. */
   function renderFollowUp(idx, f){
@@ -430,11 +499,19 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
       var text = document.createElement('span');
       text.className = 'cl';
       text.textContent = opt.label;
-      if (opt.priceCents !== null && opt.priceCents !== undefined) {
+      if (hasPrice(opt)) {
         var price = document.createElement('span');
         price.className = 'cp';
         price.textContent = unitPrice(opt);
         text.appendChild(price);
+      }
+      // Says up front that ticking this will not start work — a client should
+      // learn that here, not after they submit.
+      if (needsQuote(opt)) {
+        var flag = document.createElement('span');
+        flag.className = 'cq';
+        flag.textContent = hasPrice(opt) ? 'Quoted first' : 'Priced on request';
+        text.appendChild(flag);
       }
       pick.appendChild(text);
       card.appendChild(pick);
@@ -488,7 +565,7 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
         // when a choice carries a quantity or its own questions, which a bare
         // <select> has nowhere to put.
         var rich = (c.extraOptions || []).some(function(o){
-          return o.imageUrl || (o.priceCents !== null && o.priceCents !== undefined) ||
+          return o.imageUrl || hasPrice(o) || needsQuote(o) ||
             hasQuantity(o) || followUpsOf(o).length > 0;
         });
         if (kind === 'multiselect' || rich) {

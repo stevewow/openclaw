@@ -19,6 +19,8 @@ const STAGING: IntakeCategoryView = {
       label: "Virtual staging",
       imageUrl: null,
       priceCents: 5000,
+      priceMaxCents: null,
+      quoteRequired: false,
       unitLabel: null,
       maxQuantity: 10,
       followUps: [
@@ -44,6 +46,8 @@ const STAGING: IntakeCategoryView = {
       label: "Twilight edit",
       imageUrl: null,
       priceCents: 7500,
+      priceMaxCents: null,
+      quoteRequired: false,
       unitLabel: null,
       maxQuantity: 1,
       followUps: [],
@@ -290,5 +294,125 @@ describe("how a price is worded", () => {
     ui.tick(0);
     ui.setValue(ui.doc.querySelector(".qty-select")!, "3", "change");
     expect(ui.total()).toContain("$150");
+  });
+});
+
+// A firm add-on can be scheduled the moment it arrives; a ranged one waits on a
+// quote the client accepts. The form has to say which is which BEFORE they
+// submit, and must never present the two as one confident number.
+describe("choices that have to be quoted", () => {
+  const RANGED: IntakeCategoryView = {
+    ...STAGING,
+    extraOptions: [
+      {
+        label: "Twilight edit",
+        imageUrl: null,
+        priceCents: 7500,
+        priceMaxCents: null,
+        quoteRequired: false,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
+      {
+        label: "Item removal",
+        imageUrl: null,
+        priceCents: 2500,
+        priceMaxCents: 7500,
+        quoteRequired: true,
+        unitLabel: "per photo",
+        maxQuantity: 10,
+        followUps: [],
+      },
+      {
+        label: "Custom retouching",
+        imageUrl: null,
+        priceCents: null,
+        priceMaxCents: null,
+        quoteRequired: true,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
+    ],
+  };
+  const open = () => openForm([RANGED]);
+  const priceOf = (ui: ReturnType<typeof openForm>, i: number) =>
+    ui.choices()[i].querySelector(".cp")?.textContent ?? "";
+  const flagOf = (ui: ReturnType<typeof openForm>, i: number) =>
+    ui.choices()[i].querySelector(".cq")?.textContent ?? "";
+  const rows = (ui: ReturnType<typeof openForm>) =>
+    Array.from(ui.doc.querySelectorAll(".tot-row")).map((r) => r.textContent ?? "");
+  const grand = (ui: ReturnType<typeof openForm>) =>
+    ui.doc.querySelector(".tot-grand")?.textContent ?? "";
+
+  it("shows a range and marks it as needing a quote", () => {
+    const ui = open();
+    expect(priceOf(ui, 1)).toBe("$25–$75 per photo");
+    expect(flagOf(ui, 1)).toBe("Quoted first");
+    // A firm choice carries no marker at all.
+    expect(flagOf(ui, 0)).toBe("");
+  });
+
+  it("offers a figure-less choice as priced on request", () => {
+    const ui = open();
+    expect(priceOf(ui, 2)).toBe("");
+    expect(flagOf(ui, 2)).toBe("Priced on request");
+  });
+
+  it("splits the total into what starts now and what waits", () => {
+    const ui = open();
+    ui.tick(0);
+    ui.tick(1);
+    ui.setValue(ui.doc.querySelector(".qty-select")!, "2", "change");
+
+    expect(rows(ui)).toEqual(["Starts right away$75", "Quoted before we start$50–$150"]);
+    expect(grand(ui)).toBe("Estimated total$125–$225");
+    expect(ui.total()).toContain("Nothing is charged until you approve it.");
+  });
+
+  it("keeps a firm-only pick as one plain number", () => {
+    const ui = open();
+    ui.tick(0);
+    // No split lines to read when there is nothing waiting on a quote.
+    expect(rows(ui)).toEqual([]);
+    expect(grand(ui)).toBe("Estimated total$75");
+    expect(ui.total()).toContain("A quote, not a charge");
+  });
+
+  it("drops the split again when the quoted choice is unticked", () => {
+    const ui = open();
+    ui.tick(0);
+    ui.tick(1);
+    expect(rows(ui)).toHaveLength(2);
+    ui.tick(1);
+    expect(rows(ui)).toEqual([]);
+    expect(grand(ui)).toBe("Estimated total$75");
+  });
+
+  it("says a figure-less pick is still to be priced instead of inventing a number", () => {
+    const ui = open();
+    ui.tick(0);
+    ui.tick(2);
+    expect(rows(ui)).toEqual(["Starts right away$75", "Quoted before we startTo be quoted"]);
+    // The "+" is what stops $75 reading as the whole job.
+    expect(grand(ui)).toBe("Estimated total$75 +");
+  });
+
+  it("shows a quoted-only pick without a phantom firm line", () => {
+    const ui = open();
+    ui.tick(1);
+    expect(rows(ui)).toEqual(["Quoted before we start$25–$75"]);
+    expect(grand(ui)).toBe("Estimated total$25–$75");
+  });
+
+  it("submits a quoted choice like any other — the server prices it", async () => {
+    const ui = open();
+    ui.tick(1);
+    ui.fillRequester();
+    await ui.submit();
+    expect(ui.posts[0].body.extraSelections).toEqual([
+      { label: "Item removal", quantity: 1, answers: [] },
+    ]);
   });
 });
