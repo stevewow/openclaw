@@ -1,6 +1,10 @@
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
-import { PROJECT_CALENDAR_COMPONENT_JS, PROJECT_CALENDAR_MARKUP } from "./project-calendar-ui.js";
+import {
+  PROJECT_CALENDAR_COMPONENT_JS,
+  PROJECT_CALENDAR_CSS,
+  PROJECT_CALENDAR_MARKUP,
+} from "./project-calendar-ui.js";
 
 /**
  * The component ships as a string of browser JS that each SPA interpolates, so
@@ -163,6 +167,36 @@ describe("createProjectCalendar", () => {
     // chip handler for a day that happens to hold one.
     (doc.querySelector('.cal-day[data-date="' + day(25) + '"]') as HTMLElement).click();
     expect(seen).toEqual(["task:t1", "project:p1", `day:${day(25)}`]);
+  });
+
+  /**
+   * A tablet used to get seven squeezed columns and clipped chips. The fix is
+   * structural rather than a breakpoint: both grids sit in one scroll box and
+   * declare the same minimum width, so a narrow viewport scrolls the week
+   * sideways with the weekday header still sitting over its own column.
+   */
+  it("keeps the weekday header and the day grid in one scroller", () => {
+    const { doc } = mountCalendar({ tasks: () => [], projects: () => [] });
+    const scroller = doc.querySelector(".cal-scroll");
+    expect(scroller).not.toBeNull();
+    expect(doc.querySelector(".cal-weekdays")?.closest(".cal-scroll")).toBe(scroller);
+    expect(doc.querySelector(".cal-days")?.closest(".cal-scroll")).toBe(scroller);
+    // Seven headers over seven columns — a day cell is still addressable.
+    expect(doc.querySelectorAll(".cal-weekday").length).toBe(7);
+    expect(doc.querySelector(".cal-day[data-date]")).not.toBeNull();
+    // JSDOM does no layout, so the rules that do the actual work are asserted
+    // directly: without all three the columns would collapse again.
+    expect(PROJECT_CALENDAR_CSS).toContain(".cal-scroll { overflow-x: auto;");
+    expect(PROJECT_CALENDAR_CSS).toMatch(/\.cal-weekdays, \.cal-days \{ min-width: \d+px; \}/);
+    // The one that actually held the week together: a 1fr track is
+    // minmax(auto, 1fr), so without a zero minimum a day holding a long chip
+    // grew its own column and slid out from under its weekday header. Measured
+    // at 768px this was a 52px drift before the rule and 0 after.
+    expect(PROJECT_CALENDAR_CSS).toMatch(/\.cal-day \{ min-width: 0; overflow: hidden;/);
+    // The small-screen block may compact rows, but must never restate a column
+    // width — that is the collapse this fix removed.
+    const narrow = PROJECT_CALENDAR_CSS.slice(PROJECT_CALENDAR_CSS.indexOf("@media"));
+    expect(narrow).not.toContain("grid-template-columns");
   });
 
   it("offers no add affordance when the host passes no onDay", () => {

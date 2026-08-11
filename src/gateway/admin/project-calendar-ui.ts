@@ -12,11 +12,34 @@ export const PROJECT_CALENDAR_CSS = `
   .cal-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
   .cal-header { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); }
   .cal-title { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
+  /*
+   * A week is seven columns wide whatever the screen is. Squeezing them to fit a
+   * tablet is what made the grid unreadable — a day column narrower than about
+   * 100px cannot hold a date, a project bar and a task chip, so the content
+   * clipped instead of the layout adapting. Below that width the calendar keeps
+   * its columns and scrolls sideways instead. The weekday header and the day
+   * grid carry the same min-width and share one scroll box, so they can never
+   * drift out of alignment.
+   */
+  .cal-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+  /* 940 = seven ~134px columns, the narrowest that still fits a date, a project
+     bar and a readable task chip. A 1024px laptop clears it without a scrollbar;
+     anything narrower scrolls rather than shrinking the week. */
+  .cal-weekdays, .cal-days { min-width: 940px; }
   .cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border); background: var(--surface2); }
   .cal-weekday { padding: 0.5rem 0.4rem; text-align: center; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-right: 1px solid var(--border); }
   .cal-weekday:last-child { border-right: none; }
   .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); }
-  .cal-day { min-height: 90px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.35rem 0.4rem; cursor: pointer; transition: background 0.1s; }
+  /*
+   * min-width:0 is load-bearing. A 1fr grid track means minmax(auto, 1fr), and
+   * a cell's automatic minimum is its content — so a day holding a long task
+   * chip pushed its own column wider than the rest and the whole week stopped
+   * lining up under the weekday header. Wide screens hid it (there was slack
+   * for every track to reach 1fr); a tablet showed it as ragged columns. Zeroing
+   * the minimum makes all seven exactly 1fr at every width, and the chip's own
+   * ellipsis handles text that no longer fits.
+   */
+  .cal-day { min-width: 0; overflow: hidden; min-height: 90px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.35rem 0.4rem; cursor: pointer; transition: background 0.1s; }
   .cal-day:hover { background: var(--surface2); }
   .cal-day:nth-child(7n) { border-right: none; }
   .cal-day-num { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.2rem; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
@@ -33,6 +56,7 @@ export const PROJECT_CALENDAR_CSS = `
   .cal-proj-bar.cal-proj-end { border-radius: 0 3px 3px 0; }
   .cal-proj-bar.cal-proj-solo { border-radius: 3px; }
   .cal-proj-bar:hover { filter: brightness(0.95); }
+  /* Vertical density only — the columns keep their width and scroll instead. */
   @media (max-width: 640px) {
     .cal-day { min-height: 64px; padding: 0.25rem; }
     .cal-day-num { font-size: 0.7rem; width: 18px; height: 18px; }
@@ -53,12 +77,14 @@ export const PROJECT_CALENDAR_MARKUP = `
               <span class="cal-title"></span>
               <button type="button" class="btn btn-ghost btn-sm cal-next">Next →</button>
             </div>
-            <div class="cal-weekdays">
-              <div class="cal-weekday">Sun</div><div class="cal-weekday">Mon</div><div class="cal-weekday">Tue</div>
-              <div class="cal-weekday">Wed</div><div class="cal-weekday">Thu</div><div class="cal-weekday">Fri</div>
-              <div class="cal-weekday">Sat</div>
+            <div class="cal-scroll">
+              <div class="cal-weekdays">
+                <div class="cal-weekday">Sun</div><div class="cal-weekday">Mon</div><div class="cal-weekday">Tue</div>
+                <div class="cal-weekday">Wed</div><div class="cal-weekday">Thu</div><div class="cal-weekday">Fri</div>
+                <div class="cal-weekday">Sat</div>
+              </div>
+              <div class="cal-days"></div>
             </div>
-            <div class="cal-days"></div>
           </div>
 `;
 
