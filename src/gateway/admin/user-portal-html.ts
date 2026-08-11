@@ -535,6 +535,54 @@ ${MARKET_CSS}
   </div>
 </div>
 
+<!-- Contributing to the library. Only mounted for holders of the upload grant;
+     there is deliberately no filing or visibility control here — where an upload
+     lands and who may see it stay an admin's decisions. -->
+<div id="pr-modal" class="modal-backdrop hidden">
+  <div class="modal-box">
+    <h3 id="pr-modal-title">Add Resource</h3>
+    <div id="pr-modal-error" class="alert alert-error hidden"></div>
+    <form id="pr-modal-form">
+      <input type="hidden" id="pr-id">
+      <div class="form-group">
+        <label for="pr-type">Type</label>
+        <select id="pr-type">
+          <option value="file">File upload</option>
+          <option value="link">Link</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="pr-title">Title</label>
+        <input id="pr-title" required>
+      </div>
+      <div class="form-group" id="pr-file-group">
+        <label for="pr-file">File</label>
+        <input id="pr-file" type="file">
+        <div class="text-muted" style="font-size:0.75rem;margin-top:0.25rem" id="pr-file-note">Up to 15 MB.</div>
+      </div>
+      <div class="form-group hidden" id="pr-url-group">
+        <label for="pr-url">URL</label>
+        <input id="pr-url" type="url" placeholder="https://…">
+      </div>
+      <div class="form-group">
+        <label for="pr-desc">Description</label>
+        <textarea id="pr-desc" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="pr-tags">Tags</label>
+        <input id="pr-tags" placeholder="Separate with commas">
+      </div>
+      <div class="text-muted" style="font-size:0.75rem" id="pr-dest"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm hidden" id="pr-delete" style="color:#991b1b">Delete</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn btn-ghost" id="pr-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pr-save">Add Resource</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
   let token = localStorage.getItem('oc_portal_token');
   let currentUser = null;
@@ -601,11 +649,22 @@ ${MARKET_COMPONENT_JS}
   ];
   function anyReportGranted(){ return PORTAL_REPORTS.some(function(r){ return hasReport(r.key); }); }
 
+  /**
+   * Whether the library is reachable at all. Being allowed to contribute to it
+   * implies being allowed to look at it — otherwise an upload grant would put
+   * files somewhere its holder cannot open.
+   */
+  function canSeeResources(){ return hasFeature('resources') || hasFeature('resource-upload'); }
+  /** Whether this viewer may add to the library and tend what they added. */
+  function canUploadResources(){ return hasFeature('resource-upload'); }
+
   // Deny-by-default: show a nav item only when the section is granted.
   function applyAccess(){
     document.querySelectorAll('.nav-link[data-feature]').forEach(function(a){
       var feat = a.dataset.feature;
-      var ok = feat === 'reports' ? anyReportGranted() : hasFeature(feat);
+      var ok = feat === 'reports' ? anyReportGranted()
+        : feat === 'resources' ? canSeeResources()
+        : hasFeature(feat);
       a.style.display = ok ? '' : 'none';
     });
   }
@@ -613,7 +672,7 @@ ${MARKET_COMPONENT_JS}
     if (hasFeature('chat')) return 'chat';
     if (hasFeature('projects')) return 'tasks';
     if (anyReportGranted()) return 'reports';
-    if (hasFeature('resources')) return 'resources';
+    if (canSeeResources()) return 'resources';
     return 'account';
   }
 
@@ -1141,6 +1200,15 @@ ${MARKET_COMPONENT_JS}
     loadResources();
   };
 
+  /**
+   * An upload this viewer filed themselves. The grant is checked as well as the
+   * name, so revoking it takes the buttons away rather than leaving controls
+   * the server will refuse.
+   */
+  function ownResource(r) {
+    return canUploadResources() && !!r.createdBy && !!currentUser && r.createdBy === currentUser.id;
+  }
+
   function resourceCardHtml(r) {
     const tags = (r.tags ?? []).map(t => '<span class="resource-tag">' + esc(t) + '</span>').join('');
     let footer = '';
@@ -1148,6 +1216,9 @@ ${MARKET_COMPONENT_JS}
       footer = '<a href="/api/admin/resources/' + esc(r.id) + '/file" class="btn btn-ghost btn-sm" download>Download</a>';
     } else if (r.type === 'link' && r.url) {
       footer = '<a href="' + esc(r.url) + '" target="_blank" rel="noreferrer noopener" class="btn btn-ghost btn-sm">Open Link</a>';
+    }
+    if (ownResource(r)) {
+      footer = '<button class="btn btn-ghost btn-sm" onclick="portalEditResource(\\'' + esc(r.id) + '\\')">Edit</button>' + footer;
     }
     return '<div class="resource-card">' +
       '<div class="resource-card-body">' +
@@ -1206,10 +1277,18 @@ ${MARKET_COMPONENT_JS}
     for (const item of resources) portalResourceMap[item.id] = item;
     portalFolderMap = {};
     for (const item of folders) portalFolderMap[item.id] = item;
+    const trail = (r.ok && r.data.breadcrumb) || [];
+    portalUploadFolderName = trail.length ? (trail[trail.length - 1].name || '') : '';
 
     const toolbar = '<div class="resources-toolbar" style="margin-bottom:0.75rem">' +
       '<button class="btn btn-ghost btn-sm" onclick="portalToggleFavoritesView()">' +
-      (portalFavoritesOnly ? '★ Showing favorites' : '☆ Favorites') + '</button></div>';
+      (portalFavoritesOnly ? '★ Showing favorites' : '☆ Favorites') + '</button>' +
+      // Uploading into the favorites view would have nowhere to file the result,
+      // so the button rides the folder view only.
+      (canUploadResources() && !portalFavoritesOnly
+        ? '<button class="btn btn-primary btn-sm" onclick="portalAddResource()">+ Add Resource</button>'
+        : '') +
+      '</div>';
 
     if (!resources.length && !folders.length) {
       // At the root with nothing at all is a different problem from an empty
@@ -1217,9 +1296,14 @@ ${MARKET_COMPONENT_JS}
       const body = portalFavoritesOnly
         ? '<p>Nothing favorited yet.</p><p style="margin-top:0.35rem;font-size:0.8rem">Tap the ☆ on any folder or resource to keep it here.</p>'
         : portalFolderId
-          ? '<p>This folder is empty.</p>'
+          ? '<p>This folder is empty.</p>' +
+            (canUploadResources()
+              ? '<p style="margin-top:0.35rem;font-size:0.8rem">Use <strong>+ Add Resource</strong> to put something here.</p>'
+              : '')
           : '<p>No resources are available to you yet.</p>' +
-            '<p style="margin-top:0.35rem;font-size:0.8rem">An admin can make resources available by enabling <strong>User Access</strong> in the Resource Library.</p>';
+            (canUploadResources()
+              ? '<p style="margin-top:0.35rem;font-size:0.8rem">Use <strong>+ Add Resource</strong> to add the first one.</p>'
+              : '<p style="margin-top:0.35rem;font-size:0.8rem">An admin can make resources available by enabling <strong>User Access</strong> in the Resource Library.</p>');
       container.innerHTML = toolbar + portalBreadcrumbHtml(r.ok ? r.data.breadcrumb : []) +
         '<div class="empty-state">' + body + '</div>';
       return;
@@ -1228,6 +1312,147 @@ ${MARKET_COMPONENT_JS}
       (folders.length ? '<div class="resources-grid" style="margin-bottom:1rem">' + folders.map(portalFolderCardHtml).join('') + '</div>' : '') +
       (resources.length ? '<div class="resources-grid">' + resources.map(resourceCardHtml).join('') + '</div>' : '');
   }
+
+  // ── Contributing to the library ─────────────────────────────────────────────
+  // Adding and tending one's own uploads. Everything here is gated on the same
+  // grant the server checks, and files land in the folder currently open, so a
+  // contributor never has to think about where the library keeps things.
+
+  /** The open folder's name, for telling someone where their upload will land. */
+  let portalUploadFolderName = '';
+
+  function prShowType() {
+    const editing = !!document.getElementById('pr-id').value;
+    const isFile = document.getElementById('pr-type').value === 'file';
+    // A file's bytes are replaced by deleting and re-uploading, never by an
+    // edit, so the picker is only offered while creating.
+    document.getElementById('pr-file-group').classList.toggle('hidden', !isFile || editing);
+    document.getElementById('pr-url-group').classList.toggle('hidden', isFile);
+  }
+
+  function prOpen(resource) {
+    const err = document.getElementById('pr-modal-error');
+    err.classList.add('hidden');
+    err.textContent = '';
+    document.getElementById('pr-id').value = resource ? resource.id : '';
+    document.getElementById('pr-modal-title').textContent = resource ? 'Edit Resource' : 'Add Resource';
+    document.getElementById('pr-save').textContent = resource ? 'Save Changes' : 'Add Resource';
+    document.getElementById('pr-type').value = resource ? resource.type : 'file';
+    document.getElementById('pr-type').disabled = !!resource;
+    document.getElementById('pr-title').value = resource ? (resource.title || '') : '';
+    document.getElementById('pr-desc').value = resource ? (resource.description || '') : '';
+    document.getElementById('pr-tags').value = resource ? (resource.tags || []).join(', ') : '';
+    document.getElementById('pr-url').value = resource ? (resource.url || '') : '';
+    document.getElementById('pr-file').value = '';
+    document.getElementById('pr-delete').classList.toggle('hidden', !resource);
+    document.getElementById('pr-dest').textContent = resource
+      ? ''
+      : 'Filed in ' + (portalUploadFolderName || 'All resources') + '.';
+    prShowType();
+    document.getElementById('pr-modal').classList.remove('hidden');
+    document.getElementById('pr-title').focus();
+  }
+
+  window.portalAddResource = function() { prOpen(null); };
+  window.portalEditResource = function(id) {
+    const r = portalResourceMap[id];
+    if (r) prOpen(r);
+  };
+
+  function prClose() { document.getElementById('pr-modal').classList.add('hidden'); }
+  document.getElementById('pr-cancel').addEventListener('click', prClose);
+  document.getElementById('pr-modal').addEventListener('click', function(e) {
+    if (e.target === this) prClose();
+  });
+  document.getElementById('pr-type').addEventListener('change', prShowType);
+
+  function prTags() {
+    return document.getElementById('pr-tags').value.split(',')
+      .map(function(t) { return t.trim(); })
+      .filter(Boolean);
+  }
+
+  /** A file as the base64 the resource endpoint expects, sans data: prefix. */
+  function prFileData(file) {
+    return new Promise(function(resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function() { resolve(String(reader.result).split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  document.getElementById('pr-modal-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const err = document.getElementById('pr-modal-error');
+    const save = document.getElementById('pr-save');
+    const id = document.getElementById('pr-id').value;
+    const fail = function(message) {
+      err.textContent = message;
+      err.classList.remove('hidden');
+      save.disabled = false;
+      save.textContent = id ? 'Save Changes' : 'Add Resource';
+    };
+    err.classList.add('hidden');
+    save.disabled = true;
+    save.textContent = 'Saving…';
+
+    const title = document.getElementById('pr-title').value.trim();
+    if (!title) { fail('A title is required.'); return; }
+    const body = {
+      title: title,
+      description: document.getElementById('pr-desc').value.trim() || null,
+      tags: prTags(),
+    };
+    let r;
+    if (id) {
+      // Editing describes the resource; the type, its bytes and its filing are
+      // fixed at upload, and the server refuses to change them here anyway.
+      if (document.getElementById('pr-type').value === 'link') {
+        const url = document.getElementById('pr-url').value.trim();
+        if (!url) { fail('A URL is required.'); return; }
+        body.url = url;
+      }
+      r = await api('PUT', '/resources/' + id, body);
+    } else if (document.getElementById('pr-type').value === 'link') {
+      const url = document.getElementById('pr-url').value.trim();
+      if (!url) { fail('A URL is required.'); return; }
+      body.type = 'link';
+      body.url = url;
+      body.folderId = portalFolderId;
+      r = await api('POST', '/resources', body);
+    } else {
+      const file = document.getElementById('pr-file').files[0];
+      if (!file) { fail('Please choose a file.'); return; }
+      if (file.size > 15 * 1024 * 1024) { fail('That file is too large (max 15 MB).'); return; }
+      body.type = 'file';
+      body.filename = file.name;
+      body.mimetype = file.type || 'application/octet-stream';
+      body.fileData = await prFileData(file);
+      body.folderId = portalFolderId;
+      r = await api('POST', '/resources', body);
+    }
+    save.disabled = false;
+    save.textContent = id ? 'Save Changes' : 'Add Resource';
+    if (!r.ok) { fail((r.data && r.data.error) || 'That did not save. Please try again.'); return; }
+    prClose();
+    loadResources();
+  });
+
+  document.getElementById('pr-delete').addEventListener('click', async function() {
+    const id = document.getElementById('pr-id').value;
+    const item = portalResourceMap[id];
+    if (!id || !confirm('Delete "' + ((item && item.title) || 'this resource') + '"? This cannot be undone.')) return;
+    const r = await api('DELETE', '/resources/' + id);
+    if (!r.ok) {
+      const err = document.getElementById('pr-modal-error');
+      err.textContent = (r.data && r.data.error) || 'That could not be deleted.';
+      err.classList.remove('hidden');
+      return;
+    }
+    prClose();
+    loadResources();
+  });
 
   // ── Projects & Tasks ────────────────────────────────────────────────────────
   let ptProjects = [];

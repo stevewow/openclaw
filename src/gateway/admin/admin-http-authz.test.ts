@@ -1663,3 +1663,128 @@ describe("resource folders and favorites", () => {
     expect(r.status).toBe(400);
   });
 });
+
+/**
+ * `resource-upload` is the contributor grant: add to the library, and tend what
+ * you added. Everything else about the library — other people's resources, the
+ * folder tree, who may see what — stays an admin's.
+ */
+describe("the resource upload grant", () => {
+  const UPLOAD = [{ permissionType: "feature", value: "resource-upload" }] as const;
+
+  const uploadLink = (token: string, body: Record<string, unknown> = {}) =>
+    call("POST", "/resources", {
+      token,
+      body: { type: "link", title: "Style guide", url: "https://example.com/guide", ...body },
+    });
+
+  it("refuses an upload from a reader who only holds `resources`", async () => {
+    await userStore.setUserPermissions(userId, [{ permissionType: "feature", value: "resources" }]);
+    expect((await uploadLink(userToken)).status).toBe(403);
+  });
+
+  it("lets a holder add to the library", async () => {
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    const r = await uploadLink(userToken);
+    expect(r.status).toBe(201);
+    expect((r.json?.resource as { title: string }).title).toBe("Style guide");
+  });
+
+  it("opens the library to a holder who was granted nothing else", async () => {
+    // Uploading into a section you cannot open would be pointless, so the
+    // grant admits its holder to the reads the section needs.
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    expect((await call("GET", "/resources", { token: userToken })).status).toBe(200);
+  });
+
+  it("files an upload where its owner can still see it", async () => {
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    const created = await uploadLink(userToken, { title: "Visible", userAccess: false });
+    expect(created.status).toBe(201);
+    // The request asked for a hidden resource; visibility is not the
+    // contributor's to set, so it lands portal-visible regardless.
+    const resource = created.json?.resource as { id: string; userAccess: boolean };
+    expect(resource.userAccess).toBe(true);
+    const listed = await call("GET", "/resources", { token: userToken });
+    expect((listed.json?.resources as Array<{ id: string }>).map((x) => x.id)).toContain(
+      resource.id,
+    );
+  });
+
+  it("refuses to file an upload into a folder the portal cannot see", async () => {
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    const hidden = await call("POST", "/resources/folders", {
+      token: adminToken,
+      body: { name: "Internal only", userAccess: false },
+    });
+    const folderId = (hidden.json?.folder as { id: string }).id;
+    expect((await uploadLink(userToken, { folderId })).status).toBe(403);
+  });
+
+  it("lets a holder edit and delete their own upload", async () => {
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    const created = await uploadLink(userToken, { title: "Draft" });
+    const id = (created.json?.resource as { id: string }).id;
+
+    const edited = await call("PUT", `/resources/${id}`, {
+      token: userToken,
+      body: { title: "Final", tags: ["brand"] },
+    });
+    expect(edited.status).toBe(200);
+    expect((edited.json?.resource as { title: string }).title).toBe("Final");
+
+    expect((await call("DELETE", `/resources/${id}`, { token: userToken })).status).toBe(200);
+  });
+
+  it("keeps visibility and filing out of a contributor's edit", async () => {
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    const created = await uploadLink(userToken);
+    const id = (created.json?.resource as { id: string }).id;
+    const folder = await call("POST", "/resources/folders", {
+      token: adminToken,
+      body: { name: "Elsewhere", userAccess: true },
+    });
+    const folderId = (folder.json?.folder as { id: string }).id;
+
+    const r = await call("PUT", `/resources/${id}`, {
+      token: userToken,
+      body: { title: "Renamed", userAccess: false, aiAccess: false, folderId },
+    });
+    expect(r.status).toBe(200);
+    const after = r.json?.resource as {
+      title: string;
+      userAccess: boolean;
+      aiAccess: boolean;
+      folderId: string | null;
+    };
+    // The rename lands; the three library-policy fields do not move.
+    expect(after.title).toBe("Renamed");
+    expect(after.userAccess).toBe(true);
+    expect(after.aiAccess).toBe(true);
+    expect(after.folderId).toBeNull();
+  });
+
+  it("refuses to let a holder touch someone else's resource", async () => {
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    const theirs = await call("POST", "/resources", {
+      token: adminToken,
+      body: { type: "link", title: "Admin's own", url: "https://example.com/a", userAccess: true },
+    });
+    const id = (theirs.json?.resource as { id: string }).id;
+
+    expect(
+      (await call("PUT", `/resources/${id}`, { token: userToken, body: { title: "Mine now" } }))
+        .status,
+    ).toBe(403);
+    expect((await call("DELETE", `/resources/${id}`, { token: userToken })).status).toBe(403);
+  });
+
+  it("does not extend to the folder tree", async () => {
+    await userStore.setUserPermissions(userId, [...UPLOAD]);
+    const r = await call("POST", "/resources/folders", {
+      token: userToken,
+      body: { name: "My own filing" },
+    });
+    expect(r.status).toBe(403);
+  });
+});

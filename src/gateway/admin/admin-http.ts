@@ -1054,8 +1054,11 @@ export async function handleAdminHttpRequest(
   // every verb on them. Admins always pass.
   if (!isAdmin) {
     const gatedFeatures: PortalFeature[] | null =
+      // Either grant opens the library: someone who may contribute to it has to
+      // be able to see it. What each grant permits *inside* the section is
+      // decided per route below.
       subPath === "/resources" || subPath.startsWith("/resources/")
-        ? ["resources"]
+        ? ["resources", "resource-upload"]
         : subPath === "/projects" ||
             subPath.startsWith("/projects/") ||
             subPath === "/tasks" ||
@@ -1273,9 +1276,38 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // POST /api/admin/resources — create (admin only)
+  /**
+   * Where a contributor's upload may land: the library root, or a folder the
+   * portal can actually see. Filing into an admin-only folder would hide the
+   * upload from the person who just made it, so it is refused outright rather
+   * than silently re-homed somewhere they did not choose.
+   */
+  async function resolveContributorFolder(
+    folderId: string | null,
+  ): Promise<{ ok: true; folderId: string | null } | { ok: false }> {
+    if (!folderId) {
+      return { ok: true, folderId: null };
+    }
+    const visible = await listFolders({ userAccessOnly: true });
+    return visible.some((f) => f.id === folderId) ? { ok: true, folderId } : { ok: false };
+  }
+
+  /**
+   * Whether this viewer may rewrite or remove one particular resource. Admins
+   * may touch anything; a contributor may tend only what they filed themselves,
+   * which is what keeps one grant from turning into edit rights over the whole
+   * library.
+   */
+  async function canTendResource(resource: { createdBy: string | null }): Promise<boolean> {
+    if (isAdmin) {
+      return true;
+    }
+    return resource.createdBy === viewerId && (await hasFeatureAccess("resource-upload"));
+  }
+
+  // POST /api/admin/resources — create (admins, or a holder of `resource-upload`)
   if (subPath === "/resources" && req.method === "POST") {
-    if (!isAdmin) {
+    if (!isAdmin && !(await hasFeatureAccess("resource-upload"))) {
       sendForbidden(res);
       return true;
     }
@@ -1289,6 +1321,23 @@ export async function handleAdminHttpRequest(
     if (!title) {
       sendBadRequest(res, "title required");
       return true;
+    }
+    // Visibility is library policy, so a contributor does not set it: their
+    // upload is filed as portal-visible (or they could not see what they just
+    // added) and readable by the assistant, which is the admin form's default
+    // too. An admin can still narrow either afterwards.
+    let filing = {
+      aiAccess: data.aiAccess !== false,
+      userAccess: !!data.userAccess,
+      folderId: normalizeString(data.folderId) ?? null,
+    };
+    if (!isAdmin) {
+      const target = await resolveContributorFolder(filing.folderId);
+      if (!target.ok) {
+        sendForbidden(res);
+        return true;
+      }
+      filing = { aiAccess: true, userAccess: true, folderId: target.folderId };
     }
     const type = data.type === "file" ? "file" : "link";
     if (type === "link") {
@@ -1305,9 +1354,7 @@ export async function handleAdminHttpRequest(
         tags: Array.isArray(data.tags)
           ? (data.tags as string[]).filter((t) => typeof t === "string")
           : [],
-        aiAccess: data.aiAccess !== false,
-        userAccess: !!data.userAccess,
-        folderId: normalizeString(data.folderId) ?? null,
+        ...filing,
         createdBy: sessionUser.id,
       });
       sendJson(res, 201, { resource });
@@ -1337,9 +1384,7 @@ export async function handleAdminHttpRequest(
         tags: Array.isArray(data.tags)
           ? (data.tags as string[]).filter((t) => typeof t === "string")
           : [],
-        aiAccess: data.aiAccess !== false,
-        userAccess: !!data.userAccess,
-        folderId: normalizeString(data.folderId) ?? null,
+        ...filing,
         createdBy: sessionUser.id,
       });
       sendJson(res, 201, { resource });
@@ -1374,14 +1419,20 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // PUT /api/admin/resources/:id — update (admin only)
+  // PUT /api/admin/resources/:id — update (admins, or a contributor's own upload)
   const resourceEditMatch = subPath.match(/^\/resources\/([^/]+)$/);
   if (resourceEditMatch && req.method === "PUT") {
-    if (!isAdmin) {
+    const resourceId = resourceEditMatch[1];
+    // Read before write: who may edit this depends on who filed it.
+    const editing = await getResource(resourceId);
+    if (!editing) {
+      sendNotFound(res);
+      return true;
+    }
+    if (!(await canTendResource(editing))) {
       sendForbidden(res);
       return true;
     }
-    const resourceId = resourceEditMatch[1]!;
     const body = await readJsonBody(req, MAX_BODY_BYTES_RESOURCE);
     if (!body.ok) {
       sendBadRequest(res, body.error);
@@ -1398,11 +1449,21 @@ export async function handleAdminHttpRequest(
     if (Array.isArray(data.tags)) {
       updates.tags = (data.tags as string[]).filter((t) => typeof t === "string");
     }
-    if (data.aiAccess !== undefined) updates.aiAccess = !!data.aiAccess;
-    if (data.userAccess !== undefined) updates.userAccess = !!data.userAccess;
-    // Moving a resource between folders is this same update.
-    if (data.folderId !== undefined) {
-      updates.folderId = normalizeString(data.folderId) ?? null;
+    // Describing your own upload is one thing; deciding who and what can reach
+    // it, or where it lives in someone else's filing, is another. A contributor
+    // gets the first and an admin keeps the second, so these three are read only
+    // for admins — a contributor's request silently leaves them as filed.
+    if (isAdmin) {
+      if (data.aiAccess !== undefined) {
+        updates.aiAccess = !!data.aiAccess;
+      }
+      if (data.userAccess !== undefined) {
+        updates.userAccess = !!data.userAccess;
+      }
+      // Moving a resource between folders is this same update.
+      if (data.folderId !== undefined) {
+        updates.folderId = normalizeString(data.folderId) ?? null;
+      }
     }
     let updated: Awaited<ReturnType<typeof updateResource>>;
     try {
@@ -1419,16 +1480,16 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // DELETE /api/admin/resources/:id — delete (admin only)
+  // DELETE /api/admin/resources/:id — delete (admins, or a contributor's own upload)
   if (resourceEditMatch && req.method === "DELETE") {
-    if (!isAdmin) {
-      sendForbidden(res);
-      return true;
-    }
     const resourceId = resourceEditMatch[1]!;
     const resource = await getResource(resourceId);
     if (!resource) {
       sendNotFound(res);
+      return true;
+    }
+    if (!(await canTendResource(resource))) {
+      sendForbidden(res);
       return true;
     }
     await deleteResource(resourceId);

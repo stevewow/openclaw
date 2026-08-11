@@ -42,6 +42,9 @@ export const PORTAL_FEATURES = [
   { value: "chat", label: "Chat" },
   { value: "projects", label: "Projects & Tasks" },
   { value: "resources", label: "Resources" },
+  // Contributing to the library is granted apart from reading it: holding this
+  // lets someone add resources and tend the ones they added, nothing else.
+  { value: "resource-upload", label: "Upload Resources (add & manage own)" },
   { value: "tickets", label: "Tickets" },
   { value: "ticket-departments", label: "Ticket Departments" },
   { value: "ticket-categories", label: "Ticket Request Types" },
