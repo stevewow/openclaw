@@ -92,6 +92,38 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
 }
 
+/** One choice the client ticked, with how many and what it answered. */
+export type SelectedOption = {
+  option: CategoryOption;
+  /** Always ≥ 1, and never above the choice's own maximum. */
+  quantity: number;
+  answers: Array<{ id: string; label: string; value: string }>;
+  /** price × quantity, or null when the choice isn't priced. */
+  lineTotalCents: number | null;
+};
+
+export type ResolvedSelection = {
+  /** The bare options, in form order — what the older callers wanted. */
+  picked: CategoryOption[];
+  selections: SelectedOption[];
+  estimateCents: number | null;
+  /** First required follow-up left blank, or null when nothing is missing. */
+  missingAnswer: { option: string; question: string } | null;
+};
+
+/** Longest follow-up answer we keep; a room list, not an essay. */
+const MAX_ANSWER_LENGTH = 2000;
+
+/** "Virtual staging ×3" once a choice carries a quantity, else just its label. */
+function selectionLabel(sel: SelectedOption): string {
+  return sel.quantity > 1 ? `${sel.option.label} ×${sel.quantity}` : sel.option.label;
+}
+
+/** The comma-joined answer that goes on the subject line and the ticket row. */
+export function composeExtraValue(selections: SelectedOption[]): string | null {
+  return selections.length > 0 ? selections.map(selectionLabel).join(", ") : null;
+}
+
 /** "Edit request — Photos": the category's short label plus its answer. */
 export function composeSubject(category: TicketCategoryDef, extraValue: string | null): string {
   const subject = extraValue ? `${category.shortLabel} — ${extraValue}` : category.shortLabel;
@@ -103,25 +135,37 @@ export function composeSubject(category: TicketCategoryDef, extraValue: string |
  * specifics before the free text. The question doubles as the label, which keeps
  * custom categories self-describing without a second field to configure.
  *
- * A priced multi-select is itemized instead, so the desk sees what was ticked
- * and what it adds up to without opening the dashboard.
+ * A priced, quantified or multi-select answer is itemized instead — each line
+ * carries its quantity, its line total and any per-choice answers — so the desk
+ * can price and brief the job without opening the dashboard.
  */
 export function composeDescription(
   category: TicketCategoryDef,
   extraValue: string | null,
   details: string,
-  picked: CategoryOption[] = [],
+  selections: SelectedOption[] = [],
 ): string {
   const label = category.extraLabel?.trim() || "Details";
-  const priced = picked.filter((o) => o.priceCents !== null);
-  if (picked.length > 1 || priced.length > 0) {
-    const lines = picked.map((o) =>
-      o.priceCents === null
-        ? `  • ${o.label}`
-        : `  • ${o.label} — ${formatPriceCents(o.priceCents)}`,
-    );
+  const priced = selections.filter((s) => s.lineTotalCents !== null);
+  const detailed = selections.some((s) => s.quantity > 1 || s.answers.length > 0);
+  if (selections.length > 1 || priced.length > 0 || detailed) {
+    const lines: string[] = [];
+    for (const sel of selections) {
+      // "× 3 — $150 ($50 each)": the each-price is what makes a quantity line
+      // checkable at a glance instead of arithmetic the desk has to redo.
+      const each =
+        sel.quantity > 1 && sel.option.priceCents !== null
+          ? ` (${formatPriceCents(sel.option.priceCents)} each)`
+          : "";
+      const money =
+        sel.lineTotalCents === null ? "" : ` — ${formatPriceCents(sel.lineTotalCents)}${each}`;
+      lines.push(`  • ${selectionLabel(sel)}${money}`);
+      for (const answer of sel.answers) {
+        lines.push(`      ${answer.label}: ${answer.value}`);
+      }
+    }
     if (priced.length > 0) {
-      const total = priced.reduce((sum, o) => sum + (o.priceCents ?? 0), 0);
+      const total = priced.reduce((sum, s) => sum + (s.lineTotalCents ?? 0), 0);
       lines.push(`  Estimated total: ${formatPriceCents(total)}`);
     }
     return `${label}\n${lines.join("\n")}\n\n${details}`;
@@ -132,40 +176,108 @@ export function composeDescription(
   return `${label} ${extraValue}\n\n${details}`;
 }
 
+/** Pull `{id: value}` or `[{id, value}]` off a posted selection. */
+function readAnswerMap(raw: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  const push = (id: unknown, value: unknown) => {
+    if (typeof id !== "string" || typeof value !== "string") {
+      return;
+    }
+    const trimmed = value.trim().slice(0, MAX_ANSWER_LENGTH);
+    if (id.trim() && trimmed) {
+      out.set(id.trim(), trimmed);
+    }
+  };
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (entry && typeof entry === "object") {
+        const rec = entry as Record<string, unknown>;
+        push(rec.id, rec.value);
+      }
+    }
+  } else if (raw && typeof raw === "object") {
+    for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+      push(id, value);
+    }
+  }
+  return out;
+}
+
 /**
  * Resolve what the client ticked against the category's own option list, and
- * total it here. The browser sends labels only — the price of each choice is
- * read from our table, never from the payload, so a tampered form cannot invent
- * a $0 estimate or quote a number we never offered. Unknown labels are dropped.
+ * total it here. The browser sends labels, quantities and answers — every price
+ * and every ceiling is read from our table, never from the payload, so a
+ * tampered form cannot invent a $0 estimate, quote a number we never offered, or
+ * order 500 of a choice capped at 10. Unknown labels and answers to questions we
+ * never asked are dropped.
  */
 export function resolveSelectedOptions(
   category: TicketCategoryDef,
   raw: unknown,
-): { picked: CategoryOption[]; estimateCents: number | null } {
+): ResolvedSelection {
   if (!isChoiceField(category.extraField)) {
-    return { picked: [], estimateCents: null };
+    return { picked: [], selections: [], estimateCents: null, missingAnswer: null };
   }
-  const wanted = (Array.isArray(raw) ? raw : [raw])
-    .filter((v): v is string => typeof v === "string")
-    .map((v) => v.trim())
-    .filter((v) => v.length > 0);
+  const entries = (Array.isArray(raw) ? raw : [raw])
+    .map((entry): { label: string; quantity: unknown; answers: unknown } | null => {
+      if (typeof entry === "string") {
+        return { label: entry.trim(), quantity: 1, answers: null };
+      }
+      if (entry && typeof entry === "object") {
+        const rec = entry as Record<string, unknown>;
+        return typeof rec.label === "string"
+          ? { label: rec.label.trim(), quantity: rec.quantity, answers: rec.answers }
+          : null;
+      }
+      return null;
+    })
+    .filter((e): e is { label: string; quantity: unknown; answers: unknown } => !!e?.label);
 
-  const picked: CategoryOption[] = [];
+  const selections: SelectedOption[] = [];
   const seen = new Set<string>();
-  for (const label of wanted) {
-    const match = category.extraOptions.find((o) => o.label === label);
-    if (match && !seen.has(match.label)) {
-      seen.add(match.label);
-      picked.push(match);
+  for (const entry of entries) {
+    const option = category.extraOptions.find((o) => o.label === entry.label);
+    if (!option || seen.has(option.label)) {
+      continue;
     }
+    seen.add(option.label);
+    const wanted = typeof entry.quantity === "number" ? Math.floor(entry.quantity) : 1;
+    const quantity = Math.min(
+      Math.max(Number.isFinite(wanted) ? wanted : 1, 1),
+      option.maxQuantity,
+    );
+    const posted = readAnswerMap(entry.answers);
+    const answers = option.followUps
+      .map((f) => ({ id: f.id, label: f.label, value: posted.get(f.id) ?? "" }))
+      .filter((a) => a.value.length > 0);
+    selections.push({
+      option,
+      quantity,
+      answers,
+      lineTotalCents: option.priceCents === null ? null : option.priceCents * quantity,
+    });
   }
   // A single-choice question takes one answer however many arrive.
-  const limited = category.extraField === "select" ? picked.slice(0, 1) : picked;
-  const priced = limited.filter((o) => o.priceCents !== null);
+  const limited = category.extraField === "select" ? selections.slice(0, 1) : selections;
+
+  let missingAnswer: { option: string; question: string } | null = null;
+  for (const sel of limited) {
+    const blank = sel.option.followUps.find(
+      (f) => f.required && !sel.answers.some((a) => a.id === f.id),
+    );
+    if (blank) {
+      missingAnswer = { option: sel.option.label, question: blank.label };
+      break;
+    }
+  }
+
+  const priced = limited.filter((s) => s.lineTotalCents !== null);
   return {
-    picked: limited,
+    picked: limited.map((s) => s.option),
+    selections: limited,
     estimateCents:
-      priced.length > 0 ? priced.reduce((sum, o) => sum + (o.priceCents ?? 0), 0) : null,
+      priced.length > 0 ? priced.reduce((sum, s) => sum + (s.lineTotalCents ?? 0), 0) : null,
+    missingAnswer,
   };
 }
 
@@ -279,19 +391,37 @@ export async function handleTicketIntakeRequest(
     }
 
     // `mediaType`/`serviceType` are the pre-managed field names, still accepted
-    // so an already-open form page keeps working across a deploy. `extraValues`
-    // is the multi-select shape; a single `extraValue` still works either way.
-    const rawSelection = data.extraValues ?? data.extraValue ?? data.mediaType ?? data.serviceType;
-    const { picked, estimateCents } = resolveSelectedOptions(category, rawSelection);
+    // so an already-open form page keeps working across a deploy. `extraSelections`
+    // carries quantities and per-choice answers; `extraValues` is the labels-only
+    // multi-select shape, and a single `extraValue` still works either way.
+    const rawSelection =
+      data.extraSelections ??
+      data.extraValues ??
+      data.extraValue ??
+      data.mediaType ??
+      data.serviceType;
+    const { selections, estimateCents, missingAnswer } = resolveSelectedOptions(
+      category,
+      rawSelection,
+    );
+    // Asking a question and then filing the ticket without its answer is how a
+    // job reaches the desk unbriefed; a stale page gets a fixable message.
+    if (missingAnswer) {
+      sendJson(res, 400, {
+        error: `Please answer "${missingAnswer.question}" for ${missingAnswer.option}.`,
+      });
+      return true;
+    }
     const extraValue =
-      picked.length > 0
-        ? picked.map((o) => o.label).join(", ")
-        : (str(data.extraValue) ?? str(data.mediaType) ?? str(data.serviceType));
+      composeExtraValue(selections) ??
+      str(data.extraValue) ??
+      str(data.mediaType) ??
+      str(data.serviceType);
 
     const ticket = await createTicket({
       category: category.key,
       subject: composeSubject(category, extraValue),
-      description: composeDescription(category, extraValue, details, picked),
+      description: composeDescription(category, extraValue, details, selections),
       source: "widget",
       requesterName,
       requesterEmail,

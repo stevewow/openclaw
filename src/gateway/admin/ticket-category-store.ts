@@ -30,10 +30,40 @@ export function isChoiceField(field: CategoryExtraField): boolean {
   return field === "select" || field === "multiselect";
 }
 
+/** How a follow-up question attached to one choice is answered. */
+export type FollowUpKind = "text" | "textarea" | "select";
+
+const FOLLOW_UP_KINDS = new Set<string>(["text", "textarea", "select"]);
+
+/** Ceilings that keep an admin typo from producing an unusable public form. */
+export const MAX_OPTION_QUANTITY = 99;
+const MAX_FOLLOW_UPS_PER_OPTION = 8;
+const MAX_FOLLOW_UP_CHOICES = 40;
+const MAX_FOLLOW_UP_LABEL = 200;
+
+/**
+ * A question asked only when its choice is picked — "3 virtual staging images"
+ * needs a style and a room list; the other choices don't. Answers are keyed by
+ * `id`, so renaming the question text keeps in-flight answers attached.
+ */
+export type CategoryFollowUp = {
+  id: string;
+  /** Question text shown above the input. */
+  label: string;
+  kind: FollowUpKind;
+  /** Choices when kind is "select". */
+  choices: string[];
+  /** Placeholder for text/textarea. */
+  placeholder: string | null;
+  required: boolean;
+};
+
 /**
  * One choice on a select/multiselect question. Was a bare string; the object
- * form adds an optional thumbnail and price. Legacy rows are still plain
- * strings, so reads coerce and writes always emit the object form.
+ * form adds an optional thumbnail, a price, an orderable quantity and its own
+ * follow-up questions. Legacy rows are still plain strings and older object
+ * rows lack the newer keys, so reads coerce and writes always emit the full
+ * object form.
  */
 export type CategoryOption = {
   label: string;
@@ -41,13 +71,95 @@ export type CategoryOption = {
   imageUrl: string | null;
   /** Price in whole cents, or null when the choice isn't priced. */
   priceCents: number | null;
+  /**
+   * Most units of this choice a client may order. 1 (the default) means the
+   * choice is a plain tick with no quantity selector.
+   */
+  maxQuantity: number;
+  /** Questions revealed under the choice once it is picked. */
+  followUps: CategoryFollowUp[];
 };
+
+/** Slugify a question label into a stable answer key. */
+function followUpIdFromLabel(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40) || "question"
+  );
+}
+
+/** Coerce one stored/posted follow-up question, or null if it has no text. */
+function toCategoryFollowUp(raw: unknown, taken: Set<string>): CategoryFollowUp | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const label =
+    typeof record.label === "string" ? record.label.trim().slice(0, MAX_FOLLOW_UP_LABEL) : "";
+  if (!label) {
+    return null;
+  }
+  const kind =
+    typeof record.kind === "string" && FOLLOW_UP_KINDS.has(record.kind)
+      ? (record.kind as FollowUpKind)
+      : "text";
+  const rawId = typeof record.id === "string" ? followUpIdFromLabel(record.id) : "";
+  let id = rawId || followUpIdFromLabel(label);
+  // Two questions that slugify the same would otherwise share one answer.
+  let n = 2;
+  while (taken.has(id)) {
+    id = `${id}_${n}`;
+    n += 1;
+  }
+  taken.add(id);
+  const choices =
+    kind === "select" && Array.isArray(record.choices)
+      ? [
+          ...new Set(
+            record.choices
+              .filter((c): c is string => typeof c === "string")
+              .map((c) => c.trim().slice(0, MAX_FOLLOW_UP_LABEL))
+              .filter((c) => c.length > 0),
+          ),
+        ].slice(0, MAX_FOLLOW_UP_CHOICES)
+      : [];
+  const placeholder =
+    typeof record.placeholder === "string"
+      ? record.placeholder.trim().slice(0, MAX_FOLLOW_UP_LABEL)
+      : "";
+  return {
+    id,
+    label,
+    // A "pick one" question with nothing to pick would be a dead control.
+    kind: kind === "select" && choices.length === 0 ? "text" : kind,
+    choices,
+    placeholder: placeholder || null,
+    required: record.required === true,
+  };
+}
+
+/**
+ * What a caller may hand the store: a full option, a partial one (the newer
+ * keys default), or a legacy bare label. Everything is normalized on write.
+ */
+export type CategoryFollowUpInput = { label: string } & Partial<Omit<CategoryFollowUp, "label">>;
+export type CategoryOptionInput =
+  | string
+  | ({ label: string } & Partial<Omit<CategoryOption, "label" | "followUps">> & {
+        followUps?: CategoryFollowUpInput[];
+      });
 
 /** Coerce a stored entry — string (legacy) or object — into a CategoryOption. */
 export function toCategoryOption(raw: unknown): CategoryOption | null {
   if (typeof raw === "string") {
     const label = raw.trim();
-    return label ? { label, imageUrl: null, priceCents: null } : null;
+    return label
+      ? { label, imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] }
+      : null;
   }
   if (!raw || typeof raw !== "object") {
     return null;
@@ -63,7 +175,21 @@ export function toCategoryOption(raw: unknown): CategoryOption | null {
   // treated as unpriced rather than silently rounded into a wrong number.
   const priceCents =
     typeof price === "number" && Number.isSafeInteger(price) && price >= 0 ? price : null;
-  return { label, imageUrl: imageUrl || null, priceCents };
+  const rawMax = record.maxQuantity;
+  // A junk maximum falls back to 1 — a choice you can tick — never to "any
+  // number", which would let one line item quote an arbitrary total.
+  const maxQuantity =
+    typeof rawMax === "number" && Number.isSafeInteger(rawMax) && rawMax >= 1
+      ? Math.min(rawMax, MAX_OPTION_QUANTITY)
+      : 1;
+  const taken = new Set<string>();
+  const followUps = Array.isArray(record.followUps)
+    ? record.followUps
+        .map((f) => toCategoryFollowUp(f, taken))
+        .filter((f): f is CategoryFollowUp => f !== null)
+        .slice(0, MAX_FOLLOW_UPS_PER_OPTION)
+    : [];
+  return { label, imageUrl: imageUrl || null, priceCents, maxQuantity, followUps };
 }
 
 export type TicketCategoryDef = {
@@ -97,7 +223,7 @@ const MEDIA_OPTIONS: CategoryOption[] = [
   "Virtual tour / Matterport",
   "Twilight",
   "Other",
-].map((label) => ({ label, imageUrl: null, priceCents: null }));
+].map((label) => ({ label, imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] }));
 
 /** The original four, copy-for-copy identical to the pre-managed form. */
 const SEED_CATEGORIES: Array<Omit<TicketCategoryDef, "createdAt" | "updatedAt">> = [
@@ -299,7 +425,7 @@ export type CreateCategoryParams = {
   shortLabel?: string;
   extraField?: CategoryExtraField;
   extraLabel?: string | null;
-  extraOptions?: CategoryOption[];
+  extraOptions?: CategoryOptionInput[];
   extraPlaceholder?: string | null;
   detailsLabel?: string;
   detailsHint?: string | null;
@@ -341,7 +467,7 @@ export type UpdateCategoryParams = {
   shortLabel?: string;
   extraField?: CategoryExtraField;
   extraLabel?: string | null;
-  extraOptions?: CategoryOption[];
+  extraOptions?: CategoryOptionInput[];
   extraPlaceholder?: string | null;
   detailsLabel?: string;
   detailsHint?: string | null;

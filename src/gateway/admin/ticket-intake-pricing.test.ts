@@ -18,6 +18,7 @@ const ticketStore = await import("./ticket-store.js");
 let server: Server;
 let base: string;
 let serviceKey: string;
+let stagingKey: string;
 
 let clientCounter = 0;
 async function submit(body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -56,6 +57,30 @@ beforeAll(async () => {
     ],
   });
   serviceKey = created.key;
+  const staging = await cats.createCategory({
+    label: "Order staging",
+    shortLabel: "Staging",
+    extraField: "multiselect",
+    extraLabel: "Which services?",
+    extraOptions: [
+      {
+        label: "Virtual staging",
+        priceCents: 5000,
+        maxQuantity: 10,
+        followUps: [
+          {
+            id: "style",
+            label: "Preferred style",
+            kind: "select",
+            choices: ["Modern", "Farmhouse"],
+            required: true,
+          },
+          { id: "rooms", label: "Which image numbers / rooms?", kind: "textarea", required: true },
+        ],
+      },
+    ],
+  });
+  stagingKey = staging.key;
 
   server = createServer((req, res) => {
     void (async () => {
@@ -156,6 +181,66 @@ describe("a priced multi-select submission", () => {
   });
 });
 
+describe("ordering several of one choice, with its own questions", () => {
+  function stagingSubmission(selections: unknown) {
+    return {
+      category: stagingKey,
+      details: "Listing goes live Monday.",
+      requesterName: "Dana Agent",
+      requesterEmail: "dana@example.com",
+      extraSelections: selections,
+    };
+  }
+
+  it("prices the quantity and briefs the desk with the answers", async () => {
+    const res = await submit(
+      stagingSubmission([
+        {
+          label: "Virtual staging",
+          quantity: 3,
+          answers: [
+            { id: "style", value: "Modern" },
+            { id: "rooms", value: "Images 3, 7 and 12" },
+          ],
+        },
+      ]),
+    );
+    expect(res.status).toBe(201);
+
+    const ticket = await ticketFor(res.json.number as string);
+    expect(ticket.estimateCents).toBe(15000);
+    expect(ticket.subject).toContain("Virtual staging ×3");
+    expect(ticket.description).toContain("• Virtual staging ×3 — $150 ($50 each)");
+    expect(ticket.description).toContain("Preferred style: Modern");
+    expect(ticket.description).toContain("Which image numbers / rooms?: Images 3, 7 and 12");
+  });
+
+  it("will not order more than the ceiling the admin set", async () => {
+    const res = await submit(
+      stagingSubmission([
+        {
+          label: "Virtual staging",
+          quantity: 999,
+          answers: { style: "Farmhouse", rooms: "All of them" },
+        },
+      ]),
+    );
+
+    const ticket = await ticketFor(res.json.number as string);
+    expect(ticket.estimateCents).toBe(50000);
+    expect(ticket.subject).toContain("Virtual staging ×10");
+  });
+
+  it("refuses a submission that skipped a required question", async () => {
+    const res = await submit(
+      stagingSubmission([{ label: "Virtual staging", quantity: 2, answers: { style: "Modern" } }]),
+    );
+
+    expect(res.status).toBe(400);
+    expect(String(res.json.error)).toContain("Which image numbers / rooms?");
+  });
+});
+
 describe("the form the client is served", () => {
   it("carries the thumbnails and prices so the page can render them", async () => {
     const res = await fetch(`${base}/support`);
@@ -165,5 +250,14 @@ describe("the form the client is served", () => {
     expect(html).toContain("https://example.com/tw.jpg");
     expect(html).toContain("7500");
     expect(html).toContain("multiselect");
+  });
+
+  it("carries the quantity ceilings and the per-choice questions", async () => {
+    const res = await fetch(`${base}/support`);
+    const html = await res.text();
+
+    expect(html).toContain("maxQuantity");
+    expect(html).toContain("Preferred style");
+    expect(html).toContain("Which image numbers / rooms?");
   });
 });

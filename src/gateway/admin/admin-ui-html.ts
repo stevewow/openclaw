@@ -2015,15 +2015,14 @@ ${MARKET_CSS}
         <input type="text" id="cat-extra-label" autocomplete="off" placeholder="e.g. Which media?" />
       </div>
       <div class="form-group hidden" id="cat-extra-options-group">
-        <label>Choices (one per line)</label>
-        <textarea id="cat-extra-options" rows="6" placeholder="Photos&#10;Twilight photos | https://example.com/twilight.jpg | 75&#10;Aerial / Drone | | 150"></textarea>
-        <div class="text-muted" style="font-size:0.75rem;margin-top:0.3rem">
-          One choice per line. To add a thumbnail or a price, separate them with <code>|</code>:
-          <code>Label | image URL | price</code>. Both extras are optional — leave a gap
-          (<code>Label | | 150</code>) to price a choice with no image. Prices are in dollars and
-          show on the form; with "pick several" the client sees a running total, which is recorded
-          on the ticket as an estimate.
+        <label>Choices</label>
+        <div class="text-muted" style="font-size:0.75rem;margin:0 0 0.5rem">
+          Each choice can carry a thumbnail and a price (in dollars). Set "Max qty" above 1 to let
+          a client order several — the form shows a quantity picker and multiplies the price. Add
+          follow-up questions to ask for specifics only when that choice is picked.
         </div>
+        <div id="cat-choices"></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="cat-choice-add" style="margin-top:0.5rem">+ Add choice</button>
       </div>
       <div class="form-group hidden" id="cat-extra-placeholder-group">
         <label>Placeholder (optional)</label>
@@ -7547,9 +7546,16 @@ ${MARKET_COMPONENT_JS}
     renderCategoryTable();
   }
   function categoryExtraSummary(c){
-    if (c.extraField === 'select') {
-      var n = (c.extraOptions||[]).length;
-      return esc(c.extraLabel||'—') + '<div class="text-muted" style="font-size:0.7rem">list · ' + n + ' choice' + (n===1?'':'s') + '</div>';
+    if (c.extraField === 'select' || c.extraField === 'multiselect') {
+      var opts = c.extraOptions || [];
+      var n = opts.length;
+      var extras = [];
+      if (opts.some(function(o){ return Number(o.maxQuantity) > 1; })) extras.push('quantities');
+      var questions = opts.reduce(function(sum, o){ return sum + ((o.followUps||[]).length); }, 0);
+      if (questions) extras.push(questions + ' follow-up' + (questions===1?'':'s'));
+      return esc(c.extraLabel||'—') + '<div class="text-muted" style="font-size:0.7rem">' +
+        (c.extraField === 'multiselect' ? 'pick several' : 'list') + ' · ' + n + ' choice' + (n===1?'':'s') +
+        (extras.length ? ' · ' + esc(extras.join(' · ')) : '') + '</div>';
     }
     if (c.extraField === 'text') {
       return esc(c.extraLabel||'—') + '<div class="text-muted" style="font-size:0.7rem">free text</div>';
@@ -7596,33 +7602,180 @@ ${MARKET_COMPONENT_JS}
     renderCategoryTable();
   }
 
-  // Choices are edited as one line each, "Label | image URL | price", because a
-  // per-row widget buys little over a textarea an admin can paste into.
-  function optionsToText(options){
-    if (!options || !options.length) return '';
-    return options.map(function(o){
-      var price = (o.priceCents === null || o.priceCents === undefined) ? '' : String(o.priceCents / 100);
-      if (!o.imageUrl && !price) return o.label;
-      return o.label + ' | ' + (o.imageUrl || '') + (price ? ' | ' + price : '');
-    }).join('\\n');
+  // Choices are edited as rows, not as one line of piped text: a choice now
+  // carries a price, an orderable quantity and its own follow-up questions, and
+  // no one-line syntax stays readable through all of that.
+  var catChoices = [];        // working copy, live only while the modal is open
+
+  function blankChoice(){
+    return { label:'', imageUrl:'', price:'', maxQuantity:'1', followUps:[], open:false };
   }
-  /** Parse the textarea back. priceError marks a line we could not read. */
-  function textToOptions(text){
-    return String(text || '').split('\\n').map(function(line){
-      var parts = line.split('|');
-      var label = (parts[0] || '').trim();
-      if (!label) return null;
-      var imageUrl = (parts[1] || '').trim();
-      var rawPrice = (parts[2] || '').trim().replace(/^\\$/, '');
-      var priceCents = null, priceError = false;
+  function blankFollowUp(){
+    return { id:'', label:'', kind:'text', choices:'', placeholder:'', required:false };
+  }
+  /** API options → editable rows (strings are the pre-object legacy form). */
+  function choiceRowsFrom(options){
+    return (options || []).map(function(raw){
+      var o = typeof raw === 'string' ? { label: raw } : (raw || {});
+      var fu = (o.followUps || []).map(function(f){
+        return {
+          id: f.id || '',
+          label: f.label || '',
+          kind: f.kind || 'text',
+          choices: (f.choices || []).join(', '),
+          placeholder: f.placeholder || '',
+          required: !!f.required
+        };
+      });
+      return {
+        label: o.label || '',
+        imageUrl: o.imageUrl || '',
+        price: (o.priceCents === null || o.priceCents === undefined) ? '' : String(o.priceCents / 100),
+        maxQuantity: String(Number(o.maxQuantity) > 1 ? Number(o.maxQuantity) : 1),
+        followUps: fu,
+        open: fu.length > 0
+      };
+    });
+  }
+  function followUpRowHtml(f, i, j){
+    var kinds = [['text','Short answer'],['textarea','Long answer'],['select','Pick from a list']];
+    var opts = kinds.map(function(k){
+      return '<option value="'+k[0]+'"'+(f.kind===k[0]?' selected':'')+'>'+k[1]+'</option>';
+    }).join('');
+    var second = f.kind==='select'
+      ? '<input type="text" class="fu-choices" data-i="'+i+'" data-j="'+j+'" value="'+esc(f.choices)+'" placeholder="Choices, comma separated — e.g. Modern, Farmhouse, Coastal" style="width:100%;margin-top:0.35rem" />'
+      : '<input type="text" class="fu-ph" data-i="'+i+'" data-j="'+j+'" value="'+esc(f.placeholder)+'" placeholder="Placeholder (optional)" style="width:100%;margin-top:0.35rem" />';
+    return '<div style="border:1px dashed var(--border,#e5e7eb);border-radius:8px;padding:0.5rem;margin-bottom:0.4rem">'+
+      '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">'+
+        '<input type="text" class="fu-label" data-i="'+i+'" data-j="'+j+'" value="'+esc(f.label)+'" placeholder="Question — e.g. Preferred staging style" style="flex:2 1 200px" />'+
+        '<select class="fu-kind" data-i="'+i+'" data-j="'+j+'" style="flex:1 1 140px">'+opts+'</select>'+
+        '<button type="button" class="btn btn-ghost btn-sm fu-del" data-i="'+i+'" data-j="'+j+'" title="Remove question">✕</button>'+
+      '</div>'+
+      second+
+      '<label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;font-size:0.78rem;margin-top:0.35rem">'+
+        '<input type="checkbox" class="fu-req" data-i="'+i+'" data-j="'+j+'" style="width:auto"'+(f.required?' checked':'')+' /> Required</label>'+
+      '</div>';
+  }
+  function renderChoiceEditor(){
+    var host = document.getElementById('cat-choices');
+    if (!catChoices.length) {
+      host.innerHTML = '<div class="text-muted" style="font-size:0.8rem">No choices yet — add one below.</div>';
+      return;
+    }
+    host.innerHTML = catChoices.map(function(row, i){
+      var body = row.open
+        ? '<div style="margin-top:0.45rem;padding-left:0.6rem;border-left:2px solid var(--border,#e5e7eb)">'+
+            row.followUps.map(function(f, j){ return followUpRowHtml(f, i, j); }).join('')+
+            '<button type="button" class="btn btn-ghost btn-sm ch-fu-add" data-i="'+i+'">+ Add question</button>'+
+          '</div>'
+        : '';
+      return '<div style="border:1px solid var(--border,#e5e7eb);border-radius:10px;padding:0.6rem;margin-bottom:0.5rem">'+
+        '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">'+
+          '<input type="text" class="ch-label" data-i="'+i+'" value="'+esc(row.label)+'" placeholder="Choice — e.g. Virtual staging" style="flex:2 1 180px" />'+
+          '<input type="text" class="ch-image" data-i="'+i+'" value="'+esc(row.imageUrl)+'" placeholder="Image URL (optional)" style="flex:2 1 150px" />'+
+          '<input type="text" class="ch-price" data-i="'+i+'" value="'+esc(row.price)+'" placeholder="Price" title="Price in dollars, per unit" style="flex:0 1 80px" />'+
+          '<input type="number" min="1" max="99" class="ch-qty" data-i="'+i+'" value="'+esc(row.maxQuantity)+'" title="Most a client can order of this choice — 1 means no quantity picker" style="flex:0 1 72px" />'+
+          '<button type="button" class="btn btn-ghost btn-sm ch-del" data-i="'+i+'" title="Remove choice">✕</button>'+
+        '</div>'+
+        '<button type="button" class="btn btn-ghost btn-sm ch-fu-toggle" data-i="'+i+'" style="margin-top:0.4rem">'+
+          (row.open?'▾':'▸')+' Follow-up questions ('+row.followUps.length+')</button>'+
+        body+
+      '</div>';
+    }).join('');
+    bindChoiceEditor(host);
+  }
+  /**
+   * Typing writes straight into the row and does not re-render, so the caret
+   * stays put; only add/remove/kind changes rebuild the list.
+   */
+  function bindChoiceEditor(host){
+    function rowOf(el){ return catChoices[parseInt(el.getAttribute('data-i'),10)]; }
+    function fuOf(el){
+      var row = rowOf(el);
+      return row && row.followUps[parseInt(el.getAttribute('data-j'),10)];
+    }
+    [['ch-label','label'],['ch-image','imageUrl'],['ch-price','price'],['ch-qty','maxQuantity']].forEach(function(pair){
+      host.querySelectorAll('.'+pair[0]).forEach(function(el){
+        el.addEventListener('input', function(){ var r = rowOf(el); if (r) r[pair[1]] = el.value; });
+      });
+    });
+    [['fu-label','label'],['fu-choices','choices'],['fu-ph','placeholder']].forEach(function(pair){
+      host.querySelectorAll('.'+pair[0]).forEach(function(el){
+        el.addEventListener('input', function(){ var f = fuOf(el); if (f) f[pair[1]] = el.value; });
+      });
+    });
+    host.querySelectorAll('.fu-req').forEach(function(el){
+      el.addEventListener('change', function(){ var f = fuOf(el); if (f) f.required = el.checked; });
+    });
+    host.querySelectorAll('.fu-kind').forEach(function(el){
+      el.addEventListener('change', function(){ var f = fuOf(el); if (f) { f.kind = el.value; renderChoiceEditor(); } });
+    });
+    host.querySelectorAll('.ch-del').forEach(function(el){
+      el.addEventListener('click', function(){ catChoices.splice(parseInt(el.getAttribute('data-i'),10),1); renderChoiceEditor(); });
+    });
+    host.querySelectorAll('.ch-fu-toggle').forEach(function(el){
+      el.addEventListener('click', function(){ var r = rowOf(el); if (r) { r.open = !r.open; renderChoiceEditor(); } });
+    });
+    host.querySelectorAll('.ch-fu-add').forEach(function(el){
+      el.addEventListener('click', function(){ var r = rowOf(el); if (r) { r.followUps.push(blankFollowUp()); r.open = true; renderChoiceEditor(); } });
+    });
+    host.querySelectorAll('.fu-del').forEach(function(el){
+      el.addEventListener('click', function(){
+        var row = rowOf(el);
+        if (row) { row.followUps.splice(parseInt(el.getAttribute('data-j'),10),1); renderChoiceEditor(); }
+      });
+    });
+  }
+  document.getElementById('cat-choice-add').addEventListener('click', function(){
+    catChoices.push(blankChoice());
+    renderChoiceEditor();
+  });
+  /** Rows → what the API stores. "problem" is the first thing an admin must fix. */
+  function choicesPayload(){
+    var out = [], problem = null;
+    catChoices.forEach(function(row){
+      var label = String(row.label || '').trim();
+      if (!label) return;   // a half-typed row is dropped, not an error
+      var priceCents = null;
+      var rawPrice = String(row.price || '').trim().replace(/^\\$/, '');
       if (rawPrice) {
         var n = Number(rawPrice);
         // Round to the nearest cent so 149.999 cannot become a fraction of one.
         if (isFinite(n) && n >= 0) priceCents = Math.round(n * 100);
-        else priceError = true;
+        else if (!problem) problem = '"'+label+'" has a price we could not read. Use a plain number like 150 or 149.50.';
       }
-      return { label: label, imageUrl: imageUrl || null, priceCents: priceCents, priceError: priceError };
-    }).filter(Boolean);
+      var qty = parseInt(row.maxQuantity, 10);
+      if (!isFinite(qty) || qty < 1) qty = 1;
+      if (qty > 99) qty = 99;
+      var followUps = [];
+      row.followUps.forEach(function(f){
+        var question = String(f.label || '').trim();
+        if (!question) return;
+        var kind = (f.kind === 'select' || f.kind === 'textarea') ? f.kind : 'text';
+        var choices = kind === 'select'
+          ? String(f.choices || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean)
+          : [];
+        if (kind === 'select' && !choices.length && !problem) {
+          problem = '"'+question+'" is a pick-from-a-list question with no choices. Add some, or switch it to a typed answer.';
+        }
+        followUps.push({
+          id: f.id || '',
+          label: question,
+          kind: kind,
+          choices: choices,
+          placeholder: String(f.placeholder || '').trim() || null,
+          required: !!f.required
+        });
+      });
+      out.push({
+        label: label,
+        imageUrl: String(row.imageUrl || '').trim() || null,
+        priceCents: priceCents,
+        maxQuantity: qty,
+        followUps: followUps
+      });
+    });
+    return { options: out, problem: problem };
   }
 
   function syncCategoryExtraFields(){
@@ -7642,7 +7795,8 @@ ${MARKET_COMPONENT_JS}
     document.getElementById('cat-short-label').value = c ? c.shortLabel : '';
     document.getElementById('cat-extra-field').value = c ? c.extraField : 'none';
     document.getElementById('cat-extra-label').value = (c && c.extraLabel) || '';
-    document.getElementById('cat-extra-options').value = optionsToText(c && c.extraOptions);
+    catChoices = choiceRowsFrom(c && c.extraOptions);
+    renderChoiceEditor();
     document.getElementById('cat-extra-placeholder').value = (c && c.extraPlaceholder) || '';
     document.getElementById('cat-details-label').value = c ? c.detailsLabel : 'Details';
     document.getElementById('cat-details-hint').value = (c && c.detailsHint) || '';
@@ -7678,10 +7832,10 @@ ${MARKET_COMPONENT_JS}
     var label = document.getElementById('cat-label').value.trim();
     if(!label){ er.textContent='The form option is required.'; er.classList.remove('hidden'); return; }
     var kind = document.getElementById('cat-extra-field').value;
-    var options = textToOptions(document.getElementById('cat-extra-options').value);
-    if((kind==='select'||kind==='multiselect') && !options.length){ er.textContent='Add at least one choice, or switch the follow-up question off.'; er.classList.remove('hidden'); return; }
-    var badPrice = options.find(function(o){ return o.priceError; });
-    if(badPrice){ er.textContent='"'+badPrice.label+'" has a price we could not read. Use a plain number like 150 or 149.50.'; er.classList.remove('hidden'); return; }
+    var choices = choicesPayload();
+    var isChoiceKind = kind==='select' || kind==='multiselect';
+    if(isChoiceKind && !choices.options.length){ er.textContent='Add at least one choice, or switch the follow-up question off.'; er.classList.remove('hidden'); return; }
+    if(isChoiceKind && choices.problem){ er.textContent=choices.problem; er.classList.remove('hidden'); return; }
     var extraLabel = document.getElementById('cat-extra-label').value.trim();
     if(kind!=='none' && !extraLabel){ er.textContent='Give the follow-up question some text.'; er.classList.remove('hidden'); return; }
     var department = document.getElementById('cat-department').value;
@@ -7691,7 +7845,9 @@ ${MARKET_COMPONENT_JS}
       shortLabel: document.getElementById('cat-short-label').value.trim() || label,
       extraField: kind,
       extraLabel: kind==='none' ? null : extraLabel,
-      extraOptions: kind==='select' ? options : [],
+      // Every choice-shaped question keeps its list. Sending [] for multiselect
+      // is what silently emptied a saved list on the next load.
+      extraOptions: isChoiceKind ? choices.options : [],
       extraPlaceholder: kind==='text' ? (document.getElementById('cat-extra-placeholder').value.trim() || null) : null,
       detailsLabel: document.getElementById('cat-details-label').value.trim() || 'Details',
       detailsHint: document.getElementById('cat-details-hint').value.trim() || null,

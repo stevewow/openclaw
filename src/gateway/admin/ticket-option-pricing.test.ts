@@ -19,9 +19,36 @@ afterAll(() => {
 
 let priced: Awaited<ReturnType<typeof cats.createCategory>>;
 let single: Awaited<ReturnType<typeof cats.createCategory>>;
+let staging: Awaited<ReturnType<typeof cats.createCategory>>;
 
 beforeAll(async () => {
   await cats.ensureCategorySeed();
+  // The shape this feature exists for: several units of one choice, and the
+  // questions that only make sense once it is picked.
+  staging = await cats.createCategory({
+    label: "Order an additional service",
+    extraField: "multiselect",
+    extraLabel: "Which services?",
+    extraOptions: [
+      {
+        label: "Virtual staging",
+        priceCents: 5000,
+        maxQuantity: 10,
+        followUps: [
+          {
+            id: "style",
+            label: "Preferred style",
+            kind: "select",
+            choices: ["Modern", "Farmhouse", "Coastal"],
+            required: true,
+          },
+          { label: "Which image numbers / rooms?", kind: "textarea", required: true },
+          { label: "Anything to avoid?", kind: "text", required: false },
+        ],
+      },
+      { label: "Twilight edit", priceCents: 7500 },
+    ],
+  });
   priced = await cats.createCategory({
     label: "Add a service",
     extraField: "multiselect",
@@ -51,6 +78,8 @@ describe("storing options", () => {
       label: "Twilight photos",
       imageUrl: "https://example.com/tw.jpg",
       priceCents: 7500,
+      maxQuantity: 1,
+      followUps: [],
     });
     expect(reloaded.extraOptions[3].priceCents).toBeNull();
   });
@@ -60,6 +89,8 @@ describe("storing options", () => {
       label: "Photos",
       imageUrl: null,
       priceCents: null,
+      maxQuantity: 1,
+      followUps: [],
     });
     // The seeded categories were written before options had a shape.
     expect(cats.normalizeOptions(["A", "B"]).map((o) => o.label)).toEqual(["A", "B"]);
@@ -81,7 +112,7 @@ describe("storing options", () => {
 
   it("drops entries with no usable label", () => {
     expect(cats.normalizeOptions([null, "", { label: "  " }, 42, { label: "ok" }])).toEqual([
-      { label: "ok", imageUrl: null, priceCents: null },
+      { label: "ok", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
     ]);
   });
 });
@@ -106,11 +137,12 @@ describe("totalling what the client picked", () => {
   });
 
   it("cannot be talked into a price by the payload", () => {
-    // Whatever shape a tampered client sends, only labels are read.
+    // A selection carries a label, a quantity and answers — never a price. The
+    // one it tried to smuggle in is ignored in favour of our own $150.
     const { estimateCents } = intake.resolveSelectedOptions(priced, [
       { label: "Aerial / Drone", priceCents: 1 },
     ] as unknown);
-    expect(estimateCents).toBeNull();
+    expect(estimateCents).toBe(15000);
   });
 
   it("counts a repeated choice once", () => {
@@ -137,19 +169,153 @@ describe("totalling what the client picked", () => {
     const text = { ...priced, extraField: "text" as const };
     expect(intake.resolveSelectedOptions(text, ["Twilight photos"])).toEqual({
       picked: [],
+      selections: [],
       estimateCents: null,
+      missingAnswer: null,
     });
   });
 });
 
+describe("quantities and per-choice questions", () => {
+  it("round-trips the quantity ceiling and the questions", async () => {
+    const reloaded = (await cats.getCategory(staging.key))!;
+    const option = reloaded.extraOptions[0];
+    expect(option.maxQuantity).toBe(10);
+    expect(option.followUps.map((f) => f.id)).toEqual([
+      "style",
+      "which_image_numbers_rooms",
+      "anything_to_avoid",
+    ]);
+    expect(option.followUps[0].choices).toEqual(["Modern", "Farmhouse", "Coastal"]);
+    // A choice with no quantity set is a plain tick, not an unbounded order.
+    expect(reloaded.extraOptions[1].maxQuantity).toBe(1);
+  });
+
+  it("prices a quantity as price × units", () => {
+    const { selections, estimateCents } = intake.resolveSelectedOptions(staging, [
+      { label: "Virtual staging", quantity: 3, answers: [{ id: "style", value: "Modern" }] },
+      { label: "Twilight edit" },
+    ]);
+    expect(selections[0].quantity).toBe(3);
+    expect(selections[0].lineTotalCents).toBe(15000);
+    expect(estimateCents).toBe(22500);
+  });
+
+  it("clamps a quantity to the ceiling the admin set", () => {
+    const { selections, estimateCents } = intake.resolveSelectedOptions(staging, [
+      { label: "Virtual staging", quantity: 500, answers: { style: "Modern" } },
+    ]);
+    expect(selections[0].quantity).toBe(10);
+    expect(estimateCents).toBe(50000);
+  });
+
+  it("floors a junk or fractional quantity at one", () => {
+    for (const quantity of [0, -4, 2.7, Number.NaN, "3", null]) {
+      const { selections } = intake.resolveSelectedOptions(staging, [
+        { label: "Virtual staging", quantity, answers: { style: "Modern" } },
+      ]);
+      expect(selections[0].quantity).toBe(quantity === 2.7 ? 2 : 1);
+    }
+  });
+
+  it("refuses a choice whose only quantity is on a tick-once option", () => {
+    const { selections } = intake.resolveSelectedOptions(staging, [
+      { label: "Twilight edit", quantity: 4 },
+    ]);
+    expect(selections[0].quantity).toBe(1);
+    expect(selections[0].lineTotalCents).toBe(7500);
+  });
+
+  it("keeps the answers to questions we asked and drops the rest", () => {
+    const { selections } = intake.resolveSelectedOptions(staging, [
+      {
+        label: "Virtual staging",
+        quantity: 2,
+        answers: [
+          { id: "style", value: "  Coastal  " },
+          { id: "which_image_numbers_rooms", value: "3, 7, 12" },
+          { id: "not_a_question", value: "ignored" },
+        ],
+      },
+    ]);
+    expect(selections[0].answers).toEqual([
+      { id: "style", label: "Preferred style", value: "Coastal" },
+      { id: "which_image_numbers_rooms", label: "Which image numbers / rooms?", value: "3, 7, 12" },
+    ]);
+  });
+
+  it("names the first required question left blank", () => {
+    const { missingAnswer } = intake.resolveSelectedOptions(staging, [
+      { label: "Virtual staging", quantity: 2, answers: [{ id: "style", value: "Modern" }] },
+    ]);
+    expect(missingAnswer).toEqual({
+      option: "Virtual staging",
+      question: "Which image numbers / rooms?",
+    });
+  });
+
+  it("is satisfied once every required question is answered", () => {
+    const { missingAnswer } = intake.resolveSelectedOptions(staging, [
+      {
+        label: "Virtual staging",
+        answers: { style: "Modern", which_image_numbers_rooms: "Kitchen" },
+      },
+    ]);
+    expect(missingAnswer).toBeNull();
+  });
+
+  it("asks nothing of a choice that was never picked", () => {
+    const { missingAnswer, selections } = intake.resolveSelectedOptions(staging, ["Twilight edit"]);
+    expect(missingAnswer).toBeNull();
+    expect(selections).toHaveLength(1);
+  });
+});
+
 describe("what the department reads", () => {
+  it("itemizes a quantity, its line total and its answers", () => {
+    const { selections } = intake.resolveSelectedOptions(staging, [
+      {
+        label: "Virtual staging",
+        quantity: 3,
+        answers: { style: "Modern", which_image_numbers_rooms: "Images 3, 7 and 12" },
+      },
+      { label: "Twilight edit" },
+    ]);
+    const body = intake.composeDescription(
+      staging,
+      intake.composeExtraValue(selections),
+      "Before Friday please",
+      selections,
+    );
+    expect(body).toContain("• Virtual staging ×3 — $150 ($50 each)");
+    expect(body).toContain("Preferred style: Modern");
+    expect(body).toContain("Which image numbers / rooms?: Images 3, 7 and 12");
+    expect(body).toContain("• Twilight edit — $75");
+    expect(body).toContain("Estimated total: $225");
+    expect(body).toContain("Before Friday please");
+  });
+
+  it("carries the quantity onto the subject line", () => {
+    const { selections } = intake.resolveSelectedOptions(staging, [
+      {
+        label: "Virtual staging",
+        quantity: 3,
+        answers: { style: "M", which_image_numbers_rooms: "x" },
+      },
+    ]);
+    expect(intake.composeExtraValue(selections)).toBe("Virtual staging ×3");
+  });
+
   it("itemizes the picks and states the total", () => {
-    const { picked } = intake.resolveSelectedOptions(priced, ["Twilight photos", "Aerial / Drone"]);
+    const { selections } = intake.resolveSelectedOptions(priced, [
+      "Twilight photos",
+      "Aerial / Drone",
+    ]);
     const body = intake.composeDescription(
       priced,
       "Twilight photos, Aerial / Drone",
       "ASAP please",
-      picked,
+      selections,
     );
 
     expect(body).toContain("Twilight photos — $75");
@@ -159,8 +325,10 @@ describe("what the department reads", () => {
   });
 
   it("shows a half-dollar price without mangling it", () => {
-    const opts = [{ label: "Retouch", imageUrl: null, priceCents: 14950 }];
-    const body = intake.composeDescription(priced, "Retouch", "please", opts);
+    const option = cats.toCategoryOption({ label: "Retouch", priceCents: 14950 })!;
+    const body = intake.composeDescription(priced, "Retouch", "please", [
+      { option, quantity: 1, answers: [], lineTotalCents: 14950 },
+    ]);
     expect(body).toContain("Retouch — $149.50");
   });
 
