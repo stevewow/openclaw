@@ -74,10 +74,11 @@ function loadVisibilityModel(opts: {
   // own source file, not user data.
   // oxlint-disable-next-line no-implied-eval
   const factory = new Function(
-    `${preamble}\n${block}\nreturn { isClosedProject, selectableProjects, getFilteredTasks };`,
+    `${preamble}\n${block}\nreturn { isClosedProject, matchesStatusTab, selectableProjects, getFilteredTasks };`,
   );
   return factory() as {
     isClosedProject: (p: ProjectLike) => boolean;
+    matchesStatusTab: (p: ProjectLike, tab: string) => boolean;
     selectableProjects: () => ProjectLike[];
     getFilteredTasks: () => TaskLike[];
   };
@@ -202,6 +203,41 @@ describe("closed projects stay off the board", () => {
   it("narrows to one project when a filter is set", () => {
     const m = loadVisibilityModel({ projects: PROJECTS, tasks: TASKS, projectsFilter: "p-active" });
     expect(m.getFilteredTasks().map((t) => t.id)).toEqual(["t-active"]);
+  });
+});
+
+/**
+ * The Projects list opens on work in hand. Finished work is one tab away rather
+ * than gone, so these pin both halves: what Open hides, and that every other
+ * tab still reaches it.
+ */
+describe("the Projects list status tabs", () => {
+  const { matchesStatusTab } = loadVisibilityModel({ projects: PROJECTS, tasks: TASKS });
+  const idsOn = (tab: string) => PROJECTS.filter((p) => matchesStatusTab(p, tab)).map((p) => p.id);
+
+  it("shows planning and active work on Open", () => {
+    expect(idsOn("open")).toEqual(["p-active", "p-planning"]);
+  });
+
+  it("still reaches completed and archived projects on their own tabs", () => {
+    expect(idsOn("completed")).toEqual(["p-done"]);
+    expect(idsOn("archived")).toEqual(["p-archived"]);
+    expect(idsOn("planning")).toEqual(["p-planning"]);
+    expect(idsOn("active")).toEqual(["p-active"]);
+  });
+
+  it("keeps All unfiltered", () => {
+    expect(idsOn("all")).toEqual(PROJECTS.map((p) => p.id));
+  });
+
+  it("lands on Open, with All beside it", () => {
+    // The default lives in two places that must agree: the state variable the
+    // first render reads, and the tab painted as selected.
+    expect(ADMIN_UI_HTML).toContain("let projectsStatusFilter = 'open';");
+    expect(ADMIN_UI_HTML).toContain(
+      '<button class="view-btn active" data-status="open">Open</button>',
+    );
+    expect(ADMIN_UI_HTML).toContain('<button class="view-btn" data-status="all">All</button>');
   });
 });
 

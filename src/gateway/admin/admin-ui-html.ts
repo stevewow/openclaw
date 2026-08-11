@@ -818,7 +818,12 @@ ${MARKET_CSS}
 
         <div id="projects-list" class="hidden">
           <div class="proj-status-tabs mb-4" id="proj-status-tabs">
-            <button class="view-btn active" data-status="all">All</button>
+            <!-- Open is the landing tab: a list that opens on everything ever
+                 filed buries the work in progress under years of finished work.
+                 The other tabs are untouched, so completed and archived stay one
+                 click away. -->
+            <button class="view-btn active" data-status="open">Open</button>
+            <button class="view-btn" data-status="all">All</button>
             <button class="view-btn" data-status="planning">Planning</button>
             <button class="view-btn" data-status="active">Active</button>
             <button class="view-btn" data-status="completed">Completed</button>
@@ -2017,11 +2022,14 @@ ${MARKET_CSS}
       <div class="form-group hidden" id="cat-extra-options-group">
         <label>Choices</label>
         <div class="text-muted" style="font-size:0.75rem;margin:0 0 0.5rem">
-          Each choice can carry a thumbnail and a price (in dollars). The box after the price is how
-          that price reads on the form — leave it blank for "each", or type <b>per image</b>,
-          <b>per room</b>, <b>per 1,000 sq ft</b> and the client sees "$50 per image". Set "Max qty"
-          above 1 to let a client order several — the form shows a quantity picker and multiplies the
-          price. Add follow-up questions to ask for specifics only when that choice is picked.
+          Each choice can carry a thumbnail and a price (in dollars). Fill <b>From</b> only for a
+          fixed price — the client sees one number and we can start on it. Fill <b>To</b> as well for
+          a job that has to be sized ("$25–$75"): a range always needs a quote, so the tickbox locks
+          on. Leave both blank and tick <b>Quote before work starts</b> for a fully custom item — it
+          shows as "Priced on request" with no figures. The next box is how the price reads on the
+          form: blank means "each", or type <b>per image</b>, <b>per room</b>, <b>per 1,000 sq ft</b>.
+          Set "Max qty" above 1 to let a client order several. The form totals the fixed items and the
+          quoted items separately, so a client sees what starts today and what waits on a quote.
         </div>
         <div id="cat-choices"></div>
         <button type="button" class="btn btn-ghost btn-sm" id="cat-choice-add" style="margin-top:0.5rem">+ Add choice</button>
@@ -5653,7 +5661,9 @@ ${MARKET_COMPONENT_JS}
   // which is the wrong first question for someone who wants to know what to do.
   let projectsView = 'mywork'; // 'mywork' | 'board' | 'calendar' | 'tasks' | 'list'
   let projectsFilter = ''; // project id or ''
-  let projectsStatusFilter = 'all'; // 'all' | ProjectStatus
+  // 'open' (planning + active) | 'all' | ProjectStatus. Open is the default so
+  // the list answers "what are we working on?" before "what have we ever done?".
+  let projectsStatusFilter = 'open';
   // Completed/archived projects stay out of the board, calendar, and pickers
   // until asked for; the Projects list keeps its own status tabs.
   let showClosedProjects = false;
@@ -5735,6 +5745,19 @@ ${MARKET_COMPONENT_JS}
 
   function isClosedProject(p) {
     return p.status === 'completed' || p.status === 'archived';
+  }
+
+  /**
+   * The Projects list tab predicate. 'open' is the landing tab and means every
+   * project still in play — planning as well as active, since a project filed
+   * this morning is work in hand even before anyone starts it. 'all' is the
+   * unfiltered escape hatch; anything else names one status exactly, which is
+   * how Completed and Archived stay reachable.
+   */
+  function matchesStatusTab(p, tab) {
+    if (tab === 'all') return true;
+    if (tab === 'open') return !isClosedProject(p);
+    return p.status === tab;
   }
 
   /** Projects offered in pickers and drawn on the board/calendar. */
@@ -5957,10 +5980,18 @@ ${MARKET_COMPONENT_JS}
   function renderProjectsList() {
     const grid = document.getElementById('projects-list-grid');
     const filtered = allProjects.filter(function(p) {
-      return projectsStatusFilter === 'all' || p.status === projectsStatusFilter;
+      return matchesStatusTab(p, projectsStatusFilter);
     });
     if (!filtered.length) {
-      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No projects here yet.</div>';
+      // On Open, an empty grid usually means everything is finished rather than
+      // that nothing exists — say which, and point at where the rest went.
+      const closed = allProjects.filter(isClosedProject).length;
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' +
+        (projectsStatusFilter === 'open' && closed
+          ? 'No open projects. ' + closed + (closed === 1 ? ' project is' : ' projects are') +
+            ' completed or archived — see the All, Completed or Archived tabs.'
+          : 'No projects here yet.') +
+        '</div>';
       return;
     }
     grid.innerHTML = filtered.map(function(p) {
@@ -7397,9 +7428,18 @@ ${MARKET_COMPONENT_JS}
     if(t.orderId) meta.push('Order '+esc(t.orderId));
     meta.push('via '+esc(t.source));
     // An estimate the client saw while ticking priced choices — not a charge.
+    // A ranged ticket reads "Est. $125–$225"; the low end alone would look firm.
     if(t.estimateCents !== null && t.estimateCents !== undefined){
-      var est = t.estimateCents/100;
-      meta.push('<strong title="Estimate from the choices the client picked">Est. $'+esc(est===Math.floor(est)?String(est):est.toFixed(2))+'</strong>');
+      function dollars(c){ var d = c/100; return '$'+(d===Math.floor(d)?String(d):d.toFixed(2)); }
+      var est = dollars(t.estimateCents);
+      if(t.estimateMaxCents !== null && t.estimateMaxCents !== undefined){
+        est += '–'+dollars(t.estimateMaxCents);
+      }
+      meta.push('<strong title="Estimate from the choices the client picked">Est. '+esc(est)+'</strong>');
+    }
+    // Work on this ticket cannot start until the client accepts a quote.
+    if(t.quoteRequired){
+      meta.push('<strong style="color:var(--accent,#c0000a)" title="Some choices are ranged or priced on request — send a quote and get it accepted before starting">Quote first</strong>');
     }
     document.getElementById('ticket-modal-meta').innerHTML = meta.join(' · ');
     // Timing line: opened, and either how long it took or how long it's been open.
@@ -7610,7 +7650,7 @@ ${MARKET_COMPONENT_JS}
   var catChoices = [];        // working copy, live only while the modal is open
 
   function blankChoice(){
-    return { label:'', imageUrl:'', price:'', unitLabel:'', maxQuantity:'1', followUps:[], open:false };
+    return { label:'', imageUrl:'', price:'', priceMax:'', quote:false, unitLabel:'', maxQuantity:'1', followUps:[], open:false };
   }
   function blankFollowUp(){
     return { id:'', label:'', kind:'text', choices:'', placeholder:'', required:false };
@@ -7633,6 +7673,8 @@ ${MARKET_COMPONENT_JS}
         label: o.label || '',
         imageUrl: o.imageUrl || '',
         price: (o.priceCents === null || o.priceCents === undefined) ? '' : String(o.priceCents / 100),
+        priceMax: (o.priceMaxCents === null || o.priceMaxCents === undefined) ? '' : String(o.priceMaxCents / 100),
+        quote: o.quoteRequired === true,
         unitLabel: o.unitLabel || '',
         maxQuantity: String(Number(o.maxQuantity) > 1 ? Number(o.maxQuantity) : 1),
         followUps: fu,
@@ -7676,12 +7718,18 @@ ${MARKET_COMPONENT_JS}
         '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">'+
           '<input type="text" class="ch-label" data-i="'+i+'" value="'+esc(row.label)+'" placeholder="Choice — e.g. Virtual staging" style="flex:2 1 180px" />'+
           '<input type="text" class="ch-image" data-i="'+i+'" value="'+esc(row.imageUrl)+'" placeholder="Image URL (optional)" style="flex:2 1 150px" />'+
-          '<input type="text" class="ch-price" data-i="'+i+'" value="'+esc(row.price)+'" placeholder="Price" title="Price in dollars, per unit" style="flex:0 1 80px" />'+
+          '<input type="text" class="ch-price" data-i="'+i+'" value="'+esc(row.price)+'" placeholder="From" title="Price in dollars, per unit. With a To price this is the low end of a range." style="flex:0 1 74px" />'+
+          '<input type="text" class="ch-price-max" data-i="'+i+'" value="'+esc(row.priceMax)+'" placeholder="To" title="Optional high end. Filling this makes the price a range, which always needs a quote." style="flex:0 1 74px" />'+
           '<input type="text" class="ch-unit" data-i="'+i+'" value="'+esc(row.unitLabel)+'" placeholder="each" title="How the price reads on the form — e.g. per image, per room. Leave blank for &quot;each&quot;." style="flex:0 1 120px" />'+
           '<input type="number" min="1" max="99" class="ch-qty" data-i="'+i+'" value="'+esc(row.maxQuantity)+'" title="Most a client can order of this choice — 1 means no quantity picker" style="flex:0 1 72px" />'+
           '<button type="button" class="btn btn-ghost btn-sm ch-del" data-i="'+i+'" title="Remove choice">✕</button>'+
         '</div>'+
-        '<button type="button" class="btn btn-ghost btn-sm ch-fu-toggle" data-i="'+i+'" style="margin-top:0.4rem">'+
+        '<label style="display:inline-flex;align-items:center;gap:0.4rem;font-weight:600;font-size:0.78rem;margin-top:0.4rem"'+
+          (row.priceMax.trim() ? ' title="A range always needs a quote."' : '')+'>'+
+          '<input type="checkbox" class="ch-quote" data-i="'+i+'" style="width:auto"'+
+          (row.quote||row.priceMax.trim()?' checked':'')+(row.priceMax.trim()?' disabled':'')+' /> '+
+          'Quote before work starts</label>'+
+        '<button type="button" class="btn btn-ghost btn-sm ch-fu-toggle" data-i="'+i+'" style="margin-top:0.4rem;display:block">'+
           (row.open?'▾':'▸')+' Follow-up questions ('+row.followUps.length+')</button>'+
         body+
       '</div>';
@@ -7698,7 +7746,7 @@ ${MARKET_COMPONENT_JS}
       var row = rowOf(el);
       return row && row.followUps[parseInt(el.getAttribute('data-j'),10)];
     }
-    [['ch-label','label'],['ch-image','imageUrl'],['ch-price','price'],['ch-unit','unitLabel'],['ch-qty','maxQuantity']].forEach(function(pair){
+    [['ch-label','label'],['ch-image','imageUrl'],['ch-price','price'],['ch-price-max','priceMax'],['ch-unit','unitLabel'],['ch-qty','maxQuantity']].forEach(function(pair){
       host.querySelectorAll('.'+pair[0]).forEach(function(el){
         el.addEventListener('input', function(){ var r = rowOf(el); if (r) r[pair[1]] = el.value; });
       });
@@ -7710,6 +7758,25 @@ ${MARKET_COMPONENT_JS}
     });
     host.querySelectorAll('.fu-req').forEach(function(el){
       el.addEventListener('change', function(){ var f = fuOf(el); if (f) f.required = el.checked; });
+    });
+    host.querySelectorAll('.ch-quote').forEach(function(el){
+      el.addEventListener('change', function(){ var r = rowOf(el); if (r) r.quote = el.checked; });
+    });
+    // Typing a "To" price makes the choice ranged, which forces the quote flag
+    // on and locks it — so the tickbox cannot contradict the price beside it.
+    // Flipped in place rather than by re-rendering, or the caret would jump out
+    // of the box on every keystroke.
+    host.querySelectorAll('.ch-price-max').forEach(function(el){
+      el.addEventListener('input', function(){
+        var i = el.getAttribute('data-i');
+        var box = host.querySelector('.ch-quote[data-i="'+i+'"]');
+        if (!box) return;
+        var ranged = el.value.trim() !== '';
+        box.disabled = ranged;
+        box.title = ranged ? 'A range always needs a quote.' : '';
+        if (ranged) box.checked = true;
+        else { var r = rowOf(el); box.checked = !!(r && r.quote); }
+      });
     });
     host.querySelectorAll('.fu-kind').forEach(function(el){
       el.addEventListener('change', function(){ var f = fuOf(el); if (f) { f.kind = el.value; renderChoiceEditor(); } });
@@ -7740,13 +7807,30 @@ ${MARKET_COMPONENT_JS}
     catChoices.forEach(function(row){
       var label = String(row.label || '').trim();
       if (!label) return;   // a half-typed row is dropped, not an error
-      var priceCents = null;
-      var rawPrice = String(row.price || '').trim().replace(/^\\$/, '');
-      if (rawPrice) {
-        var n = Number(rawPrice);
+      function cents(raw){
+        var text = String(raw || '').trim().replace(/^\\$/, '');
+        if (!text) return undefined;             // blank, not a bad number
+        var n = Number(text);
         // Round to the nearest cent so 149.999 cannot become a fraction of one.
-        if (isFinite(n) && n >= 0) priceCents = Math.round(n * 100);
-        else if (!problem) problem = '"'+label+'" has a price we could not read. Use a plain number like 150 or 149.50.';
+        return (isFinite(n) && n >= 0) ? Math.round(n * 100) : null;
+      }
+      var priceCents = cents(row.price);
+      var priceMaxCents = cents(row.priceMax);
+      if (priceCents === null && !problem) {
+        problem = '"'+label+'" has a price we could not read. Use a plain number like 150 or 149.50.';
+      }
+      if (priceMaxCents === null && !problem) {
+        problem = '"'+label+'" has a "To" price we could not read. Use a plain number like 75, or leave it blank for a fixed price.';
+      }
+      if (priceCents === undefined) priceCents = null;
+      if (priceMaxCents === undefined) priceMaxCents = null;
+      // A range needs both ends, and the high one has to be higher — otherwise
+      // the client is shown a band that says nothing or reads backwards.
+      if (priceMaxCents !== null && priceCents === null && !problem) {
+        problem = '"'+label+'" has a "To" price but no "From" price. Add the low end, or clear the "To" box.';
+      }
+      if (priceMaxCents !== null && priceCents !== null && priceMaxCents <= priceCents && !problem) {
+        problem = '"'+label+'" has a "To" price that is not above its "From" price. Make it higher, or clear it for a fixed price.';
       }
       var qty = parseInt(row.maxQuantity, 10);
       if (!isFinite(qty) || qty < 1) qty = 1;
@@ -7775,6 +7859,10 @@ ${MARKET_COMPONENT_JS}
         label: label,
         imageUrl: String(row.imageUrl || '').trim() || null,
         priceCents: priceCents,
+        priceMaxCents: priceMaxCents,
+        // A range is quote-required whatever the tickbox says; the store
+        // enforces the same rule, this just keeps the payload honest.
+        quoteRequired: priceMaxCents !== null || !!row.quote,
         unitLabel: String(row.unitLabel || '').trim().slice(0, 40) || null,
         maxQuantity: qty,
         followUps: followUps
