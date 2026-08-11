@@ -66,6 +66,7 @@ beforeAll(async () => {
       {
         label: "Virtual staging",
         priceCents: 5000,
+        unitLabel: "per image",
         maxQuantity: 10,
         followUps: [
           {
@@ -210,7 +211,7 @@ describe("ordering several of one choice, with its own questions", () => {
     const ticket = await ticketFor(res.json.number as string);
     expect(ticket.estimateCents).toBe(15000);
     expect(ticket.subject).toContain("Virtual staging ×3");
-    expect(ticket.description).toContain("• Virtual staging ×3 — $150 ($50 each)");
+    expect(ticket.description).toContain("• Virtual staging ×3 — $150 ($50 per image)");
     expect(ticket.description).toContain("Preferred style: Modern");
     expect(ticket.description).toContain("Which image numbers / rooms?: Images 3, 7 and 12");
   });

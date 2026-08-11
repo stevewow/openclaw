@@ -9,6 +9,7 @@ import {
   formatPriceCents,
   isChoiceField,
   listCategories,
+  optionUnitLabel,
   type TicketCategoryDef,
 } from "./ticket-category-store.js";
 import { listDepartmentEmails } from "./ticket-department-store.js";
@@ -151,11 +152,12 @@ export function composeDescription(
   if (selections.length > 1 || priced.length > 0 || detailed) {
     const lines: string[] = [];
     for (const sel of selections) {
-      // "× 3 — $150 ($50 each)": the each-price is what makes a quantity line
-      // checkable at a glance instead of arithmetic the desk has to redo.
+      // "× 3 — $150 ($50 per image)": the unit price is what makes a quantity
+      // line checkable at a glance instead of arithmetic the desk has to redo.
+      // The unit wording is the admin's, so the email reads like the form did.
       const each =
         sel.quantity > 1 && sel.option.priceCents !== null
-          ? ` (${formatPriceCents(sel.option.priceCents)} each)`
+          ? ` (${formatPriceCents(sel.option.priceCents)} ${optionUnitLabel(sel.option)})`
           : "";
       const money =
         sel.lineTotalCents === null ? "" : ` — ${formatPriceCents(sel.lineTotalCents)}${each}`;

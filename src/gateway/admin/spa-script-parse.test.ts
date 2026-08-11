@@ -11,8 +11,22 @@ const INTAKE_CATEGORIES = [
     extraField: "select" as const,
     extraLabel: "Which media?",
     extraOptions: [
-      { label: "Photos", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
-      { label: "Aerial / Drone", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
+      {
+        label: "Photos",
+        imageUrl: null,
+        priceCents: null,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
+      {
+        label: "Aerial / Drone",
+        imageUrl: null,
+        priceCents: null,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
     ],
     extraPlaceholder: null,
     detailsLabel: "What change would you like?",
@@ -38,6 +52,7 @@ const INTAKE_CATEGORIES = [
         label: "Virtual staging",
         imageUrl: "https://example.com/staging.jpg",
         priceCents: 5000,
+        unitLabel: "per image",
         maxQuantity: 10,
         followUps: [
           {
@@ -62,6 +77,7 @@ const INTAKE_CATEGORIES = [
         label: "Twilight edit",
         imageUrl: null,
         priceCents: 7500,
+        unitLabel: null,
         maxQuantity: 1,
         followUps: [],
       },

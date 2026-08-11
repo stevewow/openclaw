@@ -78,6 +78,7 @@ describe("storing options", () => {
       label: "Twilight photos",
       imageUrl: "https://example.com/tw.jpg",
       priceCents: 7500,
+      unitLabel: null,
       maxQuantity: 1,
       followUps: [],
     });
@@ -89,6 +90,7 @@ describe("storing options", () => {
       label: "Photos",
       imageUrl: null,
       priceCents: null,
+      unitLabel: null,
       maxQuantity: 1,
       followUps: [],
     });
@@ -112,7 +114,14 @@ describe("storing options", () => {
 
   it("drops entries with no usable label", () => {
     expect(cats.normalizeOptions([null, "", { label: "  " }, 42, { label: "ok" }])).toEqual([
-      { label: "ok", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
+      {
+        label: "ok",
+        imageUrl: null,
+        priceCents: null,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
     ]);
   });
 });
@@ -335,5 +344,71 @@ describe("what the department reads", () => {
   it("leaves an unpriced single answer reading exactly as before", () => {
     const plain = intake.composeDescription(priced, "Photos", "too dark", []);
     expect(plain).toBe("Which services? Photos\n\ntoo dark");
+  });
+
+  // "each" is only right for a countable thing. Virtual staging is sold per
+  // image, so the desk should read the same wording the client agreed to.
+  it("uses the choice's own unit wording on the line item", () => {
+    const option = cats.toCategoryOption({
+      label: "Virtual staging",
+      priceCents: 5000,
+      unitLabel: "per image",
+      maxQuantity: 10,
+    })!;
+    const body = intake.composeDescription(priced, "Virtual staging ×3", "please", [
+      { option, quantity: 3, answers: [], lineTotalCents: 15000 },
+    ]);
+    expect(body).toContain("• Virtual staging ×3 — $150 ($50 per image)");
+  });
+});
+
+describe("unit wording", () => {
+  it("keeps whatever the admin typed", () => {
+    const option = cats.toCategoryOption({ label: "Staging", unitLabel: "  per image  " })!;
+    expect(option.unitLabel).toBe("per image");
+    expect(cats.optionUnitLabel(option)).toBe("per image");
+  });
+
+  it("falls back to each when no wording is set", () => {
+    const option = cats.toCategoryOption({ label: "Staging" })!;
+    expect(option.unitLabel).toBeNull();
+    expect(cats.optionUnitLabel(option)).toBe("each");
+  });
+
+  it("drops a blank or non-string wording rather than storing an empty unit", () => {
+    expect(cats.toCategoryOption({ label: "a", unitLabel: "   " })!.unitLabel).toBeNull();
+    expect(cats.toCategoryOption({ label: "b", unitLabel: 42 })!.unitLabel).toBeNull();
+  });
+
+  it("caps a pasted essay so it cannot push the price off the choice", () => {
+    const option = cats.toCategoryOption({ label: "a", unitLabel: "x".repeat(200) })!;
+    expect(option.unitLabel).toHaveLength(40);
+  });
+
+  it("survives a round trip through the store", async () => {
+    const saved = await cats.createCategory({
+      label: "Staging menu",
+      extraField: "multiselect",
+      extraLabel: "Which services?",
+      extraOptions: [
+        { label: "Virtual staging", priceCents: 5000, unitLabel: "per image", maxQuantity: 10 },
+        { label: "Twilight edit", priceCents: 7500 },
+      ],
+    });
+    const reloaded = (await cats.getCategory(saved.key))!;
+    expect(reloaded.extraOptions.map((o) => o.unitLabel)).toEqual(["per image", null]);
+  });
+
+  it("prices a choice the way the client will read it", () => {
+    const of = (raw: Record<string, unknown>) => cats.formatUnitPrice(cats.toCategoryOption(raw)!);
+    // A custom unit always wins, quantity picker or not.
+    expect(of({ label: "a", priceCents: 5000, unitLabel: "per image", maxQuantity: 10 })) //
+      .toBe("$50 per image");
+    expect(of({ label: "a", priceCents: 120000, unitLabel: "per property" })) //
+      .toBe("$1200 per property");
+    // Without one, "each" only appears where there is something to multiply.
+    expect(of({ label: "a", priceCents: 5000, maxQuantity: 10 })).toBe("$50 each");
+    expect(of({ label: "a", priceCents: 7500 })).toBe("$75");
+    expect(of({ label: "a", priceCents: null })).toBe("");
   });
 });

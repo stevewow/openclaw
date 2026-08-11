@@ -96,8 +96,22 @@ describe("widening the request-type extra_field CHECK", () => {
     expect(edit.detailsHint).toBe("Be specific.");
     // Legacy bare-string options still read, now as structured choices.
     expect(edit.extraOptions).toEqual([
-      { label: "Photos", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
-      { label: "Aerial / Drone", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
+      {
+        label: "Photos",
+        imageUrl: null,
+        priceCents: null,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
+      {
+        label: "Aerial / Drone",
+        imageUrl: null,
+        priceCents: null,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
     ]);
 
     // The retired one keeps being retired rather than coming back to the form.

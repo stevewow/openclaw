@@ -23,6 +23,8 @@ export type IntakeOptionView = {
   label: string;
   imageUrl: string | null;
   priceCents: number | null;
+  /** How the price is worded — "per image". Null reads as "each". */
+  unitLabel: string | null;
   maxQuantity: number;
   followUps: IntakeFollowUpView[];
 };
@@ -57,71 +59,91 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
 <title>WOW Video Tours — Submit a Request</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
-  :root { --wow:#E11B22; --wow-dark:#b3151b; --ink:#1a1a1a; --muted:#6b7280; --border:#e5e7eb; --bg:#f6f7f9; --surface:#ffffff; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--ink); line-height:1.5; }
-  .wrap { max-width:640px; margin:0 auto; padding:1.5rem 1rem 3rem; }
-  .brand { display:flex; align-items:center; gap:0.6rem; margin:0.5rem 0 1.25rem; }
-  .brand .dot { width:14px; height:14px; border-radius:50%; background:var(--wow); }
-  .brand h1 { font-size:1.15rem; margin:0; font-weight:800; letter-spacing:-0.01em; }
-  .card { background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06); padding:1.5rem; }
-  .lead { color:var(--muted); font-size:0.95rem; margin:0 0 1.25rem; }
-  .ctx { background:#fff5f5; border:1px solid #f6d5d7; border-radius:10px; padding:0.7rem 0.9rem; font-size:0.85rem; margin-bottom:1.25rem; color:#7a1a1e; }
-  label { display:block; font-weight:600; font-size:0.85rem; margin:0 0 0.35rem; }
-  .field { margin-bottom:1.1rem; }
-  input[type=text], input[type=email], input[type=tel], select, textarea {
-    width:100%; padding:0.6rem 0.7rem; border:1px solid var(--border); border-radius:9px; font:inherit; background:#fff; color:var(--ink);
+  /* Palette, type and shapes taken from wowvideotours.com: Montserrat throughout,
+     charcoal ink on a light grey ground, pure-red accent, pill buttons, and the
+     uppercase letter-spaced eyebrow the site uses above every section heading. */
+  :root {
+    --wow:#ff0000; --wow-dark:#d40000; --wow-tint:rgba(255,0,0,0.08);
+    --ink:#2c2c2c; --muted:#888888; --border:#dbdbdb; --hairline:#ececec;
+    --bg:#f3f3f3; --surface:#ffffff;
+    --font:"Montserrat",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
-  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--wow); box-shadow:0 0 0 3px rgba(225,27,34,0.12); }
-  textarea { resize:vertical; min-height:96px; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:var(--font); background:var(--bg); color:var(--ink); line-height:1.55; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:660px; margin:0 auto; padding:2rem 1rem 3.5rem; }
+  /* Wordmark, set rather than imaged: the page is a self-contained template with
+     no asset pipeline, and a hotlinked logo would break the header if it moved. */
+  .brand { display:flex; align-items:baseline; gap:0.45rem; margin:0 0 1.5rem; }
+  .brand .wow { font-size:1.5rem; font-weight:800; letter-spacing:-0.02em; color:var(--wow); line-height:1; }
+  .brand .vt { font-size:0.95rem; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink); line-height:1; }
+  .card { background:var(--surface); border:1px solid var(--hairline); border-radius:20px; box-shadow:0 2px 14px rgba(0,0,0,0.05); padding:2rem 1.75rem; }
+  .eyebrow { color:var(--wow); font-size:0.69rem; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; margin:0 0 0.5rem; }
+  h1.title { font-size:1.75rem; font-weight:700; letter-spacing:-0.02em; line-height:1.15; margin:0 0 0.6rem; }
+  .lead { color:var(--muted); font-size:0.92rem; font-weight:400; margin:0 0 1.5rem; }
+  .ctx { background:#fafafa; border:1px solid var(--hairline); border-left:3px solid var(--wow); border-radius:0 12px 12px 0; padding:0.75rem 1rem; font-size:0.85rem; margin-bottom:1.5rem; color:var(--ink); }
+  label { display:block; font-weight:600; font-size:0.78rem; letter-spacing:0.02em; margin:0 0 0.4rem; }
+  .field { margin-bottom:1.25rem; }
+  input[type=text], input[type=email], input[type=tel], select, textarea {
+    /* Block, not inline-block: an inline textarea sits on the text baseline and
+       leaves a stray gap between it and the hint underneath. */
+    display:block; width:100%; padding:0.7rem 0.85rem; border:1px solid var(--border); border-radius:12px; font:inherit; font-size:0.92rem; background:#fff; color:var(--ink); transition:border-color 0.15s, box-shadow 0.15s;
+  }
+  input[type=file] { font-size:0.85rem; color:var(--muted); }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--wow); box-shadow:0 0 0 3px var(--wow-tint); }
+  textarea { resize:vertical; min-height:104px; }
   .row { display:flex; gap:0.75rem; flex-wrap:wrap; }
   .row > .field { flex:1; min-width:180px; }
-  .hint { color:var(--muted); font-size:0.78rem; margin-top:0.3rem; }
+  .hint { color:var(--muted); font-size:0.76rem; font-weight:400; margin-top:0.35rem; line-height:1.45; }
   /* Pickable choices, optionally with a thumbnail and a price. Sized so a phone
      shows one per row and a laptop shows two or three. */
-  .choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:0.6rem; }
-  .choice { display:flex; flex-wrap:wrap; align-items:center; gap:0.6rem; padding:0.55rem 0.65rem; border:1px solid var(--border); border-radius:10px; background:#fff; }
-  .choice:hover { border-color:var(--wow); }
-  .choice.picked { border-color:var(--wow); box-shadow:0 0 0 2px rgba(225,27,34,0.12); }
-  .choice .pick { display:flex; align-items:center; gap:0.6rem; flex:1 1 100%; margin:0; font-weight:400; cursor:pointer; }
-  .choice input[type=checkbox], .choice input[type=radio] { margin:0; flex:none; width:auto; }
-  .choice img { width:44px; height:44px; object-fit:cover; border-radius:7px; flex:none; background:#f1f1f1; }
-  .choice .cl { font-size:0.87rem; line-height:1.25; }
-  .choice .cp { display:block; color:var(--muted); font-size:0.78rem; font-weight:700; }
+  .choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(195px,1fr)); gap:0.6rem; }
+  .choice { display:flex; flex-wrap:wrap; align-items:center; gap:0.6rem; padding:0.7rem 0.8rem; border:1px solid var(--border); border-radius:14px; background:#fff; transition:border-color 0.15s, box-shadow 0.15s; }
+  .choice:hover { border-color:var(--ink); }
+  .choice.picked { border-color:var(--wow); box-shadow:0 0 0 2px var(--wow-tint); }
+  .choice .pick { display:flex; align-items:center; gap:0.6rem; flex:1 1 100%; margin:0; font-weight:400; letter-spacing:0; cursor:pointer; }
+  .choice input[type=checkbox], .choice input[type=radio] { margin:0; flex:none; width:auto; accent-color:var(--wow); }
+  .choice img { width:46px; height:46px; object-fit:cover; border-radius:10px; flex:none; background:var(--bg); }
+  .choice .cl { font-size:0.87rem; font-weight:500; line-height:1.3; }
+  .choice .cp { display:block; color:var(--wow); font-size:0.72rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; margin-top:0.15rem; }
   /* Quantity sits under the tick so a long choice label never squeezes it. */
-  .choice .qty { flex:1 1 100%; display:flex; align-items:center; gap:0.45rem; }
-  .choice .qty span { font-size:0.75rem; font-weight:600; color:var(--muted); }
-  .choice .qty select { width:auto; padding:0.25rem 1.6rem 0.25rem 0.5rem; font-size:0.85rem; }
+  .choice .qty { flex:1 1 100%; display:flex; align-items:center; gap:0.45rem; padding-top:0.5rem; border-top:1px solid var(--hairline); }
+  .choice .qty span { font-size:0.7rem; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:var(--muted); }
+  .choice .qty select { width:auto; padding:0.3rem 1.6rem 0.3rem 0.6rem; border-radius:999px; font-size:0.85rem; }
   /* Per-choice questions get the full width — they are typed into, not scanned. */
-  .followups { display:grid; gap:0.7rem; margin-top:0.75rem; }
-  .followup-group { border:1px solid var(--border); border-left:3px solid var(--wow); border-radius:10px; padding:0.75rem 0.85rem; background:#fcfcfd; }
-  .followup-group .fg-title { font-size:0.85rem; font-weight:700; margin:0 0 0.15rem; }
-  .followup { margin-top:0.6rem; }
-  .followup label { font-size:0.8rem; font-weight:600; }
+  .followups { display:grid; gap:0.7rem; margin-top:0.85rem; }
+  .followup-group { border:1px solid var(--hairline); border-left:3px solid var(--wow); border-radius:0 14px 14px 0; padding:0.85rem 1rem; background:#fafafa; }
+  .followup-group .fg-title { font-size:0.8rem; font-weight:700; letter-spacing:0.03em; margin:0; }
+  .followup { margin-top:0.7rem; }
+  .followup label { font-size:0.76rem; font-weight:600; }
   .followup .req { color:var(--wow); }
-  .followup textarea { min-height:64px; }
-  .choice-total { margin-top:0.7rem; padding-top:0.6rem; border-top:1px solid var(--border); font-weight:700; font-size:0.92rem; display:flex; justify-content:space-between; }
-  .choice-total .amt { color:var(--wow-dark); }
-  .choice-total .note { display:block; font-weight:400; font-size:0.75rem; color:var(--muted); }
-  .btn { background:var(--wow); color:#fff; border:none; border-radius:10px; padding:0.75rem 1.25rem; font-weight:700; font-size:0.95rem; cursor:pointer; width:100%; }
+  .followup textarea { min-height:68px; }
+  .choice-total { margin-top:0.9rem; padding-top:0.75rem; border-top:1px solid var(--hairline); font-weight:700; font-size:0.88rem; letter-spacing:0.03em; text-transform:uppercase; display:flex; justify-content:space-between; gap:1rem; align-items:baseline; }
+  .choice-total .amt { color:var(--wow); font-size:1.25rem; letter-spacing:-0.02em; text-transform:none; white-space:nowrap; }
+  .choice-total .note { display:block; font-weight:400; font-size:0.72rem; letter-spacing:0; text-transform:none; color:var(--muted); margin-top:0.2rem; }
+  .btn { background:var(--wow); color:#fff; border:none; border-radius:999px; padding:0.9rem 1.5rem; font-family:inherit; font-weight:700; font-size:0.8rem; letter-spacing:0.09em; text-transform:uppercase; cursor:pointer; width:100%; transition:background 0.15s; }
   .btn:hover { background:var(--wow-dark); }
-  .btn:disabled { opacity:0.6; cursor:default; }
-  .error { color:var(--wow-dark); font-size:0.85rem; margin:0 0 0.75rem; display:none; }
+  .btn:disabled { opacity:0.5; cursor:default; }
+  .error { color:var(--wow-dark); font-size:0.85rem; font-weight:600; margin:0 0 0.75rem; display:none; }
   .hidden { display:none !important; }
-  .success { text-align:center; padding:1rem 0; }
-  .success .check { width:56px; height:56px; border-radius:50%; background:#e8f7ee; color:#16a34a; font-size:1.8rem; display:flex; align-items:center; justify-content:center; margin:0 auto 1rem; }
-  .success .num { font-size:1.4rem; font-weight:800; letter-spacing:-0.01em; margin:0.25rem 0; }
-  .foot { text-align:center; color:var(--muted); font-size:0.75rem; margin-top:1.25rem; }
-  .testbar { background:#fff8e1; border:1px solid #f4d675; color:#7a5b00; border-radius:10px; padding:0.7rem 0.9rem; font-size:0.85rem; margin-bottom:1rem; }
+  .success { text-align:center; padding:1.5rem 0; }
+  .success .check { width:60px; height:60px; border-radius:50%; background:var(--wow); color:#fff; font-size:1.7rem; display:flex; align-items:center; justify-content:center; margin:0 auto 1.25rem; }
+  .success .num { font-size:1.6rem; font-weight:800; letter-spacing:0.02em; margin:0.4rem 0; }
+  .foot { text-align:center; color:var(--muted); font-size:0.72rem; letter-spacing:0.02em; margin-top:1.5rem; }
+  .testbar { background:#fffbeb; border:1px solid #f0dda0; color:#7a5b00; border-radius:12px; padding:0.75rem 1rem; font-size:0.83rem; margin-bottom:1rem; }
 </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="brand"><span class="dot"></span><h1>WOW Video Tours — Support</h1></div>
+    <div class="brand"><span class="wow">WOW</span><span class="vt">Video Tours</span></div>
     <div id="test-banner" class="testbar hidden">🧪 <strong>Test mode</strong> — this is a demonstration. The notification goes to <span id="test-dest">the test recipient</span> instead of the real department, and the ticket is tagged as a test.</div>
     <div class="card">
       <div id="intake-form-view">
+        <p class="eyebrow">Support &amp; Requests</p>
+        <h1 class="title">How can we help?</h1>
         <p class="lead">Need an edit, an extra service, or something looks off with your media? Tell us below and we'll open a ticket for the right team.</p>
         <div id="ctx" class="ctx hidden"></div>
         <div id="err" class="error"></div>
@@ -169,10 +191,10 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
 
       <div id="intake-success-view" class="success hidden">
         <div class="check">✓</div>
-        <p style="margin:0;color:var(--muted)">Your request has been received.</p>
+        <p class="eyebrow" style="margin-bottom:0.35rem">Request received</p>
         <p class="num" id="success-num">WVT-0000</p>
-        <p style="margin:0.25rem 0 0;color:var(--muted);font-size:0.9rem">The right team has been notified and will follow up by email. Please keep this number for reference.</p>
-        <p style="margin-top:1.25rem"><a href="#" id="another-link" style="color:var(--wow);font-weight:600;text-decoration:none">Submit another request</a></p>
+        <p style="margin:0.25rem auto 0;max-width:26rem;color:var(--muted);font-size:0.88rem">The right team has been notified and will follow up by email. Please keep this number for reference.</p>
+        <p style="margin-top:1.5rem"><a href="#" id="another-link" style="color:var(--wow);font-weight:700;font-size:0.75rem;letter-spacing:0.09em;text-transform:uppercase;text-decoration:none">Submit another request</a></p>
       </div>
     </div>
     <div class="foot">WOW Video Tours · This form is for existing orders and media deliveries.</div>
@@ -255,6 +277,14 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     return list[idx] || null;
   }
   function hasQuantity(opt){ return !!opt && Number(opt.maxQuantity) > 1; }
+  // "$50 per image" when the admin worded the unit, "$50 each" when the client
+  // can order several, plain "$50" for a one-off. Mirrors formatUnitPrice on
+  // the server so the form and the ticket read the same.
+  function unitPrice(opt){
+    var price = money(opt.priceCents);
+    if (opt.unitLabel) return price + ' ' + opt.unitLabel;
+    return hasQuantity(opt) ? price + ' each' : price;
+  }
   function followUpsOf(opt){ return (opt && opt.followUps) || []; }
 
   /** Every ticked choice, in form order, with its quantity and answers. */
@@ -403,7 +433,7 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
       if (opt.priceCents !== null && opt.priceCents !== undefined) {
         var price = document.createElement('span');
         price.className = 'cp';
-        price.textContent = money(opt.priceCents) + (hasQuantity(opt) ? ' each' : '');
+        price.textContent = unitPrice(opt);
         text.appendChild(price);
       }
       pick.appendChild(text);

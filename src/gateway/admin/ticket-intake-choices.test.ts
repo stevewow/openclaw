@@ -19,6 +19,7 @@ const STAGING: IntakeCategoryView = {
       label: "Virtual staging",
       imageUrl: null,
       priceCents: 5000,
+      unitLabel: null,
       maxQuantity: 10,
       followUps: [
         {
@@ -43,6 +44,7 @@ const STAGING: IntakeCategoryView = {
       label: "Twilight edit",
       imageUrl: null,
       priceCents: 7500,
+      unitLabel: null,
       maxQuantity: 1,
       followUps: [],
     },
@@ -247,5 +249,46 @@ describe("submitting", () => {
     expect(ui.posts[0].body.extraSelections).toEqual([
       { label: "Twilight edit", quantity: 1, answers: [] },
     ]);
+  });
+});
+
+// "each" reads wrong for most of what we sell — virtual staging is priced per
+// image, an aerial add-on per property. The wording is per choice and admin-set.
+describe("how a price is worded", () => {
+  function priceOf(ui: ReturnType<typeof openForm>, i: number) {
+    return ui.choices()[i].querySelector(".cp")?.textContent ?? "";
+  }
+  function withUnits(...units: Array<string | null>): IntakeCategoryView {
+    const extraOptions = STAGING.extraOptions.map((o, i) => {
+      const copy = structuredClone(o);
+      copy.unitLabel = units[i] ?? null;
+      return copy;
+    });
+    return { ...STAGING, extraOptions };
+  }
+
+  it("uses the admin's wording instead of each", () => {
+    const ui = openForm([withUnits("per image")]);
+    expect(priceOf(ui, 0)).toBe("$50 per image");
+  });
+
+  it("falls back to each only where there is something to multiply", () => {
+    const ui = openForm([withUnits(null, null)]);
+    // maxQuantity 10 — the client picks a number, so "each" is meaningful.
+    expect(priceOf(ui, 0)).toBe("$50 each");
+    // maxQuantity 1 — nothing to multiply, so the bare price is the whole story.
+    expect(priceOf(ui, 1)).toBe("$75");
+  });
+
+  it("honours the wording on a one-off choice too", () => {
+    const ui = openForm([withUnits(null, "per property")]);
+    expect(priceOf(ui, 1)).toBe("$75 per property");
+  });
+
+  it("still multiplies the running total by the quantity, not the wording", () => {
+    const ui = openForm([withUnits("per image")]);
+    ui.tick(0);
+    ui.setValue(ui.doc.querySelector(".qty-select")!, "3", "change");
+    expect(ui.total()).toContain("$150");
   });
 });

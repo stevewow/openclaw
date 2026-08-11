@@ -2017,9 +2017,11 @@ ${MARKET_CSS}
       <div class="form-group hidden" id="cat-extra-options-group">
         <label>Choices</label>
         <div class="text-muted" style="font-size:0.75rem;margin:0 0 0.5rem">
-          Each choice can carry a thumbnail and a price (in dollars). Set "Max qty" above 1 to let
-          a client order several — the form shows a quantity picker and multiplies the price. Add
-          follow-up questions to ask for specifics only when that choice is picked.
+          Each choice can carry a thumbnail and a price (in dollars). The box after the price is how
+          that price reads on the form — leave it blank for "each", or type <b>per image</b>,
+          <b>per room</b>, <b>per 1,000 sq ft</b> and the client sees "$50 per image". Set "Max qty"
+          above 1 to let a client order several — the form shows a quantity picker and multiplies the
+          price. Add follow-up questions to ask for specifics only when that choice is picked.
         </div>
         <div id="cat-choices"></div>
         <button type="button" class="btn btn-ghost btn-sm" id="cat-choice-add" style="margin-top:0.5rem">+ Add choice</button>
@@ -7608,7 +7610,7 @@ ${MARKET_COMPONENT_JS}
   var catChoices = [];        // working copy, live only while the modal is open
 
   function blankChoice(){
-    return { label:'', imageUrl:'', price:'', maxQuantity:'1', followUps:[], open:false };
+    return { label:'', imageUrl:'', price:'', unitLabel:'', maxQuantity:'1', followUps:[], open:false };
   }
   function blankFollowUp(){
     return { id:'', label:'', kind:'text', choices:'', placeholder:'', required:false };
@@ -7631,6 +7633,7 @@ ${MARKET_COMPONENT_JS}
         label: o.label || '',
         imageUrl: o.imageUrl || '',
         price: (o.priceCents === null || o.priceCents === undefined) ? '' : String(o.priceCents / 100),
+        unitLabel: o.unitLabel || '',
         maxQuantity: String(Number(o.maxQuantity) > 1 ? Number(o.maxQuantity) : 1),
         followUps: fu,
         open: fu.length > 0
@@ -7674,6 +7677,7 @@ ${MARKET_COMPONENT_JS}
           '<input type="text" class="ch-label" data-i="'+i+'" value="'+esc(row.label)+'" placeholder="Choice — e.g. Virtual staging" style="flex:2 1 180px" />'+
           '<input type="text" class="ch-image" data-i="'+i+'" value="'+esc(row.imageUrl)+'" placeholder="Image URL (optional)" style="flex:2 1 150px" />'+
           '<input type="text" class="ch-price" data-i="'+i+'" value="'+esc(row.price)+'" placeholder="Price" title="Price in dollars, per unit" style="flex:0 1 80px" />'+
+          '<input type="text" class="ch-unit" data-i="'+i+'" value="'+esc(row.unitLabel)+'" placeholder="each" title="How the price reads on the form — e.g. per image, per room. Leave blank for &quot;each&quot;." style="flex:0 1 120px" />'+
           '<input type="number" min="1" max="99" class="ch-qty" data-i="'+i+'" value="'+esc(row.maxQuantity)+'" title="Most a client can order of this choice — 1 means no quantity picker" style="flex:0 1 72px" />'+
           '<button type="button" class="btn btn-ghost btn-sm ch-del" data-i="'+i+'" title="Remove choice">✕</button>'+
         '</div>'+
@@ -7694,7 +7698,7 @@ ${MARKET_COMPONENT_JS}
       var row = rowOf(el);
       return row && row.followUps[parseInt(el.getAttribute('data-j'),10)];
     }
-    [['ch-label','label'],['ch-image','imageUrl'],['ch-price','price'],['ch-qty','maxQuantity']].forEach(function(pair){
+    [['ch-label','label'],['ch-image','imageUrl'],['ch-price','price'],['ch-unit','unitLabel'],['ch-qty','maxQuantity']].forEach(function(pair){
       host.querySelectorAll('.'+pair[0]).forEach(function(el){
         el.addEventListener('input', function(){ var r = rowOf(el); if (r) r[pair[1]] = el.value; });
       });
@@ -7771,6 +7775,7 @@ ${MARKET_COMPONENT_JS}
         label: label,
         imageUrl: String(row.imageUrl || '').trim() || null,
         priceCents: priceCents,
+        unitLabel: String(row.unitLabel || '').trim().slice(0, 40) || null,
         maxQuantity: qty,
         followUps: followUps
       });

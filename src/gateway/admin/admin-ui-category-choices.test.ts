@@ -113,6 +113,7 @@ const STAGING = [
     label: "Virtual staging",
     imageUrl: "https://example.com/vs.jpg",
     priceCents: 5000,
+    unitLabel: "per image",
     maxQuantity: 10,
     followUps: [
       {
@@ -125,7 +126,14 @@ const STAGING = [
       },
     ],
   },
-  { label: "Twilight edit", imageUrl: null, priceCents: 7500, maxQuantity: 1, followUps: [] },
+  {
+    label: "Twilight edit",
+    imageUrl: null,
+    priceCents: 7500,
+    unitLabel: null,
+    maxQuantity: 1,
+    followUps: [],
+  },
 ];
 
 describe("the choice editor", () => {
@@ -154,12 +162,52 @@ describe("the choice editor", () => {
     expect(ui.payload().options).toEqual(STAGING);
   });
 
+  it("edits the unit wording beside the price", () => {
+    const ui = mountEditor();
+    ui.load(STAGING);
+    const host = ui.doc.getElementById("cat-choices") as HTMLElement;
+    const units = Array.from(host.querySelectorAll<HTMLInputElement>(".ch-unit"));
+    // Loaded as stored, and the blank one shows "each" as its placeholder so an
+    // admin can see what the client reads without setting anything.
+    expect(units.map((i) => i.value)).toEqual(["per image", ""]);
+    expect(units[1].placeholder).toBe("each");
+
+    units[1].value = "  per property  ";
+    units[1].dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("input"));
+    const options = ui.payload().options as Array<{ unitLabel: string | null }>;
+    expect(options[1].unitLabel).toBe("per property");
+  });
+
+  it("stores no unit at all when the box is cleared", () => {
+    const ui = mountEditor();
+    ui.load(STAGING);
+    const unit = ui.doc.querySelector(".ch-unit") as HTMLInputElement;
+    unit.value = "   ";
+    unit.dispatchEvent(new (ui.doc.defaultView as Window & typeof globalThis).Event("input"));
+    const options = ui.payload().options as Array<{ unitLabel: string | null }>;
+    expect(options[0].unitLabel).toBeNull();
+  });
+
   it("reads the legacy bare-label form", () => {
     const ui = mountEditor();
     ui.load(["Photos", "Aerial / Drone"]);
     expect(ui.payload().options).toEqual([
-      { label: "Photos", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
-      { label: "Aerial / Drone", imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] },
+      {
+        label: "Photos",
+        imageUrl: null,
+        priceCents: null,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
+      {
+        label: "Aerial / Drone",
+        imageUrl: null,
+        priceCents: null,
+        unitLabel: null,
+        maxQuantity: 1,
+        followUps: [],
+      },
     ]);
   });
 

@@ -38,6 +38,8 @@ const FOLLOW_UP_KINDS = new Set<string>(["text", "textarea", "select"]);
 /** Ceilings that keep an admin typo from producing an unusable public form. */
 export const MAX_OPTION_QUANTITY = 99;
 const MAX_FOLLOW_UPS_PER_OPTION = 8;
+/** Long enough for "per finished image", short enough to sit beside a price. */
+const MAX_UNIT_LABEL = 40;
 const MAX_FOLLOW_UP_CHOICES = 40;
 const MAX_FOLLOW_UP_LABEL = 200;
 
@@ -71,6 +73,12 @@ export type CategoryOption = {
   imageUrl: string | null;
   /** Price in whole cents, or null when the choice isn't priced. */
   priceCents: number | null;
+  /**
+   * What one unit of the price is, written the way a client should read it —
+   * "per image", "per room", "per 1,000 sq ft". Null falls back to "each",
+   * which is right for a countable thing and wrong for most else.
+   */
+  unitLabel: string | null;
   /**
    * Most units of this choice a client may order. 1 (the default) means the
    * choice is a plain tick with no quantity selector.
@@ -158,7 +166,7 @@ export function toCategoryOption(raw: unknown): CategoryOption | null {
   if (typeof raw === "string") {
     const label = raw.trim();
     return label
-      ? { label, imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] }
+      ? { label, imageUrl: null, priceCents: null, unitLabel: null, maxQuantity: 1, followUps: [] }
       : null;
   }
   if (!raw || typeof raw !== "object") {
@@ -175,6 +183,10 @@ export function toCategoryOption(raw: unknown): CategoryOption | null {
   // treated as unpriced rather than silently rounded into a wrong number.
   const priceCents =
     typeof price === "number" && Number.isSafeInteger(price) && price >= 0 ? price : null;
+  // Wording only — it is never parsed back into a number, so anything an admin
+  // types is honoured verbatim beyond a length cap.
+  const unitLabel =
+    typeof record.unitLabel === "string" ? record.unitLabel.trim().slice(0, MAX_UNIT_LABEL) : "";
   const rawMax = record.maxQuantity;
   // A junk maximum falls back to 1 — a choice you can tick — never to "any
   // number", which would let one line item quote an arbitrary total.
@@ -189,7 +201,14 @@ export function toCategoryOption(raw: unknown): CategoryOption | null {
         .filter((f): f is CategoryFollowUp => f !== null)
         .slice(0, MAX_FOLLOW_UPS_PER_OPTION)
     : [];
-  return { label, imageUrl: imageUrl || null, priceCents, maxQuantity, followUps };
+  return {
+    label,
+    imageUrl: imageUrl || null,
+    priceCents,
+    unitLabel: unitLabel || null,
+    maxQuantity,
+    followUps,
+  };
 }
 
 export type TicketCategoryDef = {
@@ -223,7 +242,14 @@ const MEDIA_OPTIONS: CategoryOption[] = [
   "Virtual tour / Matterport",
   "Twilight",
   "Other",
-].map((label) => ({ label, imageUrl: null, priceCents: null, maxQuantity: 1, followUps: [] }));
+].map((label) => ({
+  label,
+  imageUrl: null,
+  priceCents: null,
+  unitLabel: null,
+  maxQuantity: 1,
+  followUps: [],
+}));
 
 /** The original four, copy-for-copy identical to the pre-managed form. */
 const SEED_CATEGORIES: Array<Omit<TicketCategoryDef, "createdAt" | "updatedAt">> = [
@@ -324,6 +350,30 @@ export function normalizeOptions(raw: unknown): CategoryOption[] {
 export function formatPriceCents(cents: number): string {
   const dollars = cents / 100;
   return `$${Number.isInteger(dollars) ? dollars.toString() : dollars.toFixed(2)}`;
+}
+
+/**
+ * How one unit of a choice is worded next to its price. "each" only reads
+ * correctly for a countable thing, so an admin can override it per choice —
+ * virtual staging is priced "per image", a large floor plan "per 1,000 sq ft".
+ */
+export function optionUnitLabel(option: Pick<CategoryOption, "unitLabel">): string {
+  return option.unitLabel ?? "each";
+}
+
+/**
+ * "$50 each" / "$50 per image", or a bare "$50" when neither a custom unit nor
+ * a quantity picker gives the client anything to multiply.
+ */
+export function formatUnitPrice(option: CategoryOption): string {
+  if (option.priceCents === null) {
+    return "";
+  }
+  const price = formatPriceCents(option.priceCents);
+  if (option.unitLabel) {
+    return `${price} ${option.unitLabel}`;
+  }
+  return option.maxQuantity > 1 ? `${price} each` : price;
 }
 
 function normalizeExtraField(raw: string): CategoryExtraField {
