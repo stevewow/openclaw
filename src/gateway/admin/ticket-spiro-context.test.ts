@@ -6,6 +6,16 @@ import {
 } from "./ticket-spiro-context.js";
 
 describe("parseOrderIdFromPweLink", () => {
+  it("reads a real Property Website Editor link", () => {
+    // Verbatim from the Spiro delivery page's button — the shape that has to
+    // keep working. The id sits mid-path, with a trailing verb after it.
+    expect(
+      parseOrderIdFromPweLink(
+        "https://admins.wowvideotours.com/orders/0dfd55de-f0a7-4931-70ff-08deeef90f42/embed-pwe",
+      ),
+    ).toBe("0dfd55de-f0a7-4931-70ff-08deeef90f42");
+  });
+
   it("pulls the order UUID out of the editor path", () => {
     // The shape Spiro's delivery/editor links use.
     expect(
