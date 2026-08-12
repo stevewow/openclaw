@@ -7424,8 +7424,17 @@ ${MARKET_COMPONENT_JS}
     if(t.requesterName) meta.push('<strong>'+esc(t.requesterName)+'</strong>');
     if(t.requesterEmail) meta.push(esc(t.requesterEmail));
     if(t.requesterPhone) meta.push(esc(t.requesterPhone));
+    if(t.agentTitle) meta.push(esc(t.agentTitle));
+    if(t.agentCompany) meta.push(esc(t.agentCompany));
+    // Only when someone other than the agent pressed the button — otherwise it
+    // just repeats the requester name.
+    if(t.submittedBy && t.submittedBy !== t.requesterName) meta.push('Submitted by '+esc(t.submittedBy));
     if(t.orderAddress) meta.push('📍 '+esc(t.orderAddress));
     if(t.orderId) meta.push('Order '+esc(t.orderId));
+    // The order's Property Website Editor page, straight from the Spiro handoff.
+    if(t.orderLink) meta.push('<a href="'+esc(t.orderLink)+'" target="_blank" rel="noopener noreferrer">Order Link</a>');
+    if(t.photographerName) meta.push('📷 '+esc(t.photographerName));
+    if(t.shootDate) meta.push('Shot '+esc(t.shootDate));
     meta.push('via '+esc(t.source));
     // An estimate the client saw while ticking priced choices — not a charge.
     // A ranged ticket reads "Est. $125–$225"; the low end alone would look firm.

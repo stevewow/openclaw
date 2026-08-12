@@ -214,4 +214,48 @@ describe("ticket intake form", () => {
       ).status,
     ).toBe(400);
   });
+
+  it("records the Spiro handoff and derives the order id from the PWE link", async () => {
+    const link = "https://view.wowvideotours.com/order/52d43a48-d116-4755-2312-08def6d513e4/edit";
+    const { status, data } = await submit(
+      {
+        category: "other",
+        details: "The twilight shot is missing.",
+        requesterName: "Sarah Copeland",
+        requesterEmail: "sarah@sarahcopeland.com",
+        requesterPhone: "+15134050013",
+        agentTitle: "Listing Specialist",
+        agentCompany: "Keller Williams Advisors Realty Cincinnati",
+        submittedBy: "Steve Musser",
+        orderAddress: "10555 Montgomery Rd, Montgomery, OH 45242",
+        orderLink: link,
+        photographerName: "Heather McHenry",
+        shootDate: "2026-08-11",
+      },
+      "203.0.113.20",
+    );
+    expect(status).toBe(201);
+
+    const ticket = (await store.listTickets({ q: "Montgomery" })).find(
+      (t) => t.number === data.number,
+    )!;
+    expect(ticket.orderLink).toBe(link);
+    // Never taken from the page: the id has to follow from the link it shipped with.
+    expect(ticket.orderId).toBe("52d43a48-d116-4755-2312-08def6d513e4");
+    expect(ticket.agentTitle).toBe("Listing Specialist");
+    expect(ticket.agentCompany).toBe("Keller Williams Advisors Realty Cincinnati");
+    expect(ticket.submittedBy).toBe("Steve Musser");
+    expect(ticket.photographerName).toBe("Heather McHenry");
+    expect(ticket.shootDate).toBe("2026-08-11");
+    expect(ticket.requesterPhone).toBe("+15134050013");
+  });
+
+  it("serves the form with the Spiro parameter contract embedded", async () => {
+    // The page reads the query string from this list, so a parameter missing
+    // here is one the linked button would silently drop.
+    const html = await (await fetch(`${base}/support`)).text();
+    for (const param of ["LinkToPWE", "AgentEmailAddress", "PhotographerName", "DateOfShoot"]) {
+      expect(html).toContain(param);
+    }
+  });
 });

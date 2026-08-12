@@ -112,6 +112,19 @@ export type Ticket = {
   requesterPhone: string | null;
   orderId: string | null;
   orderAddress: string | null;
+  /**
+   * What the Spiro delivery page knew about the order when the client pressed
+   * the button. Recorded as handed over, not re-resolved: it is the context of
+   * the request, and the desk needs the same picture the requester had.
+   */
+  orderLink: string | null;
+  agentTitle: string | null;
+  agentCompany: string | null;
+  /** Who pressed the button — the agent, or an admin acting for them. */
+  submittedBy: string | null;
+  photographerName: string | null;
+  /** Confirmed shoot date, kept as the string Spiro sent (no zone guessing). */
+  shootDate: string | null;
   assignedTo: string | null;
   isTest: boolean;
   /**
@@ -140,6 +153,12 @@ export type CreateTicketParams = {
   requesterPhone?: string | null;
   orderId?: string | null;
   orderAddress?: string | null;
+  orderLink?: string | null;
+  agentTitle?: string | null;
+  agentCompany?: string | null;
+  submittedBy?: string | null;
+  photographerName?: string | null;
+  shootDate?: string | null;
   assignedTo?: string | null;
   createdBy?: string | null;
   /** A demonstration ticket — gets a TEST- number and is kept out of stats. */
@@ -183,6 +202,12 @@ type TicketRow = {
   requester_phone: string | null;
   order_id: string | null;
   order_address: string | null;
+  order_link: string | null;
+  agent_title: string | null;
+  agent_company: string | null;
+  submitted_by: string | null;
+  photographer_name: string | null;
+  shoot_date: string | null;
   assigned_to: string | null;
   created_by: string | null;
   is_test: number;
@@ -222,6 +247,12 @@ function rowToTicket(row: TicketRow): Ticket {
     requesterPhone: row.requester_phone,
     orderId: row.order_id,
     orderAddress: row.order_address,
+    orderLink: row.order_link,
+    agentTitle: row.agent_title,
+    agentCompany: row.agent_company,
+    submittedBy: row.submitted_by,
+    photographerName: row.photographer_name,
+    shootDate: row.shoot_date,
     assignedTo: row.assigned_to,
     isTest: row.is_test === 1,
     estimateCents: row.estimate_cents,
@@ -353,6 +384,12 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
         requester_phone: params.requesterPhone ?? null,
         order_id: params.orderId ?? null,
         order_address: params.orderAddress ?? null,
+        order_link: params.orderLink ?? null,
+        agent_title: params.agentTitle ?? null,
+        agent_company: params.agentCompany ?? null,
+        submitted_by: params.submittedBy ?? null,
+        photographer_name: params.photographerName ?? null,
+        shoot_date: params.shootDate ?? null,
         assigned_to: params.assignedTo ?? null,
         created_by: params.createdBy ?? null,
         is_test: isTest ? 1 : 0,

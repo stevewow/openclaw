@@ -1,12 +1,17 @@
 // White-label public intake form served at /support. The Spiro media-delivery
-// page's "Submit Ticket or Request" button links here with ?orderId= (and an
-// optional ?address=). No platform references — this is a customer surface.
+// page's "Submit Ticket or Request" button links here with the order's context
+// in the query string (see ticket-spiro-context.ts for the parameter contract);
+// the older ?orderId= / ?address= form still works. Known contact details
+// prefill the form so the client is not asked what the link already said.
+// No platform references — this is a customer surface.
 //
 // Request types, their follow-up question, and their details copy are all
 // admin-managed (admin_ticket_categories) and injected as JSON, so adding a
 // category in the dashboard changes this form with no redeploy. Inline JS uses
 // string concatenation only (no template literals) so the outer TS template
 // string stays intact.
+
+import { SPIRO_PARAM_MAPPINGS } from "./ticket-spiro-context.js";
 
 /** A question shown only once its choice is picked. */
 export type IntakeFollowUpView = {
@@ -56,6 +61,9 @@ function embedJson(value: unknown): string {
 }
 
 export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string {
+  // The page's inline JS cannot import, so the Spiro parameter contract is
+  // embedded as data rather than restated here — one list, both sides.
+  const spiroParams = SPIRO_PARAM_MAPPINGS;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -211,7 +219,7 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     <div class="foot">WOW Video Tours · This form is for existing orders and media deliveries.</div>
   </div>
 
-<script id="intake-config" type="application/json">${embedJson({ categories })}</script>
+<script id="intake-config" type="application/json">${embedJson({ categories, spiroParams })}</script>
 <script>
 (function(){
   'use strict';
@@ -219,26 +227,60 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   try { config = JSON.parse(document.getElementById('intake-config').textContent || '{}'); } catch (e) { config = {}; }
   var cats = Array.isArray(config.categories) ? config.categories : [];
 
-  var params = new URLSearchParams(location.search);
-  var orderId = (params.get('orderId') || params.get('order') || '').trim();
-  var address = (params.get('address') || params.get('listing') || '').trim();
+  // Read the query string case-insensitively: the Spiro button and the older
+  // hand-built links do not agree on casing, and a link is not worth losing
+  // over a capital letter.
+  var rawParams = new URLSearchParams(location.search);
+  var lowered = {};
+  rawParams.forEach(function(value, key){ lowered[key.toLowerCase()] = value; });
+  function param(name){
+    var v = lowered[String(name).toLowerCase()];
+    return (v == null ? '' : String(v)).trim();
+  }
+
+  // The Spiro handoff, keyed by the payload field each parameter feeds.
+  var spiro = {};
+  (Array.isArray(config.spiroParams) ? config.spiroParams : []).forEach(function(m){
+    var v = param(m.param);
+    if (v) spiro[m.field] = v;
+  });
+
+  var orderId = param('orderId') || param('order') || '';
+  var address = spiro.orderAddress || param('address') || param('listing') || '';
+  var agentName = [spiro.agentFirstName, spiro.agentLastName].filter(Boolean).join(' ');
+
+  // Prefill what the link already told us, leaving every field editable: the
+  // person at the keyboard may be correcting exactly this.
+  function prefill(id, value){
+    if (!value) return;
+    var el = document.getElementById(id);
+    if (el && !el.value) el.value = value;
+  }
+  prefill('f-name', agentName);
+  prefill('f-email', spiro.requesterEmail);
+  prefill('f-phone', spiro.requesterPhone);
 
   // Test mode is driven entirely by a signed token an admin adds to the URL
   // (?test=<token>). testEmail is display-only; the authoritative recipient is
   // baked into the token and checked server-side.
-  var testToken = (params.get('test') || '').trim();
-  var testEmail = (params.get('testEmail') || '').trim();
+  var testToken = param('test');
+  var testEmail = param('testEmail');
   if (testToken) {
     if (testEmail) document.getElementById('test-dest').textContent = testEmail;
     document.getElementById('test-banner').classList.remove('hidden');
   }
 
   var ctx = document.getElementById('ctx');
-  if (orderId || address) {
-    var parts = [];
-    if (address) parts.push(address);
-    if (orderId) parts.push('Order ' + orderId);
-    ctx.textContent = 'This request will be linked to: ' + parts.join(' · ');
+  var ctxParts = [];
+  if (address) ctxParts.push(address);
+  if (!address && orderId) ctxParts.push('Order ' + orderId);
+  // Confirms we already know which shoot they mean, so nobody re-types it.
+  var shot = [];
+  if (spiro.shootDate) shot.push('Shot ' + spiro.shootDate);
+  if (spiro.photographerName) shot.push((shot.length ? 'by ' : 'Photographer ') + spiro.photographerName);
+  if (shot.length) ctxParts.push(shot.join(' '));
+  if (ctxParts.length) {
+    ctx.textContent = 'This request will be linked to: ' + ctxParts.join(' · ');
     ctx.classList.remove('hidden');
   }
 
@@ -701,6 +743,8 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
       extraValue = extraText.value.trim() || null;
     }
 
+    // The Spiro context rides along as-sent; the server derives the order id
+    // from the PWE link rather than trusting one parsed here.
     var payload = {
       category: catEl.value,
       extraValue: extraValue,
@@ -712,6 +756,12 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
       requesterPhone: document.getElementById('f-phone').value.trim() || null,
       orderId: orderId || null,
       orderAddress: address || null,
+      orderLink: spiro.orderLink || null,
+      agentTitle: spiro.agentTitle || null,
+      agentCompany: spiro.agentCompany || null,
+      submittedBy: spiro.submittedBy || null,
+      photographerName: spiro.photographerName || null,
+      shootDate: spiro.shootDate || null,
       testToken: testToken || null
     };
     if (!payload.requesterName) { showErr('Please enter your name.'); return; }

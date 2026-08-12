@@ -19,6 +19,7 @@ import { listDepartmentEmails } from "./ticket-department-store.js";
 import { applyInboundReply, type PostmarkInboundPayload } from "./ticket-inbound.js";
 import { renderTicketIntakeHtml } from "./ticket-intake-html.js";
 import { notifyDepartment } from "./ticket-mailer.js";
+import { readSpiroIntakeContext } from "./ticket-spiro-context.js";
 import { createTicket } from "./ticket-store.js";
 import { verifyTestToken } from "./ticket-test-token.js";
 
@@ -423,9 +424,13 @@ export async function handleTicketIntakeRequest(
       sendJson(res, 400, { error: "Please choose a request type." });
       return true;
     }
+    // The Spiro delivery page hands the order's context over in the link; the
+    // order id is derived from that link here rather than trusted from the
+    // page, so the two can never disagree on the ticket.
+    const spiro = readSpiroIntakeContext(data);
     const details = str(data.details);
-    const requesterName = str(data.requesterName);
-    const requesterEmail = str(data.requesterEmail);
+    const requesterName = spiro.requesterName;
+    const requesterEmail = spiro.requesterEmail;
     if (!requesterName) {
       sendJson(res, 400, { error: "Please enter your name." });
       return true;
@@ -494,9 +499,15 @@ export async function handleTicketIntakeRequest(
       source: "widget",
       requesterName,
       requesterEmail,
-      requesterPhone: str(data.requesterPhone),
-      orderId: str(data.orderId),
-      orderAddress: str(data.orderAddress),
+      requesterPhone: spiro.requesterPhone,
+      orderId: spiro.orderId,
+      orderAddress: spiro.orderAddress,
+      orderLink: spiro.orderLink,
+      agentTitle: spiro.agentTitle,
+      agentCompany: spiro.agentCompany,
+      submittedBy: spiro.submittedBy,
+      photographerName: spiro.photographerName,
+      shootDate: spiro.shootDate,
       estimateCents,
       estimateMaxCents,
       quoteRequired,
@@ -523,10 +534,10 @@ export async function handleTicketIntakeRequest(
     }
 
     // Notify the department out-of-band; a slow/failed email must not delay or
-    // fail the client's submission (the ticket is already saved). A test ticket
-    // diverts to the admin-authorized override address.
+    // fail the client's submission (the ticket is already saved). The files are
+    // written above, so the notification picks them up off the ticket. A test
+    // ticket diverts to the admin-authorized override address.
     void notifyDepartment(ticket, {
-      attachmentCount: savedFiles,
       ...(testGrant ? { overrideTo: testGrant.email } : {}),
     }).catch(() => {});
 

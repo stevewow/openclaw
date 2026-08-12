@@ -439,6 +439,20 @@ type TicketsTable = {
   requester_phone: string | null;
   order_id: string | null;
   order_address: string | null;
+  /**
+   * The Spiro handoff: a ticket opened from an order's delivery page arrives
+   * carrying who the agent is and what was shot. Stored as given rather than
+   * resolved against Spiro — this is what the requester's page knew at the
+   * moment they asked, and the desk needs it even if the order later changes.
+   */
+  order_link: string | null;
+  agent_title: string | null;
+  agent_company: string | null;
+  /** Who pressed the button — the agent, or an admin acting for them. */
+  submitted_by: string | null;
+  photographer_name: string | null;
+  /** Confirmed shoot date, kept as the string Spiro sent (no zone guessing). */
+  shoot_date: string | null;
   assigned_to: string | null;
   created_by: string | null;
   is_test: number;
@@ -1093,6 +1107,13 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       requester_phone TEXT,
       order_id TEXT,
       order_address TEXT,
+      -- Spiro delivery-page handoff, as sent at submit time.
+      order_link TEXT,
+      agent_title TEXT,
+      agent_company TEXT,
+      submitted_by TEXT,
+      photographer_name TEXT,
+      shoot_date TEXT,
       assigned_to TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
       created_by TEXT,
       is_test INTEGER NOT NULL DEFAULT 0,
@@ -1214,6 +1235,21 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }
   if (!ticketColumns.some((c) => c.name === "quote_required")) {
     db.exec("ALTER TABLE admin_tickets ADD COLUMN quote_required INTEGER NOT NULL DEFAULT 0");
+  }
+  // The Spiro delivery-page handoff. All nullable: tickets predating the linked
+  // button, and any opened straight from the dashboard, legitimately have none
+  // of this — an empty string would read as "asked and answered blank".
+  for (const col of [
+    "order_link",
+    "agent_title",
+    "agent_company",
+    "submitted_by",
+    "photographer_name",
+    "shoot_date",
+  ]) {
+    if (!ticketColumns.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE admin_tickets ADD COLUMN ${col} TEXT`);
+    }
   }
   // Spiro reports amountPaid/amountDue per invoice; the snapshot predates both.
   // Nullable, so rows cached before the next refresh read as "not reported"

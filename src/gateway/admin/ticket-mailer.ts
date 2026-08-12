@@ -1,5 +1,15 @@
 import { getCategoryShortLabel } from "./ticket-category-store.js";
 import { getDepartmentEmail } from "./ticket-department-store.js";
+import {
+  type LoadedEmailAttachment,
+  loadTicketEmailAttachments,
+  type TicketEmailAttachmentLoad,
+} from "./ticket-email-attachments.js";
+import {
+  renderTicketEmailHtml,
+  renderTicketEmailText,
+  type TicketEmailAttachment,
+} from "./ticket-email-render.js";
 import { addTicketEvent, type Ticket } from "./ticket-store.js";
 
 // Outbound department notification for a ticket. Sent via Postmark's HTTP API
@@ -80,58 +90,31 @@ export type OutboundEmail = {
   replyTo: string;
   subject: string;
   textBody: string;
+  /** Rendered alongside the text body; clients pick whichever they support. */
+  htmlBody?: string;
+  attachments?: LoadedEmailAttachment[];
 };
 
 /**
- * Pure: render the department notification for a ticket. The category label is
- * passed in (rather than looked up) because categories are admin-managed data —
- * resolving them is the caller's async job, and this stays testable.
+ * Pure: render the department notification for a ticket. The category label and
+ * the attachment list are passed in (rather than looked up) because both are
+ * async I/O — resolving them is the caller's job, and this stays testable.
  */
 export function formatDepartmentEmail(
   ticket: Ticket,
   config: EmailConfig,
   to: string,
   categoryLabel: string = FALLBACK_CATEGORY_LABEL,
-  attachmentCount = 0,
+  attachments: TicketEmailAttachment[] = [],
 ): OutboundEmail {
-  const lines: string[] = [];
-  if (ticket.isTest) {
-    lines.push("⚠ TEST TICKET — this is a demonstration of the support flow.");
-    lines.push("No client is waiting and no action is required.");
-    lines.push("");
-  }
-  lines.push(`New support ticket ${ticket.number} — ${categoryLabel}`);
-  lines.push("");
-  const who = ticket.requesterName ?? "A client";
-  const contact = ticket.requesterEmail ? ` <${ticket.requesterEmail}>` : "";
-  lines.push(`From: ${who}${contact}`);
-  if (ticket.requesterPhone) lines.push(`Phone: ${ticket.requesterPhone}`);
-  if (ticket.orderAddress) lines.push(`Property: ${ticket.orderAddress}`);
-  if (ticket.orderId) lines.push(`Order: ${ticket.orderId}`);
-  lines.push("");
-  lines.push(ticket.description ?? "(no details provided)");
-  // The files themselves stay in the dashboard rather than riding the email, so
-  // a desk working from the inbox is told they exist and where to look.
-  if (attachmentCount > 0) {
-    lines.push("");
-    lines.push(
-      `📎 The client attached ${attachmentCount} file${attachmentCount === 1 ? "" : "s"}. Open ${ticket.number} in the dashboard to download ${attachmentCount === 1 ? "it" : "them"}.`,
-    );
-  }
-  lines.push("");
-  lines.push("—");
-  lines.push("Reply to this email to update the client's ticket:");
-  lines.push("  • Start your reply with UPDATE to log progress (keeps it open).");
-  lines.push("  • Start your reply with RESOLVED to close it.");
-  lines.push("Anything else is flagged for review in the dashboard.");
-  lines.push(`Ticket ${ticket.number}`);
-
+  const view = { ticket, categoryLabel, attachments };
   return {
     to,
     from: config.from,
     replyTo: replyToAddress(config.inboundAddress, ticket.replyToken),
     subject: `${ticket.isTest ? "[TEST] " : ""}[${ticket.number}] ${ticket.subject}`,
-    textBody: lines.join("\n"),
+    textBody: renderTicketEmailText(view),
+    htmlBody: renderTicketEmailHtml(view),
   };
 }
 
@@ -167,6 +150,16 @@ export class PostmarkMailer implements TicketMailer {
           ReplyTo: msg.replyTo,
           Subject: msg.subject,
           TextBody: msg.textBody,
+          ...(msg.htmlBody ? { HtmlBody: msg.htmlBody } : {}),
+          ...(msg.attachments?.length
+            ? {
+                Attachments: msg.attachments.map((a) => ({
+                  Name: a.filename,
+                  Content: a.content,
+                  ContentType: a.contentType,
+                })),
+              }
+            : {}),
           MessageStream: this.config.messageStream,
         }),
         signal: controller.signal,
@@ -201,8 +194,11 @@ export type NotifyDeps = {
    * `ticket-test-token.ts`); this function trusts what it's handed.
    */
   overrideTo?: string | null;
-  /** How many files the client attached, so the email can point at them. */
-  attachmentCount?: number;
+  /**
+   * The client's uploads, already read and encoded. Injected in tests; left
+   * unset in production so the ticket's stored files are loaded here.
+   */
+  attachments?: TicketEmailAttachmentLoad;
 };
 
 /**
@@ -232,14 +228,29 @@ export async function notifyDepartment(ticket: Ticket, deps: NotifyDeps = {}): P
     return { ok: false, detail: "no department address" };
   }
   const categoryLabel = (await getCategoryShortLabel(ticket.category)) || FALLBACK_CATEGORY_LABEL;
-  const msg = formatDepartmentEmail(ticket, config, to, categoryLabel, deps.attachmentCount ?? 0);
-  const result = await mailer.send(msg);
+  // A file we cannot read must not cost the desk its notification, so the load
+  // failing at all falls back to sending without attachments.
+  let loaded: TicketEmailAttachmentLoad = { files: [], summaries: [] };
+  if (deps.attachments) {
+    loaded = deps.attachments;
+  } else {
+    try {
+      loaded = await loadTicketEmailAttachments(ticket.id);
+    } catch (err) {
+      log.error(`could not load attachments for ${ticket.number}: ${String(err)}`);
+    }
+  }
+  const msg = formatDepartmentEmail(ticket, config, to, categoryLabel, loaded.summaries);
+  const result = await mailer.send({ ...msg, attachments: loaded.files });
+  const carried = loaded.files.length;
   await addTicketEvent(ticket.id, {
     kind: "email_out",
     authorType: "system",
     authorName: null,
-    body: result.ok ? `Emailed ${to}` : `Email to ${to} failed: ${result.detail ?? "unknown"}`,
-    meta: { to, ok: result.ok },
+    body: result.ok
+      ? `Emailed ${to}${carried > 0 ? ` with ${carried} file${carried === 1 ? "" : "s"}` : ""}`
+      : `Email to ${to} failed: ${result.detail ?? "unknown"}`,
+    meta: { to, ok: result.ok, attached: carried },
   });
   if (!result.ok) log.error(`email send failed for ${ticket.number}: ${result.detail}`);
   return result;
