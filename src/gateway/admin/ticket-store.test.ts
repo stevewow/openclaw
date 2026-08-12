@@ -150,6 +150,37 @@ describe("reply-command grammar", () => {
     });
   });
 
+  it("takes the whole activity thread with a deleted ticket", async () => {
+    const ticket = await store.createTicket({
+      category: "other",
+      subject: "delete me",
+      source: "widget",
+      requesterName: "Dana",
+    });
+    await store.addTicketEvent(ticket.id, {
+      kind: "comment",
+      authorType: "staff",
+      authorName: "desk",
+      body: "looking into it",
+    });
+    expect(await store.listTicketEvents(ticket.id)).not.toHaveLength(0);
+
+    await store.deleteTicket(ticket.id);
+    expect(await store.getTicket(ticket.id)).toBeNull();
+    // The events reference the ticket ON DELETE CASCADE; a thread outliving its
+    // ticket would be unreachable rows nothing can ever show or clean up.
+    expect(await store.listTicketEvents(ticket.id)).toHaveLength(0);
+  });
+
+  it("does not renumber the queue when a ticket is deleted", async () => {
+    // Numbers are the client's reference in email; reusing one would point two
+    // conversations at the same ticket.
+    const first = await store.createTicket({ category: "other", subject: "one" });
+    await store.deleteTicket(first.id);
+    const next = await store.createTicket({ category: "other", subject: "two" });
+    expect(next.number).not.toBe(first.number);
+  });
+
   it("treats an unrecognized reply as a no-op command (needs review)", () => {
     const parsed = store.parseReplyCommand("Hey, can you clarify which photo?");
     expect(parsed.command).toBe("none");

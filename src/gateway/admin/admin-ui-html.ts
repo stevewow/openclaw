@@ -1926,7 +1926,8 @@ ${MARKET_CSS}
         <label>Assignee</label>
         <select id="ticket-modal-assignee"><option value="">Unassigned</option></select>
       </div>
-      <div style="margin-left:auto;align-self:flex-end">
+      <div style="margin-left:auto;align-self:flex-end;display:flex;gap:0.5rem">
+        <button type="button" class="btn btn-danger btn-sm hidden" id="ticket-modal-delete">Delete ticket</button>
         <button class="btn btn-primary btn-sm" id="ticket-modal-save">Save changes</button>
       </div>
     </div>
@@ -7467,6 +7468,9 @@ ${MARKET_COMPONENT_JS}
     populateTicketAssignee(document.getElementById('ticket-modal-assignee'), t.assignedTo);
     renderTicketThread(events);
     renderTicketFiles(files);
+    // Deleting a ticket takes its whole thread and the client's uploads with
+    // it, so the control only appears for the role the API will accept it from.
+    document.getElementById('ticket-modal-delete').classList.toggle('hidden', !isSuperAdmin());
     document.getElementById('ticket-modal').classList.remove('hidden');
   }
 
@@ -7485,6 +7489,18 @@ ${MARKET_COMPONENT_JS}
     var r = await api('PUT','/tickets/'+currentTicketId, payload);
     if(!r.ok){ alert((r.data&&r.data.error)||'Save failed.'); return; }
     await openTicket(currentTicketId);
+    loadTicketTable(); loadTicketStats();
+  });
+
+  document.getElementById('ticket-modal-delete').addEventListener('click', async function(){
+    if(!currentTicketId) return;
+    var number = document.getElementById('ticket-modal-title').textContent.split(' · ')[0];
+    // Named in the prompt: the queue is a list of near-identical rows, and the
+    // one thing worth being sure of is which ticket is about to go.
+    if(!confirm('Delete '+number+' for good? Its activity thread and any files the client attached go with it. This cannot be undone.')) return;
+    var r = await api('DELETE','/tickets/'+currentTicketId);
+    if(!r.ok){ alert((r.data&&r.data.error)||'Delete failed.'); return; }
+    closeTicketModal();
     loadTicketTable(); loadTicketStats();
   });
 
