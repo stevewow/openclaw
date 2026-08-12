@@ -368,8 +368,7 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     if (!e.quote) {
       totalEl.innerHTML =
         '<div class="tot-grand solo"><span>Estimated total</span>' +
-        '<span class="amt">' + money(e.firm) + '</span></div>' +
-        '<p class="tot-note">A quote, not a charge — we confirm before any work starts.</p>';
+        '<span class="amt">' + money(e.firm) + '</span></div>';
       return;
     }
     // The two halves are kept apart because they mean different things: one is

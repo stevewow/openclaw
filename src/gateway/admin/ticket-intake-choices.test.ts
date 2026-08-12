@@ -377,7 +377,8 @@ describe("choices that have to be quoted", () => {
     // No split lines to read when there is nothing waiting on a quote.
     expect(rows(ui)).toEqual([]);
     expect(grand(ui)).toBe("Estimated total$75");
-    expect(ui.total()).toContain("A quote, not a charge");
+    // The firm-only total stands on its own — no reassurance note under it.
+    expect(ui.total()).not.toContain("tot-note");
   });
 
   it("drops the split again when the quoted choice is unticked", () => {
