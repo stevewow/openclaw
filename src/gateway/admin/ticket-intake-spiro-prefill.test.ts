@@ -105,7 +105,7 @@ describe("the Spiro delivery-page handoff", () => {
     const ui = openForm(SPIRO_QUERY);
     await ui.submit();
     expect(ui.posts).toHaveLength(1);
-    const body = ui.posts[0]!;
+    const body = ui.posts[0] ?? {};
     expect(body.orderLink).toBe(PWE_LINK);
     expect(body.agentCompany).toBe("Keller Williams Advisors Realty Cincinnati");
     expect(body.agentTitle).toBe("Listing Specialist");
@@ -121,7 +121,7 @@ describe("the Spiro delivery-page handoff", () => {
     const ui = openForm(SPIRO_QUERY);
     ui.setValue("f-email", "assistant@kw.com");
     await ui.submit();
-    expect(ui.posts[0]!.requesterEmail).toBe("assistant@kw.com");
+    expect((ui.posts[0] ?? {}).requesterEmail).toBe("assistant@kw.com");
   });
 
   it("reads the parameters whatever case they arrive in", () => {
@@ -138,8 +138,8 @@ describe("the Spiro delivery-page handoff", () => {
     ui.setValue("f-name", "Dana Agent");
     ui.setValue("f-email", "dana@example.com");
     await ui.submit();
-    expect(ui.posts[0]!.orderId).toBe("SAMPLE-1234");
-    expect(ui.posts[0]!.orderAddress).toBe("123 Example St");
+    expect((ui.posts[0] ?? {}).orderId).toBe("SAMPLE-1234");
+    expect((ui.posts[0] ?? {}).orderAddress).toBe("123 Example St");
   });
 
   it("shows no context banner when the form is opened cold", () => {
