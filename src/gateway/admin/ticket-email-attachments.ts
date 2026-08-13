@@ -39,6 +39,18 @@ export type LoadTicketEmailAttachmentsOptions = {
 };
 
 /**
+ * How many files a ticket carries.
+ *
+ * The client's confirmation email only needs to say "we got your 3 files", so
+ * counting is the whole job — reading the blobs back to send a client their own
+ * screenshots would be megabytes spent telling them what they already have.
+ */
+export async function countTicketAttachments(ticketId: string): Promise<number> {
+  const attachments = await listAttachments("ticket", ticketId);
+  return attachments.filter((a) => a.type === "file" && a.storedFilename).length;
+}
+
+/**
  * Load a ticket's uploads, attaching what fits inside the budget.
  *
  * Files are considered oldest-first and an oversized one is skipped rather than

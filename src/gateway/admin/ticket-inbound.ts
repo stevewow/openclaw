@@ -1,3 +1,4 @@
+import { notifyClientOnResolution } from "./ticket-client-notify.js";
 import {
   addTicketEvent,
   getTicketByReplyToken,
@@ -126,6 +127,15 @@ export async function applyInboundReply(
     body: parsed.body || "(no text)",
     meta: { from: fromEmail, command: parsed.command, verified: true },
   });
-  await updateTicket(ticket.id, { status: newStatus }, { authorType: "staff", name: fromEmail });
+  const updated = await updateTicket(
+    ticket.id,
+    { status: newStatus },
+    { authorType: "staff", name: fromEmail },
+  );
+  // A desk closing a ticket from their inbox is the commonest way one gets
+  // resolved, so the client hears about it from here as often as from the
+  // dashboard. Out-of-band: the webhook must still answer the provider 200 even
+  // if the courtesy email fails, or Postmark retries the whole reply.
+  void notifyClientOnResolution(ticket, updated).catch(() => {});
   return { status: "applied", ticketNumber: ticket.number, command: parsed.command, newStatus };
 }
