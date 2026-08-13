@@ -1,3 +1,4 @@
+import { isTicketIconKey, SEED_CATEGORY_ICONS } from "./ticket-icons.js";
 import { getAdminDb } from "./user-store.js";
 
 // Request types offered on the public intake form, managed from the dashboard
@@ -271,6 +272,12 @@ export type TicketCategoryDef = {
   sortOrder: number;
   /** Inactive categories stay on historical tickets but leave the form. */
   active: boolean;
+  /**
+   * Which mark the request-type card shows on the intake form. A key from
+   * `ticket-icons.ts`, or null to draw the generic one — an unknown key resolves
+   * to the same fallback, so a renamed icon can never leave a blank card.
+   */
+  icon: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -309,6 +316,7 @@ const SEED_CATEGORIES: Array<Omit<TicketCategoryDef, "createdAt" | "updatedAt">>
     detailsHint: "Describe the edit — which photo/clip, and what to change.",
     sortOrder: 0,
     active: true,
+    icon: "pencil",
   },
   {
     key: "additional_service",
@@ -322,6 +330,7 @@ const SEED_CATEGORIES: Array<Omit<TicketCategoryDef, "createdAt" | "updatedAt">>
     detailsHint: "Any timing needs or specifics for the team.",
     sortOrder: 1,
     active: true,
+    icon: "plus",
   },
   {
     key: "missing_media",
@@ -335,6 +344,7 @@ const SEED_CATEGORIES: Array<Omit<TicketCategoryDef, "createdAt" | "updatedAt">>
     detailsHint: "Tell us which shots or rooms are missing or incorrect.",
     sortOrder: 2,
     active: true,
+    icon: "image-alert",
   },
   {
     key: "other",
@@ -348,6 +358,7 @@ const SEED_CATEGORIES: Array<Omit<TicketCategoryDef, "createdAt" | "updatedAt">>
     detailsHint: "Describe your request.",
     sortOrder: 3,
     active: true,
+    icon: "question",
   },
 ];
 
@@ -363,6 +374,7 @@ type CategoryRow = {
   details_hint: string | null;
   sort_order: number;
   active: number;
+  icon: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -518,6 +530,7 @@ function rowToCategory(row: CategoryRow): TicketCategoryDef {
     detailsHint: row.details_hint,
     sortOrder: row.sort_order,
     active: row.active === 1,
+    icon: isTicketIconKey(row.icon) ? row.icon : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -563,11 +576,31 @@ export async function ensureCategorySeed(): Promise<void> {
         details_hint: c.detailsHint,
         sort_order: c.sortOrder,
         active: 1,
+        icon: c.icon,
         created_at: now,
         updated_at: now,
       })),
     )
     .execute();
+}
+
+/**
+ * Give the seeded request types their icons on a database that predates them.
+ *
+ * The seed itself only runs on an empty table, so an existing install would
+ * otherwise show four fallback marks until an admin picked each one by hand.
+ * Only fills blanks — a chosen icon is never overwritten.
+ */
+export async function backfillSeedCategoryIcons(): Promise<void> {
+  const db = getAdminDb();
+  for (const [key, icon] of Object.entries(SEED_CATEGORY_ICONS)) {
+    await db
+      .updateTable("admin_ticket_categories")
+      .set({ icon })
+      .where("key", "=", key)
+      .where("icon", "is", null)
+      .execute();
+  }
 }
 
 export async function listCategories(
@@ -604,7 +637,13 @@ export type CreateCategoryParams = {
   detailsHint?: string | null;
   sortOrder?: number;
   active?: boolean;
+  icon?: string | null;
 };
+
+/** Keep only an icon key we can draw; anything else stores as null. */
+function normalizeIcon(raw: unknown): string | null {
+  return isTicketIconKey(raw) ? raw : null;
+}
 
 export async function createCategory(params: CreateCategoryParams): Promise<TicketCategoryDef> {
   const db = getAdminDb();
@@ -628,6 +667,7 @@ export async function createCategory(params: CreateCategoryParams): Promise<Tick
       details_hint: params.detailsHint?.trim() || null,
       sort_order: params.sortOrder ?? (max?.m ?? -1) + 1,
       active: params.active === false ? 0 : 1,
+      icon: normalizeIcon(params.icon),
       created_at: now,
       updated_at: now,
     })
@@ -646,6 +686,7 @@ export type UpdateCategoryParams = {
   detailsHint?: string | null;
   sortOrder?: number;
   active?: boolean;
+  icon?: string | null;
 };
 
 export async function updateCategory(
@@ -683,6 +724,9 @@ export async function updateCategory(
   }
   if (params.active !== undefined) {
     updates.active = params.active ? 1 : 0;
+  }
+  if (params.icon !== undefined) {
+    updates.icon = normalizeIcon(params.icon);
   }
   await db.updateTable("admin_ticket_categories").set(updates).where("key", "=", key).execute();
   return getCategory(key);

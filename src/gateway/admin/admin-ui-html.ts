@@ -10,7 +10,20 @@ import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
 import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
 import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
 import { TASK_STATUS_COMPONENT_JS, TASK_STATUS_CSS } from "./task-status-ui.js";
+import { TICKET_ICONS, ticketIconSvg } from "./ticket-icons.js";
 import { PORTAL_FEATURES } from "./types.js";
+
+/**
+ * The request-type icon set, as data the SPA's picker draws from.
+ *
+ * Inlined into the script rather than fetched, and rendered from the same
+ * `ticket-icons.ts` the public form uses, so the mark an admin picks here is
+ * pixel-for-pixel the one a client sees. `<` is escaped because this lands
+ * inside a `<script>` block.
+ */
+const TICKET_ICON_PICKER_JSON = JSON.stringify(
+  TICKET_ICONS.map((i) => ({ key: i.key, label: i.label, svg: ticketIconSvg(i.key, 22) })),
+).replace(/</g, "\\u003c");
 
 export const ADMIN_UI_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -572,6 +585,18 @@ ${MARKET_CSS}
   @media (max-width: 640px) {
     .board-column { flex: 0 0 240px; }
   }
+  /* Icon picker on the Request Types modal. Wraps rather than scrolls: the set
+     is small and fixed, and a hidden row is a mark nobody ever chooses. */
+  .icon-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .icon-picker button {
+    display: flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px; padding: 0; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); color: var(--text);
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
+  }
+  .icon-picker button:hover { border-color: var(--text-muted); }
+  .icon-picker button.picked { border-color: var(--accent, #c0000a); background: var(--accent, #c0000a); color: #fff; }
 </style>
 </head>
 <body>
@@ -1931,6 +1956,7 @@ ${MARKET_CSS}
         <button class="btn btn-primary btn-sm" id="ticket-modal-save">Save changes</button>
       </div>
     </div>
+    <div id="ticket-modal-feedback" style="margin-bottom:1.25rem"></div>
     <div id="ticket-modal-desc" style="font-size:0.9rem;white-space:pre-wrap;background:var(--surface-2,rgba(0,0,0,0.03));padding:0.75rem;border-radius:8px;margin-bottom:1.25rem"></div>
     <div id="ticket-modal-files" style="margin-bottom:1.25rem"></div>
     <div style="font-weight:700;margin-bottom:0.5rem">Activity</div>
@@ -1992,7 +2018,12 @@ ${MARKET_CSS}
       <div class="form-group">
         <label>Option shown on the form</label>
         <input type="text" id="cat-label" autocomplete="off" placeholder="e.g. Change the property address" required />
-        <div class="text-muted" style="font-size:0.78rem;margin-top:0.25rem">What the client picks from the dropdown.</div>
+        <div class="text-muted" style="font-size:0.78rem;margin-top:0.25rem">The card a client picks on the intake form.</div>
+      </div>
+      <div class="form-group">
+        <label>Card icon</label>
+        <div id="cat-icon-picker" class="icon-picker"></div>
+        <div class="text-muted" style="font-size:0.78rem;margin-top:0.35rem">Shown on the request-type card. Leave unpicked for the generic mark.</div>
       </div>
       <div class="flex gap-2" style="flex-wrap:wrap">
         <div class="form-group" style="flex:1;min-width:200px">
@@ -7336,7 +7367,26 @@ ${MARKET_COMPONENT_JS}
     var b = (r.data.stats && r.data.stats.byStatus) || {};
     var open = (b['new']||0)+(b.in_progress||0)+(b.needs_review||0);
     var tiles = [['Open',open],['New',b['new']||0],['In Progress',b.in_progress||0],['Needs Review',b.needs_review||0],['Resolved',b.resolved||0]];
-    grid.innerHTML = tiles.map(function(t){ return '<div class="stat-card"><div class="stat-label">'+t[0]+'</div><div class="stat-value">'+t[1]+'</div></div>'; }).join('');
+    grid.innerHTML = tiles.map(function(t){ return '<div class="stat-card"><div class="stat-label">'+t[0]+'</div><div class="stat-value">'+t[1]+'</div></div>'; }).join('')
+      + ticketSatisfactionTile((r.data.stats && r.data.stats.feedback) || {});
+  }
+
+  /**
+   * Satisfaction, as a share rather than two counts: "12 up, 1 down" makes you
+   * do the arithmetic, and the arithmetic is the point. Only appears once
+   * somebody has actually rated something — a 0% tile on day one reads as bad
+   * news rather than as no news.
+   */
+  function ticketSatisfactionTile(f){
+    var up = f.up||0, down = f.down||0, rated = up + down;
+    if(!rated) return '';
+    var pct = Math.round((up / rated) * 100);
+    var tone = pct >= 80 ? '#16a34a' : (pct >= 50 ? '#d97706' : '#c0000a');
+    return '<div class="stat-card" title="'+up+' said it looks great, '+down+' said not quite'+((f.comments||0)?' · '+f.comments+' left a comment':'')+'">'+
+      '<div class="stat-label">Satisfaction</div>'+
+      '<div class="stat-value" style="color:'+tone+'">'+pct+'%</div>'+
+      '<div class="text-muted" style="font-size:0.72rem">👍 '+up+' · 👎 '+down+' of '+rated+'</div>'+
+      '</div>';
   }
 
   function ticketFilterQuery(){
@@ -7353,6 +7403,20 @@ ${MARKET_COMPONENT_JS}
     return qs ? '?'+qs : '';
   }
 
+  /**
+   * The thumb, beside the status badge in the queue. A 👎 is the one thing in
+   * this table someone should be able to spot without opening anything, so it
+   * rides next to the status rather than in a column of its own that would be
+   * empty for most rows.
+   */
+  function ticketFeedbackMark(t){
+    if(!t.feedbackRating && !t.feedbackComment) return '';
+    var mark = t.feedbackRating === 'up' ? '👍' : (t.feedbackRating === 'down' ? '👎' : '💬');
+    var note = t.feedbackComment ? ' — '+t.feedbackComment : '';
+    var label = (t.feedbackRating === 'up' ? 'Client said it looks great' : (t.feedbackRating === 'down' ? 'Client said it is not quite right' : 'Client left a note')) + note;
+    return ' <span title="'+esc(label)+'" style="font-size:0.95rem;vertical-align:middle">'+mark+'</span>';
+  }
+
   async function loadTicketTable(){
     var body = document.getElementById('ticket-body');
     var r = await api('GET','/tickets'+ticketFilterQuery());
@@ -7367,7 +7431,7 @@ ${MARKET_COMPONENT_JS}
         '<td>'+esc(t.requesterName||'—')+'</td>'+
         '<td>'+esc(t.orderAddress||t.orderId||'—')+'</td>'+
         '<td>'+esc(deptLabel(t.department))+'</td>'+
-        '<td>'+ticketStatusBadge(t.status)+'</td>'+
+        '<td>'+ticketStatusBadge(t.status)+ticketFeedbackMark(t)+'</td>'+
         '<td class="text-muted" style="font-size:0.8rem">'+esc(tshortdate(t.createdAt))+'</td>'+
         '<td class="text-muted" style="font-size:0.8rem">'+esc(tshortdate(t.resolvedAt))+'</td>'+
         '<td style="font-size:0.8rem">'+ticketAgeCell(t)+'</td>'+
@@ -7415,6 +7479,36 @@ ${MARKET_COMPONENT_JS}
     });
   }
 
+  /**
+   * What the client said when we asked. Shown as a panel rather than another
+   * chip in the meta line: a 👎 with a sentence under it is the most actionable
+   * thing on the ticket, and it should not have to compete with the phone number.
+   * Silent when nobody has answered — an empty "no feedback yet" box on every
+   * unresolved ticket would be noise on the common case.
+   */
+  function renderTicketFeedback(t){
+    var box = document.getElementById('ticket-modal-feedback');
+    if(!t.feedbackRating && !t.feedbackComment){
+      box.innerHTML = '';
+      box.classList.add('hidden');
+      return;
+    }
+    box.classList.remove('hidden');
+    var up = t.feedbackRating === 'up';
+    var tone = up ? '#16a34a' : '#c0000a';
+    var mark = up ? '👍' : (t.feedbackRating === 'down' ? '👎' : '💬');
+    var verdict = up ? 'Looks great' : (t.feedbackRating === 'down' ? 'Not quite right' : 'Left a note');
+    var html = '<div style="border:1px solid '+tone+'33;border-left:3px solid '+tone+';background:'+tone+'0d;border-radius:8px;padding:0.75rem 0.9rem">';
+    html += '<div style="font-size:0.72rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted,#888);margin-bottom:0.35rem">Client feedback</div>';
+    html += '<div style="font-weight:700;font-size:0.95rem;color:'+tone+'">'+mark+' '+esc(verdict)+'</div>';
+    if(t.feedbackComment){
+      html += '<div style="font-size:0.9rem;white-space:pre-wrap;margin-top:0.4rem">'+esc(t.feedbackComment)+'</div>';
+    }
+    if(t.feedbackAt) html += '<div class="text-muted" style="font-size:0.75rem;margin-top:0.4rem">'+esc(tdate(t.feedbackAt))+'</div>';
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
   async function openTicket(id){
     var r = await api('GET','/tickets/'+id);
     if(!r.ok){ alert((r.data&&r.data.error)||'Failed to open ticket.'); return; }
@@ -7437,6 +7531,11 @@ ${MARKET_COMPONENT_JS}
     if(t.photographerName) meta.push('📷 '+esc(t.photographerName));
     if(t.shootDate) meta.push('Shot '+esc(t.shootDate));
     meta.push('via '+esc(t.source));
+    // Says why this client got no confirmation and will get no "it's done" —
+    // otherwise the absence looks like a broken mailer rather than their choice.
+    if(t.notifyClient === false){
+      meta.push('<span title="This client unticked email updates on the intake form, so no confirmation or resolution email is sent" style="color:var(--text-muted)">🔕 No email updates</span>');
+    }
     // An estimate the client saw while ticking priced choices — not a charge.
     // A ranged ticket reads "Est. $125–$225"; the low end alone would look firm.
     if(t.estimateCents !== null && t.estimateCents !== undefined){
@@ -7461,6 +7560,7 @@ ${MARKET_COMPONENT_JS}
       timing.push('<strong>Open '+esc(tduration(Date.now() - t.createdAt))+'</strong>');
     }
     document.getElementById('ticket-modal-timing').innerHTML = timing.join(' · ');
+    renderTicketFeedback(t);
     document.getElementById('ticket-modal-desc').textContent = t.description || '(no details provided)';
     document.getElementById('ticket-modal-status').value = t.status;
     document.getElementById('ticket-modal-priority').value = t.priority;
@@ -7634,8 +7734,12 @@ ${MARKET_COMPONENT_JS}
     if(!ticketCategories.length){ body.innerHTML='<tr><td colspan="5" class="empty-state">No request types yet.</td></tr>'; return; }
     body.innerHTML = ticketCategories.map(function(c, i){
       var dept = ticketCategoryRoutes[c.key];
+      var icon = TICKET_ICON_SET.find(function(i){ return i.key === c.icon; });
       return '<tr data-key="'+esc(c.key)+'">'+
-        '<td><strong>'+esc(c.label)+'</strong><div class="text-muted" style="font-size:0.72rem">'+esc(c.shortLabel)+' · '+esc(c.key)+'</div></td>'+
+        '<td><div style="display:flex;align-items:center;gap:0.55rem">'+
+          '<span style="flex:none;display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:var(--surface2);color:var(--text-muted)">'+(icon?icon.svg:'')+'</span>'+
+          '<span><strong>'+esc(c.label)+'</strong><div class="text-muted" style="font-size:0.72rem">'+esc(c.shortLabel)+' · '+esc(c.key)+'</div></span>'+
+        '</div></td>'+
         '<td style="font-size:0.85rem">'+categoryExtraSummary(c)+'</td>'+
         '<td style="font-size:0.85rem">'+(dept?esc(deptLabel(dept)):'<span class="text-muted">Not routed</span>')+'</td>'+
         '<td>'+(c.active
@@ -7673,6 +7777,7 @@ ${MARKET_COMPONENT_JS}
   // carries a price, an orderable quantity and its own follow-up questions, and
   // no one-line syntax stays readable through all of that.
   var catChoices = [];        // working copy, live only while the modal is open
+  var catIcon = null;         // ditto — the mark picked for this request type
 
   function blankChoice(){
     return { label:'', imageUrl:'', price:'', priceMax:'', quote:false, unitLabel:'', maxQuantity:'1', followUps:[], open:false };
@@ -7904,9 +8009,33 @@ ${MARKET_COMPONENT_JS}
   }
   document.getElementById('cat-extra-field').addEventListener('change', syncCategoryExtraFields);
 
+  // The marks a request-type card can wear, drawn from the same set the public
+  // form renders from — so what an admin picks here is what a client sees.
+  var TICKET_ICON_SET = ${TICKET_ICON_PICKER_JSON};
+
+  function renderIconPicker(){
+    var host = document.getElementById('cat-icon-picker');
+    host.innerHTML = TICKET_ICON_SET.map(function(i){
+      return '<button type="button" class="icon-btn'+(i.key===catIcon?' picked':'')+
+        '" data-icon="'+esc(i.key)+'" title="'+esc(i.label)+'" aria-label="'+esc(i.label)+'"'+
+        ' aria-pressed="'+(i.key===catIcon?'true':'false')+'">'+i.svg+'</button>';
+    }).join('');
+    host.querySelectorAll('.icon-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-icon');
+        // Clicking the picked one clears it, so "no icon" stays reachable
+        // without a separate None button.
+        catIcon = (catIcon === key) ? null : key;
+        renderIconPicker();
+      });
+    });
+  }
+
   function openCategoryModal(key){
     editingCategoryKey = key || null;
     var c = key ? ticketCategories.find(function(x){ return x.key===key; }) : null;
+    catIcon = (c && c.icon) || null;
+    renderIconPicker();
     document.getElementById('category-modal-title').textContent = c ? 'Edit Request Type' : 'New Request Type';
     document.getElementById('category-error').classList.add('hidden');
     document.getElementById('cat-label').value = c ? c.label : '';
@@ -7971,6 +8100,7 @@ ${MARKET_COMPONENT_JS}
       detailsHint: document.getElementById('cat-details-hint').value.trim() || null,
       active: document.getElementById('cat-active').checked,
       department: department,
+      icon: catIcon,
     };
     var r = editingCategoryKey
       ? await api('PUT','/tickets/categories/'+encodeURIComponent(editingCategoryKey), payload)

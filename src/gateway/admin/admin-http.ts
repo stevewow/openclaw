@@ -244,6 +244,7 @@ import {
   type UpdateCategoryParams,
   updateCategory,
 } from "./ticket-category-store.js";
+import { notifyClientOnResolution } from "./ticket-client-notify.js";
 import {
   createDepartment,
   deleteDepartment,
@@ -360,6 +361,11 @@ function readCategoryParams(data: Record<string, unknown>): UpdateCategoryParams
   }
   if (data.extraPlaceholder !== undefined) {
     params.extraPlaceholder = normalizeString(data.extraPlaceholder);
+  }
+  // Sent as null to clear it. The store drops any key it cannot draw, so an
+  // unknown one lands as "no icon" rather than as a blank card.
+  if (data.icon !== undefined) {
+    params.icon = normalizeString(data.icon);
   }
   const detailsLabel = normalizeString(data.detailsLabel);
   if (detailsLabel) {
@@ -2533,6 +2539,13 @@ export async function handleAdminHttpRequest(
     if (subject) params.subject = subject;
     if (data.description !== undefined) params.description = normalizeString(data.description);
     if (data.assignedTo !== undefined) params.assignedTo = normalizeString(data.assignedTo);
+    // Read first: the client's resolution email is owed on the *transition* into
+    // resolved, which is only knowable against the status this ticket had.
+    const before = await getTicket(id);
+    if (!before) {
+      sendNotFound(res);
+      return true;
+    }
     const updated = await updateTicket(id, params, {
       name: sessionUser.username,
       authorType: "staff",
@@ -2541,6 +2554,9 @@ export async function handleAdminHttpRequest(
       sendNotFound(res);
       return true;
     }
+    // Out-of-band: saving the ticket has already succeeded, and a slow mail API
+    // must not hold the dashboard's Save button.
+    void notifyClientOnResolution(before, updated).catch(() => {});
     sendJson(res, 200, { ticket: updated });
     return true;
   }
