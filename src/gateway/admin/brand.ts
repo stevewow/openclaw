@@ -13,6 +13,24 @@
 /** Product name in the sidebar, the login screen, and every <title>. */
 export const BRAND_NAME = "WOW Hub";
 
+const DEFAULT_ADMIN_BASE_URL = "https://hub.wowvideotours.com";
+
+/**
+ * Where the Hub is reachable from outside — for links in email, which cannot
+ * resolve a site-relative path.
+ *
+ * Here rather than beside the notifier that first needed it, because both
+ * mailers now want it and this module imports nothing: anywhere else closes an
+ * import cycle.
+ */
+export function adminBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.ADMIN_BASE_URL?.trim();
+  if (!raw) {
+    return DEFAULT_ADMIN_BASE_URL;
+  }
+  return raw.replace(/\/+$/, "");
+}
+
 /**
  * Login split-screen subtitle, under the brand name. Says what the Hub is for
  * someone seeing it for the first time: one place for the work and the numbers,

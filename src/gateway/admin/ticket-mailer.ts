@@ -1,3 +1,4 @@
+import { emailLogoUrl } from "./ticket-brand.js";
 import { getCategoryShortLabel } from "./ticket-category-store.js";
 import { getDepartmentEmail } from "./ticket-department-store.js";
 import {
@@ -6,6 +7,10 @@ import {
   type TicketEmailAttachmentLoad,
 } from "./ticket-email-attachments.js";
 import {
+  type ClientReplyView,
+  clientReplySubject,
+  renderClientReplyHtml,
+  renderClientReplyText,
   renderTicketEmailHtml,
   renderTicketEmailText,
   type TicketEmailAttachment,
@@ -33,6 +38,8 @@ export type EmailConfig = {
   messageStream: string;
   departmentEmails: Record<string, string>;
   fallbackTo: string | null;
+  /** Absolute URL of the masthead logo, resolved once from the same env. */
+  logoUrl: string;
 };
 
 /**
@@ -70,6 +77,7 @@ export function readEmailConfig(env: NodeJS.ProcessEnv = process.env): EmailConf
     messageStream: env.POSTMARK_MESSAGE_STREAM?.trim() || "outbound",
     departmentEmails,
     fallbackTo,
+    logoUrl: emailLogoUrl(env),
   };
 }
 
@@ -107,7 +115,7 @@ export function formatDepartmentEmail(
   categoryLabel: string = FALLBACK_CATEGORY_LABEL,
   attachments: TicketEmailAttachment[] = [],
 ): OutboundEmail {
-  const view = { ticket, categoryLabel, attachments };
+  const view = { ticket, categoryLabel, attachments, logoUrl: config.logoUrl };
   return {
     to,
     from: config.from,
@@ -253,5 +261,89 @@ export async function notifyDepartment(ticket: Ticket, deps: NotifyDeps = {}): P
     meta: { to, ok: result.ok, attached: carried },
   });
   if (!result.ok) log.error(`email send failed for ${ticket.number}: ${result.detail}`);
+  return result;
+}
+
+export type ClientReplyForward = {
+  /** Address the reply came from, lowercased, when the provider gave us one. */
+  fromEmail: string | null;
+  /** The reply with its quoted history already stripped. */
+  message: string;
+};
+
+/**
+ * Pass a client's reply on to the department working the ticket.
+ *
+ * The desk lives in its inbox: a reply that only lands in the dashboard is a
+ * reply nobody reads. The ticket is parked in `needs_review` by the inbound
+ * handler either way — this is what tells someone to go and look.
+ *
+ * Reply-To is the ticket's own token address, so the desk answering this email
+ * drives the ticket exactly as answering the original notification does, rather
+ * than writing back to a client who cannot see the thread.
+ *
+ * Never throws, for the same reason as `notifyDepartment`: the webhook has to
+ * answer the provider 200 whatever happens here, or the reply is retried.
+ */
+export async function forwardClientReplyToDepartment(
+  ticket: Ticket,
+  reply: ClientReplyForward,
+  deps: NotifyDeps = {},
+): Promise<SendResult> {
+  const log = deps.logger ?? {
+    info: (m: string) => console.log(`[tickets] ${m}`),
+    error: (m: string) => console.error(`[tickets] ${m}`),
+  };
+  const config = deps.config !== undefined ? deps.config : readEmailConfig();
+  const mailer = deps.mailer !== undefined ? deps.mailer : resolveTicketMailer(config);
+  if (!config || !mailer) {
+    log.info(`email not configured — reply on ${ticket.number} logged only`);
+    return { ok: false, detail: "email not configured" };
+  }
+  // A demo ticket may only ever reach the admin who minted it. The inbound
+  // webhook carries no test grant, so there is no authorized address to divert
+  // to and a real desk must not be told about a rehearsal.
+  if (ticket.isTest && !deps.overrideTo?.trim()) {
+    log.info(`test ticket ${ticket.number} — reply not forwarded to a real desk`);
+    return { ok: false, detail: "test ticket without override recipient" };
+  }
+  const to =
+    deps.overrideTo?.trim() ||
+    (await getDepartmentEmail(ticket.department)) ||
+    resolveDepartmentEmail(ticket.department, config);
+  if (!to) {
+    log.error(`no email mapped for department "${ticket.department}" — reply on ${ticket.number}`);
+    return { ok: false, detail: "no department address" };
+  }
+  // A reply from the address on the ticket is the client; anything else is a
+  // bystander on the thread, and the desk is told which it was.
+  const requesterEmail = ticket.requesterEmail?.trim().toLowerCase() || null;
+  const view: ClientReplyView = {
+    ticket,
+    fromEmail: reply.fromEmail,
+    message: reply.message,
+    fromRequester: requesterEmail !== null && reply.fromEmail === requesterEmail,
+    logoUrl: config.logoUrl,
+  };
+  const result = await mailer.send({
+    to,
+    from: config.from,
+    replyTo: replyToAddress(config.inboundAddress, ticket.replyToken),
+    subject: clientReplySubject(ticket),
+    textBody: renderClientReplyText(view),
+    htmlBody: renderClientReplyHtml(view),
+  });
+  await addTicketEvent(ticket.id, {
+    kind: "email_out",
+    authorType: "system",
+    authorName: null,
+    body: result.ok
+      ? `Forwarded the client's reply to ${to}`
+      : `Forwarding the client's reply to ${to} failed: ${result.detail ?? "unknown"}`,
+    meta: { to, ok: result.ok, audience: "department", kind: "client_reply" },
+  });
+  if (!result.ok) {
+    log.error(`reply forward failed for ${ticket.number}: ${result.detail}`);
+  }
   return result;
 }

@@ -179,3 +179,88 @@ describe("renderTicketEmailHtml", () => {
     expect(html).toContain("A &amp; B &lt;b&gt;");
   });
 });
+
+describe("the masthead", () => {
+  const LOGO = "https://hub.wowvideotours.com/support/logo.png";
+
+  it("shows the logo when one is available", () => {
+    const html = renderTicketEmailHtml(view({}, { logoUrl: LOGO }));
+    expect(html).toContain(`src="${LOGO}"`);
+    // Blocked images are the norm in Outlook until a sender is trusted, so the
+    // alt text has to carry the brand rather than render as broken-image text.
+    expect(html).toContain('alt="WOW Video Tours"');
+  });
+
+  it("falls back to the typeset wordmark when there is no logo URL", () => {
+    const html = renderTicketEmailHtml(view({}, { logoUrl: null }));
+    expect(html).not.toContain("<img");
+    expect(html).toContain(">WOW<");
+    expect(html).toContain(">Video Tours<");
+  });
+});
+
+describe("what they need", () => {
+  /** Real composeDescription output for a priced multi-select. */
+  const ITEMIZED = [
+    "Which services?",
+    "  • Virtual staging ×3 — $150 ($50 per image)",
+    "      Preferred style: Modern",
+    "  • Item removal ×2 — $50–$150 ($25–$75 per photo)  [QUOTE FIRST]",
+    "  Starts right away: $150",
+    "  Estimated total: $200–$300",
+    "  ** Send a quote and get it accepted before starting the quoted items. **",
+    "",
+    "Before Friday please.",
+  ].join("\n");
+
+  function html(description: string | null): string {
+    return renderTicketEmailHtml(view({ description }));
+  }
+
+  // The complaint this answers: everything arrived as one pre-wrapped blob, so
+  // choices, prices, answers and the client's message ran together.
+  it("lays the choices out as rows instead of one wrapped block", () => {
+    const out = html(ITEMIZED);
+    expect(out).not.toContain("white-space:pre-wrap");
+    expect(out).toContain("Virtual staging ×3");
+    expect(out).toContain("$150 ($50 per image)");
+    expect(out).toContain("Preferred style:");
+    expect(out).toContain("Modern");
+  });
+
+  it("marks the line that cannot start before a quote is accepted", () => {
+    const out = html(ITEMIZED);
+    expect(out).toContain("Quote first");
+    expect(out).toContain("Send a quote and get it accepted");
+  });
+
+  it("keeps the client's own words in their own block", () => {
+    const out = html(ITEMIZED);
+    expect(out).toContain("Before Friday please.");
+    // The prose is quoted, not folded into the itemized rows.
+    expect(out).toContain("border-left:3px solid");
+  });
+
+  it("renders a hand-written ticket as prose, losing nothing", () => {
+    const out = html("Client called about the drone shots.\n\nReshoot Tuesday.");
+    expect(out).toContain("Client called about the drone shots.");
+    expect(out).toContain("Reshoot Tuesday.");
+  });
+
+  it("says so plainly when there are no details at all", () => {
+    expect(html(null)).toContain("(no details provided)");
+  });
+
+  it("escapes a description that contains markup", () => {
+    const out = html("<script>alert(1)</script>");
+    expect(out).not.toContain("<script>alert(1)</script>");
+    expect(out).toContain("&lt;script&gt;");
+  });
+
+  // The plain-text body carries the description verbatim: if the parser ever
+  // fails to recognize a shape, the desk still receives everything.
+  it("leaves the plain-text body carrying the description as written", () => {
+    const text = renderTicketEmailText(view({ description: ITEMIZED }));
+    expect(text).toContain(ITEMIZED);
+  });
+});

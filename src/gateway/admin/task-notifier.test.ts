@@ -17,6 +17,7 @@ const CONFIG: EmailConfig = {
   messageStream: "outbound",
   departmentEmails: {},
   fallbackTo: null,
+  logoUrl: "https://hub.wowvideotours.com/support/logo.png",
 };
 
 const TASK: Pick<Task, "id" | "title" | "dueDate" | "priority" | "projectId"> = {

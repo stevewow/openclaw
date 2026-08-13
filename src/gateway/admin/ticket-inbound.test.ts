@@ -154,3 +154,82 @@ describe("test tickets are replyable", () => {
     expect(after?.resolvedAt).toBeFalsy();
   });
 });
+
+describe("a client reply reaches the department", () => {
+  // The desk works from its inbox. Parking the ticket in needs_review only
+  // helps someone already watching the dashboard, so the client's words have to
+  // be carried to where the work actually happens.
+  it("forwards an unverified reply to the desk, with the client's text", async () => {
+    const ticket = await store.createTicket({
+      category: "edit_request",
+      subject: "Brighten kitchen",
+      requesterEmail: "dana@example.com",
+    });
+    const forwarded: Array<{ number: string; from: string | null; message: string }> = [];
+    const outcome = await inbound.applyInboundReply(
+      {
+        MailboxHash: ticket.replyToken,
+        FromFull: { Email: "dana@example.com" },
+        StrippedTextReply: "Any update on this?",
+      },
+      {
+        allowlist: ["edits@wow.co"],
+        forwardReply: async (t, reply) => {
+          forwarded.push({ number: t.number, from: reply.fromEmail, message: reply.message });
+        },
+      },
+    );
+
+    expect(outcome.status).toBe("unverified");
+    expect(forwarded).toEqual([
+      { number: ticket.number, from: "dana@example.com", message: "Any update on this?" },
+    ]);
+    // And it is still parked, because a client may not move their own ticket.
+    const after = await store.getTicket(ticket.id);
+    expect(after?.status).toBe("needs_review");
+  });
+
+  // A desk reply is already handled by the command path; bouncing it back to
+  // the same desk would be a loop.
+  it("does not forward a verified desk reply", async () => {
+    const ticket = await store.createTicket({ category: "edit_request", subject: "Kitchen" });
+    let forwards = 0;
+    const outcome = await inbound.applyInboundReply(
+      {
+        MailboxHash: ticket.replyToken,
+        FromFull: { Email: "edits@wow.co" },
+        StrippedTextReply: "UPDATE working on it",
+      },
+      {
+        allowlist: ["edits@wow.co"],
+        forwardReply: async () => {
+          forwards += 1;
+        },
+      },
+    );
+    expect(outcome.status).toBe("applied");
+    expect(forwards).toBe(0);
+  });
+
+  // The webhook has to answer Postmark 200 whatever happens, or the whole reply
+  // is retried — so a failing forward must not take the handler down with it.
+  it("still records the reply when the forward fails", async () => {
+    const ticket = await store.createTicket({ category: "edit_request", subject: "Kitchen" });
+    const outcome = await inbound.applyInboundReply(
+      {
+        MailboxHash: ticket.replyToken,
+        FromFull: { Email: "client@example.com" },
+        StrippedTextReply: "hello?",
+      },
+      {
+        allowlist: ["edits@wow.co"],
+        forwardReply: async () => {
+          throw new Error("postmark down");
+        },
+      },
+    );
+    expect(outcome.status).toBe("unverified");
+    const events = await store.listTicketEvents(ticket.id);
+    expect(events.some((e) => e.kind === "email_in" && e.body === "hello?")).toBe(true);
+  });
+});

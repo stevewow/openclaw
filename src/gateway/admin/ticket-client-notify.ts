@@ -11,7 +11,7 @@
 // must not fail because Postmark was slow, and a resolution must not be blocked
 // because a mailbox bounced. Failures are logged and recorded on the thread.
 
-import { adminBaseUrl } from "./task-notifier.js";
+import { supportBaseUrl } from "./ticket-brand.js";
 import { getCategoryShortLabel } from "./ticket-category-store.js";
 import {
   clientCreatedSubject,
@@ -38,17 +38,9 @@ import { addTicketEvent, ensureFeedbackToken, type Ticket } from "./ticket-store
 /** Last-resort label when a ticket's category has since been deleted. */
 const FALLBACK_CATEGORY_LABEL = "Support request";
 
-/**
- * Where the public support pages are reachable, for the feedback links.
- *
- * Defaults to wherever the dashboard lives — both are served by the same gateway
- * — but is overridable on its own, because the address we hand a client is a
- * customer-facing one and need not be the address staff use.
- */
-export function supportBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const raw = env.SUPPORT_BASE_URL?.trim();
-  return raw ? raw.replace(/\/+$/, "") : adminBaseUrl(env);
-}
+// Lives in ticket-brand.ts now that the department mailer needs it too; kept
+// exported from here because this is where the feedback links are built.
+export { supportBaseUrl };
 
 /** The one-click rating link carried by the resolution email. */
 export function feedbackUrl(
@@ -173,7 +165,7 @@ export async function notifyClientTicketCreated(
   } catch (err) {
     log.error(`could not count attachments for ${ticket.number}: ${String(err)}`);
   }
-  const view = { ticket, categoryLabel, attachmentCount };
+  const view = { ticket, categoryLabel, attachmentCount, logoUrl: config.logoUrl };
   return deliver(
     ticket,
     {
@@ -243,6 +235,7 @@ export async function notifyClientTicketResolved(
     ticket,
     categoryLabel,
     attachmentCount: 0,
+    logoUrl: config.logoUrl,
     supportEmail: supportEmailAddress(env),
     feedbackUpUrl: feedbackUrl(token, "up", env),
     feedbackDownUrl: feedbackUrl(token, "down", env),

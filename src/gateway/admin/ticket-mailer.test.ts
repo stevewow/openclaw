@@ -167,3 +167,144 @@ describe("notifyDepartment", () => {
     expect(sentTo).toBe("boss@wow.co");
   });
 });
+
+describe("forwarding a client's reply to the department", () => {
+  const QUIET = { info: () => {}, error: () => {} };
+
+  /** Captures the one message the forward would send. */
+  function capture() {
+    const sent: import("./ticket-mailer.js").OutboundEmail[] = [];
+    return {
+      sent,
+      mailer: {
+        send: async (msg: import("./ticket-mailer.js").OutboundEmail) => {
+          sent.push(msg);
+          return { ok: true };
+        },
+      },
+    };
+  }
+
+  async function replyTicket(overrides: Record<string, unknown> = {}) {
+    return store.createTicket({
+      category: "edit_request",
+      subject: "Brighten kitchen",
+      description: "Please brighten the kitchen photos.",
+      requesterName: "Dana Agent",
+      requesterEmail: "dana@example.com",
+      orderAddress: "5 Elm St",
+      ...overrides,
+    });
+  }
+
+  it("sends the client's words to the department, answerable on the thread", async () => {
+    const cfg = mailer.readEmailConfig(ENV)!;
+    const ticket = await replyTicket();
+    const cap = capture();
+    const res = await mailer.forwardClientReplyToDepartment(
+      ticket,
+      { fromEmail: "dana@example.com", message: "Any update on this?" },
+      { config: cfg, mailer: cap.mailer, logger: QUIET },
+    );
+
+    expect(res.ok).toBe(true);
+    const msg = cap.sent[0];
+    expect(msg.to).toBe("edits@wow.co");
+    expect(msg.subject).toBe(`[${ticket.number}] Client reply — Brighten kitchen`);
+    // The desk replying to THIS email must drive the ticket, exactly as
+    // replying to the original notification does.
+    expect(msg.replyTo).toBe(`ticket+${ticket.replyToken}@tickets.wowvideotours.com`);
+    expect(msg.textBody).toContain("Any update on this?");
+    expect(msg.textBody).toContain("Dana Agent (dana@example.com)");
+    expect(msg.htmlBody).toContain("Any update on this?");
+    // The desk is told what state the ticket is in without opening it.
+    expect(msg.textBody).toContain("flagged for review");
+    expect(msg.textBody).toContain("RESOLVED");
+  });
+
+  it("records the forward on the ticket thread", async () => {
+    const cfg = mailer.readEmailConfig(ENV)!;
+    const ticket = await replyTicket();
+    const cap = capture();
+    await mailer.forwardClientReplyToDepartment(
+      ticket,
+      { fromEmail: "dana@example.com", message: "Any update?" },
+      { config: cfg, mailer: cap.mailer, logger: QUIET },
+    );
+    const events = await store.listTicketEvents(ticket.id);
+    expect(
+      events.some((e) => e.kind === "email_out" && (e.body ?? "").includes("Forwarded the client")),
+    ).toBe(true);
+  });
+
+  // A reply can arrive from an assistant, a co-agent, or a spoofer. The desk
+  // decides what to do with it, but it must be able to see which it was.
+  it("marks a reply from an address other than the ticket's", async () => {
+    const cfg = mailer.readEmailConfig(ENV)!;
+    const ticket = await replyTicket();
+    const cap = capture();
+    await mailer.forwardClientReplyToDepartment(
+      ticket,
+      { fromEmail: "someone-else@example.com", message: "Hello" },
+      { config: cfg, mailer: cap.mailer, logger: QUIET },
+    );
+    const msg = cap.sent[0];
+    expect(msg.textBody).toContain("not the one on the ticket");
+    expect(msg.htmlBody).toContain("not the one on the ticket");
+  });
+
+  it("says nothing about the sender's address when it matches the ticket", async () => {
+    const cfg = mailer.readEmailConfig(ENV)!;
+    const ticket = await replyTicket();
+    const cap = capture();
+    await mailer.forwardClientReplyToDepartment(
+      ticket,
+      { fromEmail: "dana@example.com", message: "Hello" },
+      { config: cfg, mailer: cap.mailer, logger: QUIET },
+    );
+    expect(cap.sent[0].textBody).not.toContain("not the one on the ticket");
+  });
+
+  // The inbound webhook carries no test grant, so a rehearsal has no authorized
+  // recipient — and a real desk must never be paged about a demo.
+  it("refuses to forward a test ticket's reply to a real desk", async () => {
+    const cfg = mailer.readEmailConfig(ENV)!;
+    const ticket = await replyTicket({ isTest: true });
+    const cap = capture();
+    const res = await mailer.forwardClientReplyToDepartment(
+      ticket,
+      { fromEmail: "dana@example.com", message: "Hello" },
+      { config: cfg, mailer: cap.mailer, logger: QUIET },
+    );
+    expect(res.ok).toBe(false);
+    expect(res.detail).toBe("test ticket without override recipient");
+    expect(cap.sent).toHaveLength(0);
+  });
+
+  it("forwards a test ticket's reply to the authorized override instead", async () => {
+    const cfg = mailer.readEmailConfig(ENV)!;
+    const ticket = await replyTicket({ isTest: true });
+    const cap = capture();
+    const res = await mailer.forwardClientReplyToDepartment(
+      ticket,
+      { fromEmail: "dana@example.com", message: "Hello" },
+      { config: cfg, mailer: cap.mailer, overrideTo: "boss@wow.co", logger: QUIET },
+    );
+    expect(res.ok).toBe(true);
+    expect(cap.sent[0].to).toBe("boss@wow.co");
+    expect(cap.sent[0].subject).toMatch(/^\[TEST\] /);
+  });
+
+  it("no-ops when email is unconfigured rather than throwing", async () => {
+    const ticket = await replyTicket();
+    const res = await mailer.forwardClientReplyToDepartment(
+      ticket,
+      { fromEmail: "dana@example.com", message: "Hello" },
+      { config: null, mailer: null, logger: QUIET },
+    );
+    expect(res.ok).toBe(false);
+    expect(res.detail).toBe("email not configured");
+    const events = await store.listTicketEvents(ticket.id);
+    expect(events.some((e) => e.kind === "email_out")).toBe(false);
+  });
+});

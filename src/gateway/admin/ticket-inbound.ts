@@ -1,9 +1,11 @@
 import { notifyClientOnResolution } from "./ticket-client-notify.js";
+import { type ClientReplyForward, forwardClientReplyToDepartment } from "./ticket-mailer.js";
 import {
   addTicketEvent,
   getTicketByReplyToken,
   parseReplyCommand,
   statusForReplyCommand,
+  type Ticket,
   TICKET_NUMBER_PREFIXES,
   updateTicket,
 } from "./ticket-store.js";
@@ -13,7 +15,8 @@ import {
 // address — Postmark surfaces it as MailboxHash), read the first-line command
 // (UPDATE / RESOLVED), and move the ticket. A sender allowlist gates command
 // application so a client CC'd on the thread can't drive state; unverified
-// replies are still logged and parked in needs_review.
+// replies are still logged, parked in needs_review, and forwarded to the
+// department so the desk reads them where it works.
 
 export type PostmarkInboundPayload = {
   From?: string;
@@ -85,6 +88,11 @@ export type InboundOutcome =
 export type ApplyInboundOptions = {
   /** Lowercased department/staff addresses allowed to drive ticket state. Empty/undefined = allow all. */
   allowlist?: string[];
+  /**
+   * How a client's reply reaches the desk. Injected in tests; production uses
+   * the real mailer, which no-ops when email is unconfigured.
+   */
+  forwardReply?: (ticket: Ticket, reply: ClientReplyForward) => Promise<unknown>;
 };
 
 /**
@@ -115,6 +123,13 @@ export async function applyInboundReply(
       meta: { from: fromEmail, verified: false },
     });
     await updateTicket(ticket.id, { status: "needs_review" }, { authorType: "system", name: null });
+    // Tell the desk. Parking the ticket in needs_review only helps someone
+    // already looking at the dashboard, and the department works from email —
+    // so the client's words go where the work happens. Out-of-band for the same
+    // reason as the resolution email: the webhook must answer the provider 200
+    // regardless, or Postmark retries the whole reply.
+    const forward = options.forwardReply ?? forwardClientReplyToDepartment;
+    void forward(ticket, { fromEmail, message: text }).catch(() => {});
     return { status: "unverified", ticketNumber: ticket.number, fromEmail };
   }
 

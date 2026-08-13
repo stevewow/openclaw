@@ -18,6 +18,7 @@ const CONFIG: EmailConfig = {
   messageStream: "outbound",
   departmentEmails: {},
   fallbackTo: null,
+  logoUrl: "https://hub.wowvideotours.com/support/logo.png",
 };
 
 /** Captures what would have been sent, so nothing here touches the network. */
@@ -201,5 +202,41 @@ describe("client resolution email", () => {
     const resolved = (await store.updateTicket(ticket.id, { status: "resolved" }))!;
     await notify.notifyClientOnResolution(ticket, resolved, deps(mailer));
     expect(mailer.sent).toHaveLength(0);
+  });
+});
+
+describe("what the client is told, and who it looks like it came from", () => {
+  it("promises work on the listing, in both bodies", async () => {
+    const ticket = await newTicket();
+    const mailer = new CapturingMailer();
+    await notify.notifyClientTicketCreated(ticket, deps(mailer));
+    const msg = mailer.sent[0];
+
+    const expected =
+      "Someone from the team will begin working on your listing and follow up by email. " +
+      "We'll let you know as soon as it's done!";
+    expect(msg.htmlBody).toContain(expected);
+    // The text body wraps, so it is checked in the halves it is written in.
+    expect(msg.textBody).toContain("Someone from the team will begin working on your listing");
+    expect(msg.textBody).toContain("We'll let you know as soon as it's done!");
+    // And the line it replaced is gone from both.
+    expect(msg.htmlBody).not.toContain("will pick this up");
+    expect(msg.textBody).not.toContain("will pick this up");
+  });
+
+  it("heads both client emails with the logo", async () => {
+    const ticket = await newTicket();
+    const created = new CapturingMailer();
+    await notify.notifyClientTicketCreated(ticket, deps(created));
+    expect(created.sent[0].htmlBody).toContain(
+      'src="https://hub.wowvideotours.com/support/logo.png"',
+    );
+    expect(created.sent[0].htmlBody).toContain('alt="WOW Video Tours"');
+
+    const resolved = new CapturingMailer();
+    await notify.notifyClientTicketResolved(ticket, deps(resolved));
+    expect(resolved.sent[0].htmlBody).toContain(
+      'src="https://hub.wowvideotours.com/support/logo.png"',
+    );
   });
 });

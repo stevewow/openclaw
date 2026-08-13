@@ -12,7 +12,7 @@
 // bodies so they can never disagree, and the HTML is table-based with inline
 // styles because Outlook supports neither flexbox nor a reliable <style> block.
 
-import { escapeHtml } from "./ticket-email-render.js";
+import { brandHeaderHtml, escapeHtml } from "./ticket-email-render.js";
 import type { Ticket } from "./ticket-store.js";
 
 /** Brand palette, matching the intake form and the department email. */
@@ -45,6 +45,8 @@ export type ClientEmailView = {
   categoryLabel: string;
   /** How many files rode in with the request; 0 hides the line. */
   attachmentCount: number;
+  /** Absolute URL of the logo; null falls back to the typeset wordmark. */
+  logoUrl?: string | null;
 };
 
 export type ResolvedEmailView = ClientEmailView & {
@@ -89,6 +91,7 @@ function htmlShell(opts: {
   preheader: string;
   body: string;
   footerNote: string;
+  logoUrl?: string | null;
 }): string {
   return `<!doctype html>
 <html>
@@ -99,10 +102,7 @@ function htmlShell(opts: {
 <tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:600px">
 
-<tr><td style="padding:0 0 16px">
-<span style="font-size:20px;font-weight:800;letter-spacing:-0.02em;color:${WOW_RED}">WOW</span>
-<span style="font-size:12px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${INK};padding-left:6px">Video Tours</span>
-</td></tr>
+${brandHeaderHtml(opts.logoUrl)}
 
 ${opts.body}
 
@@ -187,8 +187,8 @@ export function renderClientCreatedText(view: ClientEmailView): string {
   }
   lines.push("");
   lines.push("WHAT HAPPENS NEXT");
-  lines.push("Someone from the team will pick this up and follow up by email.");
-  lines.push("We'll let you know as soon as it's done.");
+  lines.push("Someone from the team will begin working on your listing and follow up");
+  lines.push("by email. We'll let you know as soon as it's done!");
   lines.push("");
   lines.push("You can reply to this email if you need to add anything.");
   lines.push("");
@@ -225,7 +225,7 @@ ${files}
 
 <tr><td style="padding:22px 0 0">
 <div style="color:${MUTED};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding-bottom:8px">What happens next</div>
-<div style="color:${INK};font-size:14px;line-height:1.65">Someone from the team will pick this up and follow up by email. We'll let you know as soon as it's done.</div>
+<div style="color:${INK};font-size:14px;line-height:1.65">Someone from the team will begin working on your listing and follow up by email. We'll let you know as soon as it's done!</div>
 </td></tr>
 
 ${paragraph(`<span style="color:${MUTED};font-size:13px">Need to add something? Just reply to this email.</span>`, 18)}`)}`;
@@ -235,6 +235,7 @@ ${paragraph(`<span style="color:${MUTED};font-size:13px">Need to add something? 
     preheader: `We've got your request — ${t.number}`,
     body,
     footerNote: `Ticket ${escapeHtml(t.number)} · WOW Video Tours`,
+    logoUrl: view.logoUrl,
   });
 }
 
@@ -313,6 +314,7 @@ ${button(supportMailtoFromView(view), "Email support", "#ffffff", INK)}
     preheader: `${t.number} is complete — how did we do?`,
     body,
     footerNote: `Ticket ${escapeHtml(t.number)} · WOW Video Tours`,
+    logoUrl: view.logoUrl,
   });
 }
 

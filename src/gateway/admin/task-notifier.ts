@@ -1,4 +1,4 @@
-import { BRAND_NAME } from "./brand.js";
+import { adminBaseUrl, BRAND_NAME } from "./brand.js";
 import { getProject, type Task } from "./project-store.js";
 import {
   type EmailConfig,
@@ -21,16 +21,10 @@ import { listUsers } from "./user-store.js";
  * so replies land on the from-address and the body points at the dashboard.
  */
 
-const DEFAULT_ADMIN_BASE_URL = "https://hub.wowvideotours.com";
-
-/** Where the dashboard is reachable, for the "Open this task" link. */
-export function adminBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const raw = env.ADMIN_BASE_URL?.trim();
-  if (!raw) {
-    return DEFAULT_ADMIN_BASE_URL;
-  }
-  return raw.replace(/\/+$/, "");
-}
+// Lives in brand.js so the ticket mailers can resolve it without importing this
+// module, which imports them. Re-exported because this is where the links that
+// use it are built.
+export { adminBaseUrl };
 
 /** Deep link that opens the task's modal on the Projects page. */
 export function taskUrl(taskId: string, env: NodeJS.ProcessEnv = process.env): string {
