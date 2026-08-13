@@ -18,6 +18,14 @@ export type TicketStatus = "new" | "in_progress" | "needs_review" | "resolved" |
 export type TicketCategory = string;
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
 export type TicketSource = "widget" | "email" | "manual";
+/**
+ * How a client answered the resolution email. Deliberately two-valued: a thumb
+ * is one click from an inbox, and the free-text comment beside it carries the
+ * nuance a 1–5 scale only pretends to.
+ */
+export type TicketFeedbackRating = "up" | "down";
+
+export const TICKET_FEEDBACK_RATINGS: TicketFeedbackRating[] = ["up", "down"];
 
 export const TICKET_STATUSES: TicketStatus[] = [
   "new",
@@ -136,6 +144,17 @@ export type Ticket = {
   estimateMaxCents: number | null;
   /** Some line has to be quoted and accepted before work can start. */
   quoteRequired: boolean;
+  /**
+   * Whether the client wants to hear from us as this ticket moves. An opt-out on
+   * the intake form, so true is the normal state; false suppresses the
+   * confirmation and resolution emails but changes nothing else about the ticket.
+   */
+  notifyClient: boolean;
+  /** Handle behind the feedback links, minted when the resolution email goes out. */
+  feedbackToken: string | null;
+  feedbackRating: TicketFeedbackRating | null;
+  feedbackComment: string | null;
+  feedbackAt: number | null;
   createdAt: number;
   updatedAt: number;
   resolvedAt: number | null;
@@ -167,6 +186,8 @@ export type CreateTicketParams = {
   estimateCents?: number | null;
   estimateMaxCents?: number | null;
   quoteRequired?: boolean;
+  /** Defaults to true — the client is emailed unless they opted out on the form. */
+  notifyClient?: boolean;
 };
 
 export type UpdateTicketParams = {
@@ -214,6 +235,11 @@ type TicketRow = {
   estimate_cents: number | null;
   estimate_max_cents: number | null;
   quote_required: number;
+  notify_client: number;
+  feedback_token: string | null;
+  feedback_rating: string | null;
+  feedback_comment: string | null;
+  feedback_at: number | null;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -258,6 +284,15 @@ function rowToTicket(row: TicketRow): Ticket {
     estimateCents: row.estimate_cents,
     estimateMaxCents: row.estimate_max_cents,
     quoteRequired: row.quote_required === 1,
+    // Rows taken before the opt-out existed have no column value at all in a
+    // freshly migrated read; treat anything but an explicit 0 as subscribed.
+    notifyClient: row.notify_client !== 0,
+    feedbackToken: row.feedback_token,
+    feedbackRating: TICKET_FEEDBACK_RATINGS.includes(row.feedback_rating as TicketFeedbackRating)
+      ? (row.feedback_rating as TicketFeedbackRating)
+      : null,
+    feedbackComment: row.feedback_comment,
+    feedbackAt: row.feedback_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     resolvedAt: row.resolved_at,
@@ -396,6 +431,11 @@ export async function createTicket(params: CreateTicketParams): Promise<Ticket> 
         estimate_cents: params.estimateCents ?? null,
         estimate_max_cents: params.estimateMaxCents ?? null,
         quote_required: params.quoteRequired ? 1 : 0,
+        notify_client: params.notifyClient === false ? 0 : 1,
+        feedback_token: null,
+        feedback_rating: null,
+        feedback_comment: null,
+        feedback_at: null,
         created_at: now,
         updated_at: now,
         resolved_at: null,
@@ -526,6 +566,105 @@ export async function updateTicket(
   return getTicket(id);
 }
 
+// ── Client feedback ───────────────────────────────────────────────────────
+// The resolution email asks one question with two answers, and the link that
+// carries it has to be safe to hand a stranger: it names a ticket without
+// naming anything about the client, and it grants nothing but the right to
+// rate that one ticket.
+
+/** Bytes behind a feedback link. 24 → a 32-character token, far past guessing. */
+const FEEDBACK_TOKEN_BYTES = 24;
+
+/**
+ * The ticket's feedback token, minting one on first use.
+ *
+ * Lazy rather than minted at creation so a token only exists for a ticket that
+ * actually reached a client, and so tickets opened before this shipped can still
+ * be asked. Returns the existing token unchanged on every later call — the link
+ * in an email already sent has to keep working.
+ */
+export async function ensureFeedbackToken(id: string): Promise<string | null> {
+  const existing = await getTicket(id);
+  if (!existing) {
+    return null;
+  }
+  if (existing.feedbackToken) {
+    return existing.feedbackToken;
+  }
+  const token = crypto.randomBytes(FEEDBACK_TOKEN_BYTES).toString("base64url");
+  const db = getAdminDb();
+  await db
+    .updateTable("admin_tickets")
+    .set({ feedback_token: token })
+    // Only claim the token if nobody minted one in between; the loser re-reads.
+    .where("id", "=", id)
+    .where("feedback_token", "is", null)
+    .execute();
+  return (await getTicket(id))?.feedbackToken ?? null;
+}
+
+export async function getTicketByFeedbackToken(token: string): Promise<Ticket | null> {
+  if (!token.trim()) {
+    return null;
+  }
+  const db = getAdminDb();
+  const row = await db
+    .selectFrom("admin_tickets")
+    .selectAll()
+    .where("feedback_token", "=", token)
+    .executeTakeFirst();
+  return row ? rowToTicket(row) : null;
+}
+
+/** Longest comment we keep — a sentence or two of reaction, not a new ticket. */
+export const MAX_FEEDBACK_COMMENT = 2000;
+
+/**
+ * Record a client's rating and/or comment, and log it on the thread.
+ *
+ * Both halves are optional because they arrive separately: the thumb is clicked
+ * in the email and the comment typed afterwards on the landing page, and a
+ * client who never types anything has still told us something. Re-rating
+ * overwrites — the last thing they said is what they think.
+ */
+export async function recordTicketFeedback(
+  id: string,
+  input: { rating?: TicketFeedbackRating | null; comment?: string | null },
+): Promise<Ticket | null> {
+  const existing = await getTicket(id);
+  if (!existing) {
+    return null;
+  }
+  const comment =
+    typeof input.comment === "string" ? input.comment.trim().slice(0, MAX_FEEDBACK_COMMENT) : null;
+  const rating = input.rating ?? null;
+  if (!rating && !comment) {
+    return existing;
+  }
+  const db = getAdminDb();
+  const now = Date.now();
+  const updates: Record<string, unknown> = { feedback_at: now, updated_at: now };
+  if (rating) {
+    updates.feedback_rating = rating;
+  }
+  if (comment) {
+    updates.feedback_comment = comment;
+  }
+  await db.updateTable("admin_tickets").set(updates).where("id", "=", id).execute();
+
+  // Feedback belongs on the thread as well as the column: the column answers
+  // "how did this one go", the thread answers "when did they tell us".
+  const said = rating ? (rating === "up" ? "👍 Looks great" : "👎 Not quite right") : "Left a note";
+  await addTicketEvent(id, {
+    kind: "comment",
+    authorType: "client",
+    authorName: existing.requesterName,
+    body: comment ? `${said} — ${comment}` : said,
+    meta: { feedback: true, ...(rating ? { rating } : {}), ...(comment ? { comment } : {}) },
+  });
+  return getTicket(id);
+}
+
 export async function deleteTicket(id: string): Promise<void> {
   const db = getAdminDb();
   await db.deleteFrom("admin_tickets").where("id", "=", id).execute();
@@ -588,10 +727,41 @@ export async function listTicketEvents(ticketId: string): Promise<TicketEvent[]>
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────
-export type TicketStats = { total: number; byStatus: Record<TicketStatus, number> };
+export type TicketStats = {
+  total: number;
+  byStatus: Record<TicketStatus, number>;
+  /** How clients rated the tickets they were asked about. */
+  feedback: { up: number; down: number; comments: number };
+};
 
 export async function getTicketStats(): Promise<TicketStats> {
   const db = getAdminDb();
+  const feedbackRows = await db
+    .selectFrom("admin_tickets")
+    .select(["feedback_rating", (eb) => eb.fn.countAll<number>().as("count")])
+    .where("is_test", "=", 0)
+    .where("feedback_rating", "is not", null)
+    .groupBy("feedback_rating")
+    .execute();
+  const feedback = { up: 0, down: 0, comments: 0 };
+  for (const r of feedbackRows) {
+    const count = r.count || 0;
+    if (r.feedback_rating === "up") {
+      feedback.up = count;
+    } else if (r.feedback_rating === "down") {
+      feedback.down = count;
+    }
+  }
+  // Counted on its own rather than alongside the ratings: a client can leave a
+  // note without picking a thumb, and grouping the two would drop exactly the
+  // feedback that took the most effort to give.
+  const commentRow = await db
+    .selectFrom("admin_tickets")
+    .select((eb) => eb.fn.countAll<number>().as("count"))
+    .where("is_test", "=", 0)
+    .where("feedback_comment", "is not", null)
+    .executeTakeFirst();
+  feedback.comments = Number(commentRow?.count) || 0;
   const rows = await db
     .selectFrom("admin_tickets")
     .select(["status", (eb) => eb.fn.countAll<number>().as("count")])
@@ -612,5 +782,5 @@ export async function getTicketStats(): Promise<TicketStats> {
     total += count;
     if (r.status in byStatus) byStatus[r.status as TicketStatus] = count;
   }
-  return { total, byStatus };
+  return { total, byStatus, feedback };
 }

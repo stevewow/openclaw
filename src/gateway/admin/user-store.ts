@@ -461,6 +461,18 @@ type TicketsTable = {
   /** High end, or null when every priced choice on the ticket is firm. */
   estimate_max_cents: number | null;
   quote_required: number;
+  /** The client asked to be emailed as this ticket moves. Opt-out, so 1 by default. */
+  notify_client: number;
+  /**
+   * Unguessable handle for the feedback links in the resolution email. Minted on
+   * first use rather than at creation, so tickets that are never resolved never
+   * carry one, and null simply means "not asked yet".
+   */
+  feedback_token: string | null;
+  /** 'up' or 'down' — how the client answered. Null until they do. */
+  feedback_rating: string | null;
+  feedback_comment: string | null;
+  feedback_at: number | null;
   created_at: number;
   updated_at: number;
   resolved_at: number | null;
@@ -534,6 +546,8 @@ type TicketCategoriesTable = {
   details_hint: string | null;
   sort_order: number;
   active: number;
+  /** Icon key for the request-type card; null falls back to a generic mark. */
+  icon: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -1117,6 +1131,13 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       assigned_to TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
       created_by TEXT,
       is_test INTEGER NOT NULL DEFAULT 0,
+      -- Clients are emailed as their ticket moves unless they opt out on the
+      -- intake form, so the default is on.
+      notify_client INTEGER NOT NULL DEFAULT 1,
+      feedback_token TEXT,
+      feedback_rating TEXT CHECK(feedback_rating IN ('up','down')),
+      feedback_comment TEXT,
+      feedback_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       resolved_at INTEGER
@@ -1168,6 +1189,8 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       details_hint TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1,
+      -- Which mark the request-type card shows on the intake form.
+      icon TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -1250,6 +1273,42 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     if (!ticketColumns.some((c) => c.name === col)) {
       db.exec(`ALTER TABLE admin_tickets ADD COLUMN ${col} TEXT`);
     }
+  }
+  // Client notifications and the feedback the resolution email asks for. Every
+  // ticket taken before this shipped predates the opt-out checkbox, so 1 is the
+  // honest reading of them: nobody declined. The feedback columns stay null
+  // until a client actually answers — null is "not asked / not answered", which
+  // is what a rating of 0 could never say.
+  if (!ticketColumns.some((c) => c.name === "notify_client")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN notify_client INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!ticketColumns.some((c) => c.name === "feedback_token")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN feedback_token TEXT");
+  }
+  if (!ticketColumns.some((c) => c.name === "feedback_rating")) {
+    db.exec(
+      "ALTER TABLE admin_tickets ADD COLUMN feedback_rating TEXT CHECK(feedback_rating IN ('up','down'))",
+    );
+  }
+  if (!ticketColumns.some((c) => c.name === "feedback_comment")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN feedback_comment TEXT");
+  }
+  if (!ticketColumns.some((c) => c.name === "feedback_at")) {
+    db.exec("ALTER TABLE admin_tickets ADD COLUMN feedback_at INTEGER");
+  }
+  // Indexed here rather than in the DDL above: on a database that predates the
+  // column, that block runs before the ALTER that adds it, and indexing a column
+  // that does not exist yet throws on startup.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS admin_tickets_feedback_token ON admin_tickets(feedback_token)",
+  );
+  // Icons for the request-type cards on the intake form. Null renders the
+  // fallback mark, so an admin who never picks one still gets a usable card.
+  const categoryColumns = db.prepare("PRAGMA table_info(admin_ticket_categories)").all() as Array<{
+    name: string;
+  }>;
+  if (!categoryColumns.some((c) => c.name === "icon")) {
+    db.exec("ALTER TABLE admin_ticket_categories ADD COLUMN icon TEXT");
   }
   // Spiro reports amountPaid/amountDue per invoice; the snapshot predates both.
   // Nullable, so rows cached before the next refresh read as "not reported"
