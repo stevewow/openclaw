@@ -70,6 +70,27 @@ describe("ticket intake form", () => {
     expect(html.toLowerCase()).not.toContain("openclaw");
   });
 
+  it("leads with the logo, an order link, and a card grid rather than a dropdown", async () => {
+    const html = await (await fetch(`${base}/support`)).text();
+
+    // The mark is an image served from our own route, not a text wordmark.
+    expect(html).toContain(`<img src="/support/logo.png"`);
+    expect(html).toContain('alt="WOW Video Tours"');
+
+    // Request types are a radiogroup of cards; the old <select> is gone.
+    expect(html).toContain('<div class="typegrid" id="f-category" role="radiogroup"');
+    expect(html).not.toContain('<select id="f-category">');
+    // Each card carries an icon drawn from the curated set.
+    expect(html).toContain('"iconSvg"');
+
+    // Anyone wanting to book new work is sent to the order portal instead.
+    expect(html).toContain("https://portal.wowvideotours.com/order/wvt/default");
+    expect(html).toContain("Looking to place an order?");
+
+    // Update emails are opt-out: the box ships ticked.
+    expect(html).toContain('<input type="checkbox" id="f-notify" checked />');
+  });
+
   it("opens a widget-sourced ticket from a valid submission and returns its number", async () => {
     const { status, data } = await submit(
       {
@@ -257,5 +278,24 @@ describe("ticket intake form", () => {
     for (const param of ["LinkToPWE", "AgentEmailAddress", "PhotographerName", "DateOfShoot"]) {
       expect(html).toContain(param);
     }
+  });
+  it("honors the updates checkbox, defaulting to subscribed when it is not sent", async () => {
+    const optedOut = await submit(
+      { ...validBodyFor("other"), notifyClient: false, orderAddress: "9 Quiet Ln" },
+      "203.0.113.61",
+    );
+    expect(optedOut.status).toBe(201);
+    const quiet = (await store.listTickets({ q: "quiet" }))[0]!;
+    expect(quiet.notifyClient).toBe(false);
+
+    // A form page loaded before this shipped sends no field at all, and was
+    // submitted under the behavior where the client does hear back.
+    const legacy = await submit(
+      { ...validBodyFor("other"), orderAddress: "11 Legacy Rd" },
+      "203.0.113.62",
+    );
+    expect(legacy.status).toBe(201);
+    const kept = (await store.listTickets({ q: "legacy" }))[0]!;
+    expect(kept.notifyClient).toBe(true);
   });
 });

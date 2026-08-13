@@ -11,7 +11,11 @@
 // string concatenation only (no template literals) so the outer TS template
 // string stays intact.
 
+import { BRAND_HEADER_HTML, PUBLIC_HEAD_TAGS, PUBLIC_SHELL_CSS } from "./ticket-public-shell.js";
 import { SPIRO_PARAM_MAPPINGS } from "./ticket-spiro-context.js";
+
+/** Where a client who wants to book new work is sent instead. */
+export const PLACE_ORDER_URL = "https://portal.wowvideotours.com/order/wvt/default";
 
 /** A question shown only once its choice is picked. */
 export type IntakeFollowUpView = {
@@ -42,6 +46,14 @@ export type IntakeOptionView = {
 export type IntakeCategoryView = {
   key: string;
   label: string;
+  /**
+   * The request-type card's mark, pre-rendered as `<svg>` markup. Rendered
+   * server-side from the closed icon set rather than shipped as a key the page
+   * looks up, so the browser never has to carry the icon library — and the only
+   * markup that can reach the card comes from `ticket-icons.ts`, not from
+   * anything an admin typed.
+   */
+  iconSvg: string;
   extraField: "none" | "select" | "text" | "multiselect";
   extraLabel: string | null;
   extraOptions: IntakeOptionView[];
@@ -67,52 +79,76 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   return `<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="robots" content="noindex" />
+${PUBLIC_HEAD_TAGS}
 <title>WOW Video Tours — Submit a Request</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-<style>
-  /* Palette, type and shapes taken from wowvideotours.com: Montserrat throughout,
-     charcoal ink on a light grey ground, pure-red accent, pill buttons, and the
-     uppercase letter-spaced eyebrow the site uses above every section heading. */
-  :root {
-    --wow:#ff0000; --wow-dark:#d40000; --wow-tint:rgba(255,0,0,0.08);
-    --ink:#2c2c2c; --muted:#888888; --border:#dbdbdb; --hairline:#ececec;
-    --bg:#f3f3f3; --surface:#ffffff;
-    --font:"Montserrat",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family:var(--font); background:var(--bg); color:var(--ink); line-height:1.55; -webkit-font-smoothing:antialiased; }
-  .wrap { max-width:660px; margin:0 auto; padding:2rem 1rem 3.5rem; }
-  /* Wordmark, set rather than imaged: the page is a self-contained template with
-     no asset pipeline, and a hotlinked logo would break the header if it moved. */
-  .brand { display:flex; align-items:baseline; gap:0.45rem; margin:0 0 1.5rem; }
-  .brand .wow { font-size:1.5rem; font-weight:800; letter-spacing:-0.02em; color:var(--wow); line-height:1; }
-  .brand .vt { font-size:0.95rem; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink); line-height:1; }
-  .card { background:var(--surface); border:1px solid var(--hairline); border-radius:20px; box-shadow:0 2px 14px rgba(0,0,0,0.05); padding:2rem 1.75rem; }
-  .eyebrow { color:var(--wow); font-size:0.69rem; font-weight:700; letter-spacing:0.09em; text-transform:uppercase; margin:0 0 0.5rem; }
-  h1.title { font-size:1.75rem; font-weight:700; letter-spacing:-0.02em; line-height:1.15; margin:0 0 0.6rem; }
-  .lead { color:var(--muted); font-size:0.92rem; font-weight:400; margin:0 0 1.5rem; }
-  .ctx { background:#fafafa; border:1px solid var(--hairline); border-left:3px solid var(--wow); border-radius:0 12px 12px 0; padding:0.75rem 1rem; font-size:0.85rem; margin-bottom:1.5rem; color:var(--ink); }
-  label { display:block; font-weight:600; font-size:0.78rem; letter-spacing:0.02em; margin:0 0 0.4rem; }
+<style>${PUBLIC_SHELL_CSS}
+  .ctx { background:#fafafa; border:1px solid var(--hairline); border-left:3px solid var(--wow); border-radius:0 12px 12px 0; padding:0.75rem 0.9rem; font-size:0.83rem; margin-bottom:1.4rem; color:var(--ink); }
+  label, .fieldlabel { display:block; font-weight:600; font-size:0.78rem; letter-spacing:0.02em; margin:0 0 0.4rem; }
   .field { margin-bottom:1.25rem; }
   input[type=text], input[type=email], input[type=tel], select, textarea {
     /* Block, not inline-block: an inline textarea sits on the text baseline and
        leaves a stray gap between it and the hint underneath. */
-    display:block; width:100%; padding:0.7rem 0.85rem; border:1px solid var(--border); border-radius:12px; font:inherit; font-size:0.92rem; background:#fff; color:var(--ink); transition:border-color 0.15s, box-shadow 0.15s;
+    display:block; width:100%; padding:0.75rem 0.85rem; border:1px solid var(--border); border-radius:12px; font-family:inherit; background:#fff; color:var(--ink); transition:border-color 0.15s, box-shadow 0.15s;
+    /* 16px exactly: iOS Safari zooms the viewport on focusing anything smaller,
+       which leaves a phone user scrolled sideways mid-form. Stepped down only
+       above the width where that behavior stops mattering. */
+    font-size:16px;
+    -webkit-appearance:none; appearance:none;
   }
-  input[type=file] { font-size:0.85rem; color:var(--muted); }
+  select {
+    /* appearance:none took the native arrow with it; draw one back so a select
+       still reads as a select. */
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 0.85rem center; background-size:11px;
+    padding-right:2.2rem;
+  }
+  input[type=file] { font-size:0.85rem; color:var(--muted); max-width:100%; }
   input:focus, select:focus, textarea:focus { outline:none; border-color:var(--wow); box-shadow:0 0 0 3px var(--wow-tint); }
   textarea { resize:vertical; min-height:104px; }
-  .row { display:flex; gap:0.75rem; flex-wrap:wrap; }
-  .row > .field { flex:1; min-width:180px; }
+  .row { display:grid; grid-template-columns:1fr; gap:0 0.75rem; }
   .hint { color:var(--muted); font-size:0.76rem; font-weight:400; margin-top:0.35rem; line-height:1.45; }
-  /* Pickable choices, optionally with a thumbnail and a price. Sized so a phone
-     shows one per row and a laptop shows two or three. */
-  .choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(195px,1fr)); gap:0.6rem; }
+  /* Request types: a picked-from grid rather than a dropdown, so the whole menu
+     is visible at once and each option carries its own mark. Real radios do the
+     work — visually hidden, but keyboard, form and screen-reader behavior all
+     stay native. One column on a phone (the labels are sentences, not words),
+     two once there is room. */
+  .typegrid { display:grid; grid-template-columns:1fr; gap:0.55rem; }
+  .type {
+    display:flex; align-items:center; gap:0.75rem; margin:0;
+    padding:0.8rem 0.85rem; min-height:62px;
+    border:1px solid var(--border); border-radius:14px; background:#fff;
+    font-weight:500; font-size:0.88rem; letter-spacing:0; line-height:1.35;
+    cursor:pointer; transition:border-color 0.15s, box-shadow 0.15s;
+  }
+  .type:hover { border-color:var(--ink); }
+  .type.picked { border-color:var(--wow); box-shadow:0 0 0 2px var(--wow-tint); }
+  /* Focus lives on the hidden input, so hoist the ring onto the card. */
+  .type:focus-within { outline:2px solid var(--wow); outline-offset:2px; }
+  .type input {
+    /* Hidden from sight, not from the accessibility tree or the tab order. */
+    position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+  }
+  .type .ic {
+    flex:none; width:38px; height:38px; border-radius:11px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--bg); color:var(--ink); transition:background 0.15s, color 0.15s;
+  }
+  .type.picked .ic { background:var(--wow); color:#fff; }
+  .type .tl { flex:1; }
+  /* The updates opt-out. A checkbox row, sized so a thumb can hit it. */
+  .optin {
+    display:flex; align-items:flex-start; gap:0.65rem; margin:0;
+    padding:0.85rem 0.9rem; border:1px solid var(--hairline); border-radius:12px;
+    background:#fafafa; font-weight:400; font-size:0.84rem; letter-spacing:0; cursor:pointer;
+  }
+  .optin input { flex:none; width:20px; height:20px; margin:1px 0 0; accent-color:var(--wow); }
+  .optin .ot { line-height:1.5; }
+  .optin .os { display:block; color:var(--muted); font-size:0.76rem; margin-top:0.15rem; }
+  /* Pickable choices, optionally with a thumbnail and a price. One per row on a
+     phone; auto-fill only once the viewport can actually hold a 195px column,
+     since auto-fill on a narrow screen overflows rather than wrapping. */
+  .choices { display:grid; grid-template-columns:1fr; gap:0.6rem; }
   .choice { display:flex; flex-wrap:wrap; align-items:center; gap:0.6rem; padding:0.7rem 0.8rem; border:1px solid var(--border); border-radius:14px; background:#fff; transition:border-color 0.15s, box-shadow 0.15s; }
   .choice:hover { border-color:var(--ink); }
   .choice.picked { border-color:var(--wow); box-shadow:0 0 0 2px var(--wow-tint); }
@@ -148,28 +184,42 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   .btn:disabled { opacity:0.5; cursor:default; }
   .error { color:var(--wow-dark); font-size:0.85rem; font-weight:600; margin:0 0 0.75rem; display:none; }
   .hidden { display:none !important; }
-  .success { text-align:center; padding:1.5rem 0; }
-  .success .check { width:60px; height:60px; border-radius:50%; background:var(--wow); color:#fff; font-size:1.7rem; display:flex; align-items:center; justify-content:center; margin:0 auto 1.25rem; }
-  .success .num { font-size:1.6rem; font-weight:800; letter-spacing:0.02em; margin:0.4rem 0; }
-  .foot { text-align:center; color:var(--muted); font-size:0.72rem; letter-spacing:0.02em; margin-top:1.5rem; }
+  .success { text-align:center; padding:1.25rem 0; }
+  .success .check { width:56px; height:56px; border-radius:50%; background:var(--wow); color:#fff; font-size:1.6rem; display:flex; align-items:center; justify-content:center; margin:0 auto 1.15rem; }
+  .success .num { font-size:1.4rem; font-weight:800; letter-spacing:0.02em; margin:0.4rem 0; }
   .testbar { background:#fffbeb; border:1px solid #f0dda0; color:#7a5b00; border-radius:12px; padding:0.75rem 1rem; font-size:0.83rem; margin-bottom:1rem; }
+
+  /* Everything above is the phone layout. These are the affordances that only
+     make sense once there is width to spend. */
+  @media (min-width: 520px) {
+    .typegrid { grid-template-columns:1fr 1fr; }
+  }
+  @media (min-width: 560px) {
+    input[type=text], input[type=email], input[type=tel], select, textarea { font-size:0.92rem; }
+    .ctx { padding:0.75rem 1rem; font-size:0.85rem; margin-bottom:1.5rem; }
+    .choices { grid-template-columns:repeat(auto-fill,minmax(195px,1fr)); }
+    .row { grid-template-columns:1fr 1fr; }
+    .success .num { font-size:1.6rem; }
+  }
 </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="brand"><span class="wow">WOW</span><span class="vt">Video Tours</span></div>
+    ${BRAND_HEADER_HTML}
     <div id="test-banner" class="testbar hidden">🧪 <strong>Test mode</strong> — this is a demonstration. The notification goes to <span id="test-dest">the test recipient</span> instead of the real department, and the ticket is tagged as a test.</div>
     <div class="card">
       <div id="intake-form-view">
         <p class="eyebrow">Support &amp; Requests</p>
         <h1 class="title">How can we help?</h1>
-        <p class="lead">Need an edit, an extra service, or something looks off with your media? Tell us below and we'll open a ticket for the right team.</p>
+        <p class="lead">Need an edit, an extra service, or something looks off with your media? Tell us below and we'll open a ticket for the right team. Looking to place an order? <a href="${PLACE_ORDER_URL}" target="_blank" rel="noopener">Click here</a>.</p>
         <div id="ctx" class="ctx hidden"></div>
         <div id="err" class="error"></div>
         <form id="intake-form" autocomplete="on">
           <div class="field">
-            <label for="f-category">What can we help with?</label>
-            <select id="f-category"></select>
+            <!-- Not a <label>: this names a group of radios, and a label pointing
+                 at one of them would put the group's question on that option. -->
+            <span class="fieldlabel" id="category-label">What can we help with?</span>
+            <div class="typegrid" id="f-category" role="radiogroup" aria-labelledby="category-label"></div>
           </div>
 
           <div class="field hidden" id="extra-field">
@@ -199,6 +249,13 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
             <div class="field"><label for="f-email">Email</label><input type="email" id="f-email" autocomplete="email" /></div>
           </div>
           <div class="field"><label for="f-phone">Phone (optional)</label><input type="tel" id="f-phone" autocomplete="tel" /></div>
+
+          <div class="field">
+            <label class="optin" for="f-notify">
+              <input type="checkbox" id="f-notify" checked />
+              <span class="ot">Email me updates about this request<span class="os">We'll confirm we've got it and let you know the moment it's done. Untick if you'd rather not hear from us.</span></span>
+            </label>
+          </div>
 
           <button type="submit" class="btn" id="submit-btn">Submit request</button>
         </form>
@@ -297,16 +354,55 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     return;
   }
 
-  cats.forEach(function(c){
-    var o = document.createElement('option');
-    o.value = c.key;
-    o.textContent = c.label;
-    catEl.appendChild(o);
+  // One card per request type. Each is a real radio inside its label, so the
+  // grid keeps native keyboard, form and screen-reader behavior for free — the
+  // card is only what the radio looks like.
+  var pickedCategory = cats[0].key;
+  cats.forEach(function(c, idx){
+    var card = document.createElement('label');
+    card.className = 'type' + (idx === 0 ? ' picked' : '');
+    card.setAttribute('data-key', c.key);
+
+    var input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'category';
+    input.value = c.key;
+    input.className = 'category-input';
+    // defaultChecked as well as checked: "Submit another request" calls
+    // form.reset(), which restores defaults, and a grid where every card came
+    // back unpicked would be a dead form.
+    if (idx === 0) { input.defaultChecked = true; input.checked = true; }
+    input.addEventListener('change', function(){
+      if (!input.checked) return;
+      pickedCategory = c.key;
+      paintCategories();
+      syncBranches();
+    });
+    card.appendChild(input);
+
+    var ic = document.createElement('span');
+    ic.className = 'ic';
+    // Markup from our own closed icon set, rendered server-side — never from
+    // anything an admin typed.
+    ic.innerHTML = c.iconSvg || '';
+    card.appendChild(ic);
+
+    var text = document.createElement('span');
+    text.className = 'tl';
+    text.textContent = c.label;
+    card.appendChild(text);
+
+    catEl.appendChild(card);
   });
 
+  function paintCategories(){
+    catEl.querySelectorAll('.type').forEach(function(card){
+      card.classList.toggle('picked', card.getAttribute('data-key') === pickedCategory);
+    });
+  }
+
   function currentCat() {
-    var key = catEl.value;
-    for (var i = 0; i < cats.length; i++) { if (cats[i].key === key) return cats[i]; }
+    for (var i = 0; i < cats.length; i++) { if (cats[i].key === pickedCategory) return cats[i]; }
     return null;
   }
 
@@ -638,7 +734,6 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     document.getElementById('details-label').textContent = c.detailsLabel || 'Details';
     document.getElementById('details-hint').textContent = c.detailsHint || '';
   }
-  catEl.addEventListener('change', syncBranches);
   syncBranches();
 
   var err = document.getElementById('err');
@@ -746,7 +841,7 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
     // The Spiro context rides along as-sent; the server derives the order id
     // from the PWE link rather than trusting one parsed here.
     var payload = {
-      category: catEl.value,
+      category: pickedCategory,
       extraValue: extraValue,
       extraValues: extraValues,
       extraSelections: extraSelections,
@@ -762,6 +857,7 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
       submittedBy: spiro.submittedBy || null,
       photographerName: spiro.photographerName || null,
       shootDate: spiro.shootDate || null,
+      notifyClient: document.getElementById('f-notify').checked,
       testToken: testToken || null
     };
     if (!payload.requesterName) { showErr('Please enter your name.'); return; }
@@ -798,6 +894,10 @@ export function renderTicketIntakeHtml(categories: IntakeCategoryView[]): string
   document.getElementById('another-link').addEventListener('click', function(e){
     e.preventDefault();
     document.getElementById('intake-form').reset();
+    // reset() restores the radios to their defaults; bring our own bookkeeping
+    // back to the same card so the branch fields match what is ticked.
+    pickedCategory = cats[0].key;
+    paintCategories();
     renderFileList();
     syncBranches();
     document.getElementById('intake-success-view').classList.add('hidden');

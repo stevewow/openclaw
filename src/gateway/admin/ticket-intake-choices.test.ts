@@ -12,6 +12,7 @@ import { type IntakeCategoryView, renderTicketIntakeHtml } from "./ticket-intake
 const STAGING: IntakeCategoryView = {
   key: "additional_service",
   label: "Order an additional service",
+  iconSvg: '<svg viewBox="0 0 24 24"></svg>',
   extraField: "multiselect",
   extraLabel: "Which services?",
   extraOptions: [

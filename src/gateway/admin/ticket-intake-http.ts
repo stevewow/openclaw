@@ -4,6 +4,7 @@ import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { saveUploadedAttachment } from "./attachment-store.js";
 import { MAX_INTAKE_BODY_BYTES, parseIntakeFiles } from "./ticket-attachment-intake.js";
 import {
+  backfillSeedCategoryIcons,
   type CategoryOption,
   ensureCategorySeed,
   type EstimateBreakdown,
@@ -15,18 +16,33 @@ import {
   summarizeEstimate,
   type TicketCategoryDef,
 } from "./ticket-category-store.js";
+import { supportEmailAddress } from "./ticket-client-email-render.js";
+import { notifyClientTicketCreated } from "./ticket-client-notify.js";
 import { listDepartmentEmails } from "./ticket-department-store.js";
+import { renderFeedbackExpiredHtml, renderTicketFeedbackHtml } from "./ticket-feedback-html.js";
+import { ticketIconSvg } from "./ticket-icons.js";
 import { applyInboundReply, type PostmarkInboundPayload } from "./ticket-inbound.js";
 import { renderTicketIntakeHtml } from "./ticket-intake-html.js";
 import { notifyDepartment } from "./ticket-mailer.js";
 import { readSpiroIntakeContext } from "./ticket-spiro-context.js";
-import { createTicket } from "./ticket-store.js";
+import {
+  createTicket,
+  getTicketByFeedbackToken,
+  recordTicketFeedback,
+  TICKET_FEEDBACK_RATINGS,
+  type TicketFeedbackRating,
+} from "./ticket-store.js";
 import { verifyTestToken } from "./ticket-test-token.js";
+import { WOW_LOGO_ETAG, WOW_LOGO_PATH, WOW_LOGO_PNG } from "./wow-logo.js";
 
 const INTAKE_PAGE_PATH = "/support";
 const INTAKE_SUBMIT_PATH = "/api/support/intake";
 const INBOUND_PATH = "/api/support/inbound";
+const FEEDBACK_PAGE_PATH = "/support/feedback";
+const FEEDBACK_SUBMIT_PATH = "/api/support/feedback";
 const INBOUND_MAX_BODY_BYTES = 512 * 1024; // email bodies + quoted history
+/** A rating and a sentence or two; nothing here needs room for an essay. */
+const FEEDBACK_MAX_BODY_BYTES = 16 * 1024;
 
 /** Extra addresses allowed to drive ticket state, beyond the department desks. */
 export function staffAllowlist(env: NodeJS.ProcessEnv = process.env): string[] {
@@ -364,6 +380,104 @@ export async function handleTicketIntakeRequest(
 ): Promise<boolean> {
   const url = new URL(req.url ?? "/", "http://localhost");
 
+  // The brand mark, compiled into the build. Immutable and cached hard: the
+  // bytes only ever change with a deploy, and the ETag names their length so a
+  // conditional request costs nothing.
+  if (url.pathname === WOW_LOGO_PATH) {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      return false;
+    }
+    setDefaultSecurityHeaders(res);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.setHeader("ETag", WOW_LOGO_ETAG);
+    if (req.headers["if-none-match"] === WOW_LOGO_ETAG) {
+      res.statusCode = 304;
+      res.end();
+      return true;
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Length", String(WOW_LOGO_PNG.byteLength));
+    if (req.method === "HEAD") {
+      res.end();
+      return true;
+    }
+    res.end(WOW_LOGO_PNG);
+    return true;
+  }
+
+  // Where a thumb in the resolution email lands. Note this only renders — the
+  // rating is written by the page's POST below, because inbox link-scanners
+  // fetch this URL before any human sees it.
+  if (url.pathname === FEEDBACK_PAGE_PATH || url.pathname === `${FEEDBACK_PAGE_PATH}/`) {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      return false;
+    }
+    setDefaultSecurityHeaders(res);
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    if (req.method === "HEAD") {
+      res.end();
+      return true;
+    }
+    const supportEmail = supportEmailAddress();
+    const token = (url.searchParams.get("t") ?? "").trim();
+    const ticket = token ? await getTicketByFeedbackToken(token) : null;
+    if (!ticket) {
+      res.end(renderFeedbackExpiredHtml(supportEmail));
+      return true;
+    }
+    const requested = url.searchParams.get("r");
+    res.end(
+      renderTicketFeedbackHtml({
+        token,
+        ticketNumber: ticket.number,
+        rating: TICKET_FEEDBACK_RATINGS.includes(requested as TicketFeedbackRating)
+          ? (requested as TicketFeedbackRating)
+          : ticket.feedbackRating,
+        existingComment: ticket.feedbackComment,
+        supportEmail,
+      }),
+    );
+    return true;
+  }
+
+  // Record a rating and/or comment. The token is the whole authorization: it
+  // names one ticket, grants nothing but the right to rate it, and is the only
+  // thing a caller can act on — a ticket id is never accepted here.
+  if (url.pathname === FEEDBACK_SUBMIT_PATH) {
+    if (req.method !== "POST") {
+      return false;
+    }
+    setDefaultSecurityHeaders(res);
+    const body = await readJsonBody(req, FEEDBACK_MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendJson(res, 400, { error: body.error });
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const token = str(data.token);
+    const ticket = token ? await getTicketByFeedbackToken(token) : null;
+    // Same answer for a bad token as for a missing one: this endpoint must not
+    // become a way to test whether a token is live.
+    if (!ticket) {
+      sendJson(res, 404, { error: "This feedback link is no longer active." });
+      return true;
+    }
+    const rating = TICKET_FEEDBACK_RATINGS.includes(data.rating as TicketFeedbackRating)
+      ? (data.rating as TicketFeedbackRating)
+      : null;
+    const comment = str(data.comment);
+    if (!rating && !comment) {
+      sendJson(res, 400, { error: "Pick a thumb or leave a note." });
+      return true;
+    }
+    await recordTicketFeedback(ticket.id, { rating, comment });
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
   // Serve the form page, built from the admin-managed categories so dashboard
   // edits show up immediately (no-cache already prevents a stale form).
   if (url.pathname === INTAKE_PAGE_PATH || url.pathname === `${INTAKE_PAGE_PATH}/`) {
@@ -377,12 +491,16 @@ export async function handleTicketIntakeRequest(
       return true;
     }
     await ensureCategorySeed();
+    // Gives the four originals their marks on a database that predates icons;
+    // a no-op once every request type has one.
+    await backfillSeedCategoryIcons();
     const categories = await listCategories({ activeOnly: true });
     res.end(
       renderTicketIntakeHtml(
         categories.map((c) => ({
           key: c.key,
           label: c.label,
+          iconSvg: ticketIconSvg(c.icon),
           extraField: c.extraField,
           extraLabel: c.extraLabel,
           extraOptions: c.extraOptions,
@@ -512,6 +630,10 @@ export async function handleTicketIntakeRequest(
       estimateMaxCents,
       quoteRequired,
       isTest: Boolean(testGrant),
+      // The checkbox is on by default and only ever arrives as an explicit
+      // false, so an older form page that doesn't send the field at all still
+      // means "yes, keep me posted" — the behavior it was submitted under.
+      notifyClient: data.notifyClient !== false,
     });
 
     // Files are written after the ticket so they can hang off its id. A write
@@ -540,6 +662,13 @@ export async function handleTicketIntakeRequest(
     void notifyDepartment(ticket, {
       ...(testGrant ? { overrideTo: testGrant.email } : {}),
     }).catch(() => {});
+
+    // And confirm to the client, unless they unticked the updates box. Also
+    // out-of-band, and independent of the department send: a courtesy email
+    // that fails must not be able to take the work order down with it.
+    void notifyClientTicketCreated(ticket, testGrant ? { overrideTo: testGrant.email } : {}).catch(
+      () => {},
+    );
 
     sendJson(res, 201, {
       ok: true,

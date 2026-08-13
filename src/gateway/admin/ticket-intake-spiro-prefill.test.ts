@@ -13,6 +13,7 @@ import { type IntakeCategoryView, renderTicketIntakeHtml } from "./ticket-intake
 const CATEGORY: IntakeCategoryView = {
   key: "other",
   label: "Something else",
+  iconSvg: '<svg viewBox="0 0 24 24"></svg>',
   extraField: "none",
   extraLabel: null,
   extraOptions: [],

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
+import { renderTicketFeedbackHtml } from "./ticket-feedback-html.js";
 import { renderTicketIntakeHtml } from "./ticket-intake-html.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
@@ -8,6 +9,7 @@ const INTAKE_CATEGORIES = [
   {
     key: "edit_request",
     label: "Edit request",
+    iconSvg: '<svg viewBox="0 0 24 24"></svg>',
     extraField: "select" as const,
     extraLabel: "Which media?",
     extraOptions: [
@@ -39,6 +41,7 @@ const INTAKE_CATEGORIES = [
   {
     key: "additional_service",
     label: "Additional service",
+    iconSvg: '<svg viewBox="0 0 24 24"></svg>',
     extraField: "text" as const,
     extraLabel: "Which service?",
     extraOptions: [],
@@ -49,6 +52,7 @@ const INTAKE_CATEGORIES = [
   {
     key: "extras",
     label: "Order an additional service",
+    iconSvg: '<svg viewBox="0 0 24 24"></svg>',
     extraField: "multiselect" as const,
     extraLabel: "Which services?",
     extraOptions: [
@@ -97,6 +101,7 @@ const INTAKE_CATEGORIES = [
   {
     key: "other",
     label: "Something else",
+    iconSvg: '<svg viewBox="0 0 24 24"></svg>',
     extraField: "none" as const,
     extraLabel: null,
     extraOptions: [],
@@ -121,6 +126,17 @@ describe("SPA scripts parse", () => {
     // The public intake form is the one page a client sees; a syntax error here
     // is a dead Submit button on an unauthenticated page nobody on staff loads.
     ["support intake form", renderTicketIntakeHtml(INTAKE_CATEGORIES)],
+    // Same reasoning for the page a resolution email's thumbs land on.
+    [
+      "support feedback page",
+      renderTicketFeedbackHtml({
+        token: "tok",
+        ticketNumber: "WVT-1042",
+        rating: "up",
+        existingComment: null,
+        supportEmail: "support@wowvideotours.com",
+      }),
+    ],
   ] as const) {
     it(`the ${name} script is syntactically valid`, () => {
       const script = /<script>([\s\S]*)<\/script>/.exec(html);
