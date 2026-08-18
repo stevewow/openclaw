@@ -552,6 +552,37 @@ type TicketCategoriesTable = {
   updated_at: number;
 };
 
+type KbCategoriesTable = {
+  id: string;
+  /** The category's URL segment. Unique, and stable across a retitle. */
+  slug: string;
+  title: string;
+  description: string | null;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+};
+
+type KbArticlesTable = {
+  id: string;
+  /** Unique knowledge-base-wide, so refiling an article keeps its address. */
+  slug: string;
+  title: string;
+  summary: string | null;
+  body_md: string;
+  /** Null once the owning category is deleted; the article survives, unfiled. */
+  category_id: string | null;
+  status: string;
+  video_url: string | null;
+  sort_order: number;
+  created_by: string | null;
+  /** Who reviewed it, recorded because publishing is the gated step. */
+  published_by: string | null;
+  published_at: number | null;
+  created_at: number;
+  updated_at: number;
+};
+
 export type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -599,6 +630,11 @@ export type AdminDb = {
   admin_ticket_departments: TicketDepartmentsTable;
   admin_ticket_category_routes: TicketCategoryRoutesTable;
   admin_ticket_categories: TicketCategoriesTable;
+  admin_kb_categories: KbCategoriesTable;
+  admin_kb_articles: KbArticlesTable;
+  // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
+  // no stable column types for the query builder, and kb-store.ts reaches it
+  // through a raw `sql` MATCH query instead.
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -1194,7 +1230,40 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    -- Knowledge base. Deleting a category unfiles its articles rather than
+    -- cascading, so a mis-click cannot take written work with it; kb-store.ts
+    -- treats a null category_id as the unfiled shelf.
+    CREATE TABLE IF NOT EXISTS admin_kb_categories (
+      id TEXT PRIMARY KEY,
+      slug TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_kb_articles (
+      id TEXT PRIMARY KEY,
+      slug TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT,
+      body_md TEXT NOT NULL DEFAULT '',
+      category_id TEXT REFERENCES admin_kb_categories(id) ON DELETE SET NULL,
+      -- Two states only. Widening this CHECK means rebuilding the table, the
+      -- way migrateTaskStatusCheck and migrateTicketCategoryCheck had to.
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published')),
+      video_url TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT,
+      published_by TEXT,
+      published_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_kb_articles_category ON admin_kb_articles(category_id);
+    CREATE INDEX IF NOT EXISTS admin_kb_articles_status ON admin_kb_articles(status);
   `);
+  initKbSearch(db);
   migrateTicketCategoryCheck(db);
   migrateAttachmentOwnerCheck(db);
   migrateCategoryExtraFieldCheck(db);
@@ -1682,6 +1751,55 @@ function migrateAttachmentOwnerCheck(db: import("node:sqlite").DatabaseSync): vo
   } finally {
     db.exec("PRAGMA foreign_keys=ON");
   }
+}
+
+/**
+ * The knowledge base's full-text index.
+ *
+ * FTS5 in external-content mode: the index stores no copy of the article, it
+ * points at `admin_kb_articles` by rowid, so the body cannot drift from what
+ * search matched. Triggers carry every write across — an external-content
+ * index has to be told about deletes and updates explicitly, by inserting the
+ * *old* row under the 'delete' command before writing the new one.
+ *
+ * Drafts are indexed too. Filtering them out belongs to the query, so the
+ * authoring UI can search its own unpublished work with the same index.
+ */
+function initKbSearch(db: import("node:sqlite").DatabaseSync): void {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS admin_kb_search USING fts5(
+      title, summary, body_md,
+      content='admin_kb_articles',
+      content_rowid='rowid'
+    );
+    CREATE TRIGGER IF NOT EXISTS admin_kb_search_ai AFTER INSERT ON admin_kb_articles BEGIN
+      INSERT INTO admin_kb_search(rowid, title, summary, body_md)
+      VALUES (new.rowid, new.title, new.summary, new.body_md);
+    END;
+    CREATE TRIGGER IF NOT EXISTS admin_kb_search_ad AFTER DELETE ON admin_kb_articles BEGIN
+      INSERT INTO admin_kb_search(admin_kb_search, rowid, title, summary, body_md)
+      VALUES ('delete', old.rowid, old.title, old.summary, old.body_md);
+    END;
+    CREATE TRIGGER IF NOT EXISTS admin_kb_search_au AFTER UPDATE ON admin_kb_articles BEGIN
+      INSERT INTO admin_kb_search(admin_kb_search, rowid, title, summary, body_md)
+      VALUES ('delete', old.rowid, old.title, old.summary, old.body_md);
+      INSERT INTO admin_kb_search(rowid, title, summary, body_md)
+      VALUES (new.rowid, new.title, new.summary, new.body_md);
+    END;
+  `);
+  // A database that gained the index after it already held articles would have
+  // an empty one, since the triggers only see writes from here on. Marked so
+  // the rebuild is paid once; a later schema change to the index takes a new
+  // marker rather than rebuilding on every boot.
+  const MARKER = "kb-search-fts5-v1";
+  if (db.prepare("SELECT id FROM admin_migrations WHERE id = ?").get(MARKER)) {
+    return;
+  }
+  db.exec("INSERT INTO admin_kb_search(admin_kb_search) VALUES('rebuild')");
+  db.prepare("INSERT OR IGNORE INTO admin_migrations (id, applied_at) VALUES (?, ?)").run(
+    MARKER,
+    Date.now(),
+  );
 }
 
 /**
