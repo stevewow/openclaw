@@ -266,8 +266,10 @@ describe("the article editor", () => {
     expect((kb.doc.getElementById("kb-article-title") as HTMLInputElement).value).toBe(
       "Reschedule a shoot",
     );
-    expect((kb.doc.getElementById("kb-article-body-md") as HTMLTextAreaElement).value).toBe(
-      "# Steps",
+    // The body is now rendered into the contenteditable surface, not a textarea:
+    // "# Steps" is markdown in the store and a heading in front of the writer.
+    expect((kb.doc.getElementById("kb-article-body") as HTMLElement).innerHTML).toBe(
+      "<h2>Steps</h2>",
     );
     expect((kb.doc.getElementById("kb-article-category") as HTMLSelectElement).value).toBe(
       "cat-sched",

@@ -7,6 +7,11 @@
 //
 // Everything here is staff-facing. The public reader is a separate surface with
 // no session and no access to any of these calls.
+//
+// The article body is edited through the rich-text surface in kb-editor-ui.ts;
+// this module only hands it markdown on open and takes markdown back on save.
+
+import { KB_EDITOR_CSS, KB_EDITOR_JS, KB_EDITOR_MARKUP } from "./kb-editor-ui.js";
 
 export const KB_CSS = `
   /* Two columns on a desk, stacked on a phone: the category list is a short
@@ -35,10 +40,8 @@ export const KB_CSS = `
   .kb-slug { display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 400; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .kb-group-row td { background: var(--surface2); font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
 
-  /* A markdown body needs room to be read while it is being written. */
-  .kb-body-input { width: 100%; min-height: 18rem; padding: 0.6rem 0.7rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; line-height: 1.55; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); resize: vertical; }
-  .kb-body-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.09); }
   .kb-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; }
+${KB_EDITOR_CSS}
 `;
 
 export const KB_MARKUP = `
@@ -121,6 +124,7 @@ export const KB_MODALS = `
         <div class="form-group" style="flex:1 1 14rem">
           <label>Video link <span class="text-muted" style="font-weight:400">(optional)</span></label>
           <input id="kb-article-video" placeholder="https://…">
+          <div class="kb-vid-preview" id="kb-video-preview"></div>
         </div>
       </div>
       <div class="form-group">
@@ -129,8 +133,7 @@ export const KB_MODALS = `
       </div>
       <div class="form-group">
         <label>Article</label>
-        <textarea id="kb-article-body-md" class="kb-body-input" placeholder="Write the article here. Markdown: **bold**, ## headings, - lists, [links](https://…)"></textarea>
-        <div class="kb-hint">Markdown. Headings, lists, links and bold/italic all work.</div>
+${KB_EDITOR_MARKUP}
       </div>
       <div class="form-group hidden" id="kb-article-slug-group">
         <label>Web address</label>
@@ -148,6 +151,8 @@ export const KB_MODALS = `
 `;
 
 export const KB_COMPONENT_JS = `
+${KB_EDITOR_JS}
+
   // ── Knowledge Base ─────────────────────────────────────────────────────────
   var kbCategories = [];
   var kbArticles = [];
@@ -369,7 +374,7 @@ export const KB_COMPONENT_JS = `
     document.getElementById('kb-article-title').value = a ? a.title : '';
     document.getElementById('kb-article-summary').value = (a && a.summary) || '';
     document.getElementById('kb-article-video').value = (a && a.videoUrl) || '';
-    document.getElementById('kb-article-body-md').value = (a && a.bodyMd) || '';
+    kbLoadEditor((a && a.bodyMd) || '');
     document.getElementById('kb-article-slug').value = a ? a.slug : '';
     document.getElementById('kb-article-slug-group').classList.toggle('hidden', !a);
     var sel = document.getElementById('kb-article-category');
@@ -399,7 +404,7 @@ export const KB_COMPONENT_JS = `
     var payload = {
       title: document.getElementById('kb-article-title').value.trim(),
       summary: document.getElementById('kb-article-summary').value.trim(),
-      bodyMd: document.getElementById('kb-article-body-md').value,
+      bodyMd: kbReadEditor(),
       videoUrl: document.getElementById('kb-article-video').value.trim(),
       categoryId: document.getElementById('kb-article-category').value || null
     };
@@ -487,4 +492,5 @@ export const KB_COMPONENT_JS = `
   document.getElementById('kb-article-form').addEventListener('submit', function(e){ e.preventDefault(); saveKbArticle(false); });
   document.getElementById('kb-article-publish').addEventListener('click', function(){ saveKbArticle(true); });
   document.getElementById('kb-search').addEventListener('input', kbQueueSearch);
+  wireKbEditor();
 `;
