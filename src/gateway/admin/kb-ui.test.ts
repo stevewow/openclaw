@@ -183,6 +183,16 @@ describe("the article list", () => {
     expect(down).toEqual([false, true, true]);
   });
 
+  it("links a published article to its public page, and a draft to nothing", async () => {
+    const kb = mountKb();
+    await kb.load();
+    const links = Array.from(kb.doc.querySelectorAll(".kb-view")).map((a) =>
+      a.getAttribute("href"),
+    );
+    // Only the one published article; a draft has no page to open.
+    expect(links).toEqual(["/help/reschedule-a-shoot"]);
+  });
+
   it("filters to one category when it is selected", async () => {
     const kb = mountKb();
     await kb.load();

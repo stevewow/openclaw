@@ -590,6 +590,12 @@ export function createGatewayHttpServer(opts: {
           run: async () => (await getAdminHttpModule()).handleTicketIntakeRequest(req, res),
         },
         {
+          // The public help centre. Public like the intake form and, like it,
+          // reading nothing but its own published content.
+          name: "help-centre",
+          run: async () => (await getAdminHttpModule()).handleKbPublicRequest(req, res),
+        },
+        {
           name: "user-portal-ui",
           run: async () => (await getAdminHttpModule()).handleUserPortalUiRequest(req, res),
         },

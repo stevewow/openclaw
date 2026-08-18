@@ -230,6 +230,7 @@ import {
   verifyPassword,
 } from "./user-store.js";
 
+export { handleKbPublicRequest } from "./kb-public-http.js";
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
 import {
   CATEGORY_EXTRA_FIELDS,

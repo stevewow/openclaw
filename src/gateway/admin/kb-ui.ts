@@ -271,6 +271,10 @@ export const KB_COMPONENT_JS = `
           : '<span class="kb-chip kb-chip-draft">Draft</span>')+'</td>'+
         '<td style="font-size:0.8rem;white-space:nowrap">'+kbWhen(a.updatedAt)+'</td>'+
         '<td style="white-space:nowrap">'+
+          // Only a published article has a public page to look at.
+          (a.status === 'published'
+            ? '<a class="btn btn-ghost btn-sm kb-view" href="/help/'+esc(a.slug)+'" target="_blank" rel="noopener" title="Open the public page">View</a> '
+            : '')+
           '<button class="btn btn-ghost btn-sm kb-up" title="Move up"'+(sameGroup(prev)?'':' disabled')+'>↑</button> '+
           '<button class="btn btn-ghost btn-sm kb-down" title="Move down"'+(sameGroup(next)?'':' disabled')+'>↓</button> '+
           '<button class="btn btn-sm kb-pub">'+(a.status === 'published' ? 'Unpublish' : 'Publish')+'</button> '+
