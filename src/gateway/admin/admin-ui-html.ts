@@ -1,4 +1,5 @@
 import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
+import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
@@ -495,6 +496,7 @@ ${BRAND_FAVICON_TAG}
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
+${KB_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
 ${MARKET_CSS}
@@ -663,6 +665,7 @@ ${MARKET_CSS}
       <a href="#departments" class="nav-link admin-only" data-page="departments"><span class="icon">🏷️</span> Departments</a>
       <a href="#categories" class="nav-link admin-only" data-page="categories"><span class="icon">🗂️</span> Request Types</a>
       <a href="#form-preview" class="nav-link admin-only" data-page="form-preview"><span class="icon">👁️</span> Intake Form</a>
+      <a href="#kb" class="nav-link admin-only" data-page="kb"><span class="icon">📖</span> Knowledge Base</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
       <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
@@ -1228,6 +1231,8 @@ ${MARKET_CSS}
         </div>
       </div>
 
+${KB_MARKUP}
+
       <!-- Request Types: the categories offered on the public intake form -->
       <div id="page-categories" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
@@ -1547,6 +1552,8 @@ ${MARKET_CSS}
 </div>
 
 <!-- Folder Modal: create, rename or move a resource folder. -->
+${KB_MODALS}
+
 <div id="folder-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:460px">
     <div class="modal-title" id="folder-modal-title">New Folder</div>
@@ -2179,6 +2186,7 @@ ${MARKET_CSS}
     departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
     'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: false, superAdminOnly: false, feature: 'ticket-form' },
+    kb: { el: 'page-kb', title: 'Knowledge Base', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
     // Past Due is reachable both from the Financials nav ('financials', the
     // legacy hash) and from the Reports landing ('past-due', matching the
     // report permission key). Same page, same gate.
@@ -2189,7 +2197,7 @@ ${MARKET_CSS}
 
   // Sections only the admin SPA can serve. A non-admin holding one of these is
   // kept here instead of being bounced to the portal, which has no ticket UI.
-  var ADMIN_SPA_ONLY_FEATURES = ['tickets', 'ticket-departments', 'ticket-categories', 'ticket-form'];
+  var ADMIN_SPA_ONLY_FEATURES = ['tickets', 'ticket-departments', 'ticket-categories', 'ticket-form', 'knowledge-base'];
 
   /**
    * Split the hash into a page and its query, so a link can name a page *and*
@@ -2222,7 +2230,7 @@ ${MARKET_CSS}
   }
 
   function firstAllowedPage() {
-    const order = ['dashboard', 'tickets', 'chat', 'projects', 'reports', 'resources', 'departments', 'categories', 'form-preview'];
+    const order = ['dashboard', 'tickets', 'chat', 'projects', 'reports', 'resources', 'departments', 'categories', 'form-preview', 'kb'];
     for (const key of order) { if (canAccessPage(key)) return key; }
     return 'account';
   }
@@ -2296,6 +2304,7 @@ ${MARKET_CSS}
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();
     if (page === 'form-preview') loadFormPreview();
+    if (page === 'kb') loadKb();
     if (page === 'financials' || page === 'past-due') loadFinancials();
     if (page === 'cleveland') loadCleveland();
     // Only rewrite the hash when it names a different page — overwriting
@@ -3406,6 +3415,7 @@ ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
+${KB_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}
 ${MARKET_COMPONENT_JS}

@@ -18,6 +18,7 @@ import {
   listAttachmentsForOwners,
   resolveAttachmentFilePath,
 } from "./attachment-store.js";
+import { handleKbAdminRequest } from "./kb-http.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
 let _getResolvedAuth: (() => ResolvedGatewayAuth) | undefined;
@@ -1077,7 +1078,12 @@ export async function handleAdminHttpRequest(
           ? ["projects", "tickets"]
           : subPath === "/tickets" || subPath.startsWith("/tickets/")
             ? ticketFeaturesForRequest(subPath, req.method ?? "GET")
-            : null;
+            : // Authoring the knowledge base is one grant, read and write
+              // alike: everything under here edits or previews unpublished
+              // work. Clients read published articles on the public surface.
+              subPath === "/kb" || subPath.startsWith("/kb/")
+              ? ["knowledge-base"]
+              : null;
     if (gatedFeatures) {
       let allowed = false;
       for (const feature of gatedFeatures) {
@@ -1091,6 +1097,11 @@ export async function handleAdminHttpRequest(
         return true;
       }
     }
+  }
+
+  // Knowledge base: its own module, dispatched once the gate above has run.
+  if (await handleKbAdminRequest(subPath, req, res, { userId: sessionUser.id })) {
+    return true;
   }
 
   // GET /api/admin/resources — list one folder's contents, or search the library.

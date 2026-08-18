@@ -49,6 +49,9 @@ export const PORTAL_FEATURES = [
   { value: "ticket-departments", label: "Ticket Departments" },
   { value: "ticket-categories", label: "Ticket Request Types" },
   { value: "ticket-form", label: "Ticket Intake Form" },
+  // Authoring only. Reading a published article needs no grant at all — the
+  // public reader is a separate, unauthenticated surface.
+  { value: "knowledge-base", label: "Knowledge Base" },
 ] as const;
 
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["value"];
