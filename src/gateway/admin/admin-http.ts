@@ -3191,8 +3191,8 @@ export async function handleAdminHttpRequest(
       return true;
     }
     try {
-      const { count } = await refreshInvoices({ manual: true });
-      sendJson(res, 200, { ok: true, count });
+      const { count, unresolved } = await refreshInvoices({ manual: true });
+      sendJson(res, 200, { ok: true, count, unresolved });
     } catch (err) {
       sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
     }

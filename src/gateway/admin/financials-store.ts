@@ -243,14 +243,23 @@ function isPartiallyPaid(row: {
   return paid > 0 && outstandingOf(row) > 0;
 }
 
-// Smart payee grouping: bill whoever actually owes. Spiro's InvoicePartyModel
+const UNKNOWN_ACCOUNT = {
+  accountKey: "unknown",
+  accountName: "Unknown payee",
+  accountType: "unknown",
+} as const;
+
+// Smart payee grouping: bill whoever actually owes. Spiro's invoice payee block
 // carries payeeType plus company/agent ids+names. Group by company when the
 // payee is the company (or only a company id is present), otherwise by the agent.
-function deriveAccount(party: Record<string, unknown>): {
+function deriveAccount(party: Record<string, unknown> | null): {
   accountKey: string;
   accountName: string;
   accountType: "company" | "agent" | "unknown";
 } {
+  if (!party) {
+    return UNKNOWN_ACCOUNT;
+  }
   const payeeType = (firstString(party, ["payeeType", "payee_type"]) ?? "").toLowerCase();
   const companyId = firstString(party, ["companyId", "company_id"]);
   const companyName = firstString(party, ["companyName", "company_name"]);
@@ -281,7 +290,7 @@ function deriveAccount(party: Record<string, unknown>): {
       accountType: "company",
     };
   }
-  return { accountKey: "unknown", accountName: "Unknown payee", accountType: "unknown" };
+  return UNKNOWN_ACCOUNT;
 }
 
 function extractInvoice(raw: Record<string, unknown>): CachedInvoice | null {
@@ -296,7 +305,11 @@ function extractInvoice(raw: Record<string, unknown>): CachedInvoice | null {
   const dateDue = parseDateMs(raw, ["dateDue", "date_due", "dueDate", "due_date"]);
   if (dateDue === null) return null; // no due date → cannot age it
 
-  const party = asObject(raw.party) ?? raw;
+  // Spiro nests the payee under `payee`; older payloads used `party`. Read both
+  // so a rollback upstream cannot silently strip every account identity again.
+  // No `?? raw` fallback: a missing block must resolve to unknown and be counted,
+  // not quietly borrow the invoice's own top-level keys.
+  const party = asObject(raw.payee) ?? asObject(raw.party);
   const amountObj = asObject(raw.amount);
   const amountTotal =
     (amountObj ? firstNumber(amountObj, ["total", "amount", "grandTotal"]) : null) ??
@@ -362,10 +375,15 @@ function parsePagedInvoicesResult(result: unknown): {
 const PAGE_SIZE = 200;
 const MAX_PAGES = 200; // 200 * 200 = 40,000 invoices ceiling — generous safety cap.
 const INSERT_CHUNK = 200; // rows per insert; keeps bound-parameter count well under SQLite's cap.
+// Below this many invoices a wholesale "no payee" result is not conclusive
+// enough to reject the refresh over.
+const UNRESOLVED_PAYEE_FLOOR = 10;
 const REFRESH_LOG_KEY = "invoices";
 
 // ── Refresh ────────────────────────────────────────────────────────────────
-export async function refreshInvoices(opts: { manual: boolean }): Promise<{ count: number }> {
+export async function refreshInvoices(opts: {
+  manual: boolean;
+}): Promise<{ count: number; unresolved: number }> {
   const toolName = await resolveInvoicesToolName();
 
   // The account holds ~75k invoices but only a few hundred are unpaid. Sorting by
@@ -395,6 +413,19 @@ export async function refreshInvoices(opts: { manual: boolean }): Promise<{ coun
     if (sawPaid || !hasNextPage || invoices.length === 0) break;
   }
   const cached = [...cachedById.values()];
+
+  // A payee block Spiro renames (or stops sending) used to degrade silently:
+  // every invoice resolved to "unknown" and collapsed into one meaningless
+  // account, while the refresh still reported success. Treat a wholesale
+  // failure as a refresh failure and keep the previous snapshot, which is
+  // stale but still names its accounts. The floor keeps a tiny result set
+  // from tripping the guard.
+  const unresolved = cached.filter((inv) => inv.accountKey === UNKNOWN_ACCOUNT.accountKey).length;
+  if (cached.length >= UNRESOLVED_PAYEE_FLOOR && unresolved === cached.length) {
+    throw new Error(
+      `Spiro returned ${cached.length} invoices but none carried a payee; refusing to overwrite the cache. The invoice payload shape likely changed.`,
+    );
+  }
 
   const db = getAdminDb();
   const now = Date.now();
@@ -434,7 +465,7 @@ export async function refreshInvoices(opts: { manual: boolean }): Promise<{ coun
     )
     .execute();
 
-  return { count: cached.length };
+  return { count: cached.length, unresolved };
 }
 
 export async function getInvoiceRefreshStatus(): Promise<{ refreshedAt: number | null }> {

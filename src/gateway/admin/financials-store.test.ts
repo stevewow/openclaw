@@ -42,7 +42,14 @@ function invoice(
     dateFullyPaid: opts.dateFullyPaid ?? null,
     // Mirrors Spiro's InvoiceAmountModel: amountDue is the total less payments.
     amount: { total, amountPaid: paid, amountDue: total - paid },
-    party: { payeeType: "agent", agentId, agentName: `Agent ${agentId}` },
+    // Field name and capitalization copied from a live mcp.spiro.media response.
+    payee: {
+      payeeType: "Agent",
+      agentId,
+      agentName: `Agent ${agentId}`,
+      companyId: null,
+      companyName: null,
+    },
   };
 }
 
@@ -152,6 +159,126 @@ describe("refreshInvoices", () => {
     const breakdown = await getPastDueBreakdown();
     expect(breakdown.invoiceCount).toBe(3);
     expect(breakdown.totalPastDue).toBe(300);
+  });
+
+  describe("payee identity", () => {
+    // This block exists because a silent payee-parse failure shipped: the code
+    // read `raw.party` while Spiro sends `raw.payee`, so every invoice in
+    // production collapsed into one "Unknown payee" account while the unit
+    // tests stayed green against a fixture that invented the same wrong key.
+    // These payloads are copied verbatim from live mcp.spiro.media responses.
+    const LIVE_AGENT_INVOICE = {
+      invoiceId: "63db7dbf-50e6-4bd6-9e80-4d8e741395a6",
+      referenceNumber: "WVT076908",
+      status: "Sent",
+      payee: {
+        payeeType: "Agent",
+        agentId: "3b987a9a-d0e5-421f-ab5a-d34247de5463",
+        agentName: "Sue Corigliano",
+        companyId: null,
+        companyName: null,
+      },
+      amount: {
+        subtotal: 300,
+        adjustmentTotal: 0,
+        total: 300,
+        amountPaid: 0,
+        creditAmountUsed: 0,
+        amountApplied: 0,
+        amountDue: 300,
+        salesTax: 0,
+        cancellationAmount: 0,
+        rescheduleAmount: 0,
+      },
+      dateCreated: "2026-05-19T12:36:38.9552015Z",
+      dateFullyPaid: null,
+      isPaidInFull: false,
+      orderCount: 1,
+      isVisibleToClient: true,
+    };
+
+    const LIVE_COMPANY_INVOICE = {
+      invoiceId: "ba68c547-c469-4fb0-9279-cb730ef8c13b",
+      referenceNumber: "WVT076841",
+      status: "Sent",
+      payee: {
+        payeeType: "Company",
+        agentId: null,
+        agentName: null,
+        companyId: "117e7c0e-71f8-41d1-994a-e427f8fc8738",
+        companyName: "Lake Group Realty",
+      },
+      amount: { total: 250, amountPaid: 0, amountDue: 250 },
+      dateCreated: "2026-05-19T05:00:01.0929569Z",
+      dateFullyPaid: null,
+      isPaidInFull: false,
+      orderCount: 1,
+      isVisibleToClient: true,
+    };
+
+    const aged = (raw: Record<string, unknown>) => ({
+      ...raw,
+      dateDue: new Date(Date.now() - 90 * DAY).toISOString(),
+    });
+
+    it("names the account from a live agent-payee invoice", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(page([aged(LIVE_AGENT_INVOICE)], false));
+      await refreshInvoices({ manual: true });
+
+      const breakdown = await getPastDueBreakdown();
+      expect(breakdown.accounts).toHaveLength(1);
+      expect(breakdown.accounts[0]).toMatchObject({
+        accountKey: "agent:3b987a9a-d0e5-421f-ab5a-d34247de5463",
+        accountName: "Sue Corigliano",
+        accountType: "agent",
+      });
+    });
+
+    it("names the account from a live company-payee invoice", async () => {
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(page([aged(LIVE_COMPANY_INVOICE)], false));
+      await refreshInvoices({ manual: true });
+
+      const breakdown = await getPastDueBreakdown();
+      expect(breakdown.accounts).toHaveLength(1);
+      expect(breakdown.accounts[0]).toMatchObject({
+        accountKey: "company:117e7c0e-71f8-41d1-994a-e427f8fc8738",
+        accountName: "Lake Group Realty",
+        accountType: "company",
+      });
+    });
+
+    it("still reads the legacy `party` block so an upstream rollback is safe", async () => {
+      const { payee, ...rest } = LIVE_AGENT_INVOICE;
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(page([aged({ ...rest, party: payee })], false));
+      await refreshInvoices({ manual: true });
+
+      const breakdown = await getPastDueBreakdown();
+      expect(breakdown.accounts[0]?.accountName).toBe("Sue Corigliano");
+    });
+
+    it("rejects the refresh when no invoice carries a payee, keeping the last snapshot", async () => {
+      // Seed a good snapshot, then serve a page whose payee block is gone.
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(page([aged(LIVE_AGENT_INVOICE)], false));
+      await refreshInvoices({ manual: true });
+
+      const stripped = Array.from({ length: 12 }, (_, i) => {
+        const { payee: _payee, ...rest } = LIVE_AGENT_INVOICE;
+        return aged({ ...rest, invoiceId: `SHAPE-DRIFT-${i}` });
+      });
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(page(stripped, false));
+
+      await expect(refreshInvoices({ manual: true })).rejects.toThrow(/none carried a payee/);
+
+      // The named snapshot survived rather than being replaced by unknowns.
+      const breakdown = await getPastDueBreakdown();
+      expect(breakdown.accounts).toHaveLength(1);
+      expect(breakdown.accounts[0]?.accountName).toBe("Sue Corigliano");
+    });
   });
 
   describe("the 45-day collections floor", () => {
@@ -283,7 +410,13 @@ describe("refreshInvoices", () => {
               dateDue: new Date(Date.now() - 90 * DAY).toISOString(),
               dateFullyPaid: null,
               amount: { total: 175 },
-              party: { payeeType: "agent", agentId: "bare", agentName: "Agent bare" },
+              payee: {
+                payeeType: "Agent",
+                agentId: "bare",
+                agentName: "Agent bare",
+                companyId: null,
+                companyName: null,
+              },
             },
           ],
           false,
