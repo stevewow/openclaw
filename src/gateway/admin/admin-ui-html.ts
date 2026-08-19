@@ -2193,6 +2193,7 @@ ${FEEDBACK_MODALS}
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
     'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: false, superAdminOnly: false, feature: 'ticket-form' },
     kb: { el: 'page-kb', title: 'Knowledge Base', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
+    feedback: { el: 'page-feedback', title: 'Feedback', adminOnly: true, superAdminOnly: false },
     // Past Due is reachable both from the Financials nav ('financials', the
     // legacy hash) and from the Reports landing ('past-due', matching the
     // report permission key). Same page, same gate.

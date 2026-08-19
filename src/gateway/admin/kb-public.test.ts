@@ -116,6 +116,62 @@ describe("the index", () => {
   });
 });
 
+describe("browsing by category", () => {
+  it("offers every category with something published in it as a link", async () => {
+    const res = await get("/help");
+    // The index grouped by category from the start, but nothing linked to the
+    // category pages that already existed, so a visitor could only scroll.
+    expect(res.body).toContain('class="hc-cats"');
+    expect(res.body).toContain('href="/help/category/scheduling"');
+  });
+
+  it("does not advertise a category the index itself hides", async () => {
+    // A pill for an empty shelf would send a client to a page with nothing on
+    // it — exactly what leaving it out of the index avoids.
+    const res = await get("/help");
+    expect(res.body).not.toContain("Empty shelf");
+    expect(res.body).not.toContain("/help/category/empty-shelf");
+  });
+
+  it("keeps the chooser on a category page and marks the current shelf", async () => {
+    const res = await get("/help/category/scheduling");
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('class="hc-cats"');
+    expect(res.body).toContain("hc-cat-on");
+  });
+
+  it("puts the search box on the category page too", async () => {
+    const res = await get("/help/category/scheduling");
+    expect(res.body).toContain('name="q"');
+  });
+
+  it("offers categories alongside search results, including a fruitless one", async () => {
+    const hit = await get("/help?q=reschedule");
+    expect(hit.body).toContain('class="hc-cats"');
+
+    const miss = await get("/help?q=zzzznothingmatchesthis");
+    expect(miss.body).toContain("Nothing matched");
+    expect(miss.body).toContain('class="hc-cats"');
+  });
+
+  it("widens the listing pages but leaves an article at a readable measure", async () => {
+    // Long help text at 1040px is tiring to read, so only the scanning pages
+    // take the extra width. Assert on the wrap element, not the page: the
+    // stylesheet is inlined on every page, so the class name always appears.
+    const wrap = (body: string) => /<div class="wrap([^"]*)"/.exec(body)?.[1] ?? "";
+    expect(wrap((await get("/help")).body)).toContain("hc-wide");
+    expect(wrap((await get("/help/category/scheduling")).body)).toContain("hc-wide");
+    expect(wrap((await get("/help?q=reschedule")).body)).toContain("hc-wide");
+    expect(wrap((await get("/help/reschedule-a-shoot")).body)).toBe("");
+  });
+
+  it("keeps the wide layout single-column until there is room for two", async () => {
+    const res = await get("/help");
+    expect(res.body).toContain(".hc-groups { display:grid; grid-template-columns:1fr;");
+    expect(res.body).toContain("@media (min-width:820px)");
+  });
+});
+
 describe("an article", () => {
   it("renders its markdown", async () => {
     const res = await get("/help/reschedule-a-shoot");

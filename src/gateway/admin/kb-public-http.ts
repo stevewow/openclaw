@@ -31,6 +31,7 @@ import {
   getCategory,
   getCategoryBySlug,
   type KbArticle,
+  type KbCategory,
   listArticles,
   listCategories,
   searchArticles,
@@ -67,6 +68,19 @@ async function publishedArticles(): Promise<KbArticle[]> {
   return listArticles({ status: "published" });
 }
 
+/**
+ * Categories worth offering: the ones with something published in them.
+ *
+ * The index has always left an empty shelf out — sending a client somewhere
+ * with nothing on it is worse than not mentioning it — and the browse row has
+ * to obey the same rule, or it would advertise the very pages the index hides.
+ */
+async function browsableCategories(): Promise<KbCategory[]> {
+  const [categories, articles] = await Promise.all([listCategories(), publishedArticles()]);
+  const filled = new Set(articles.map((a) => a.categoryId).filter(Boolean));
+  return categories.filter((c) => filled.has(c.id));
+}
+
 export async function handleKbPublicRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -87,12 +101,20 @@ export async function handleKbPublicRequest(
   if (path === HELP_PATH) {
     const query = (url.searchParams.get("q") ?? "").trim();
     if (query) {
-      const results = await searchArticles(query, { limit: 25 });
+      const [results, categories] = await Promise.all([
+        searchArticles(query, { limit: 25 }),
+        browsableCategories(),
+      ]);
       // Results turn over with the query; nothing about them is worth caching.
-      sendHtml(res, 200, renderHelpSearchHtml({ query, results, supportUrl: SUPPORT_URL }), {
-        cache: "no-store",
-        head,
-      });
+      sendHtml(
+        res,
+        200,
+        renderHelpSearchHtml({ query, results, categories, supportUrl: SUPPORT_URL }),
+        {
+          cache: "no-store",
+          head,
+        },
+      );
       return true;
     }
     const [categories, articles] = await Promise.all([listCategories(), publishedArticles()]);
@@ -136,11 +158,16 @@ export async function handleKbPublicRequest(
       sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL), { cache: "no-store", head });
       return true;
     }
-    const articles = await listArticles({ status: "published", categoryId: category.id });
-    sendHtml(res, 200, renderHelpCategoryHtml({ category, articles, supportUrl: SUPPORT_URL }), {
-      cache: PAGE_CACHE,
-      head,
-    });
+    const [articles, categories] = await Promise.all([
+      listArticles({ status: "published", categoryId: category.id }),
+      browsableCategories(),
+    ]);
+    sendHtml(
+      res,
+      200,
+      renderHelpCategoryHtml({ category, articles, categories, supportUrl: SUPPORT_URL }),
+      { cache: PAGE_CACHE, head },
+    );
     return true;
   }
 

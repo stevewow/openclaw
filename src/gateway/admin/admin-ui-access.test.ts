@@ -50,6 +50,51 @@ function loadAccessModel(role: string, permissions: Perm[]) {
 const feature = (value: string): Perm => ({ permissionType: "feature", value });
 const report = (value: string): Perm => ({ permissionType: "report", value });
 
+describe("the nav and the page registry agree", () => {
+  /**
+   * A nav link whose `data-page` is not in `pages` does not error — navigate()
+   * falls through to its `if (!def)` branch and silently shows the dashboard,
+   * so the link just looks dead. That shipped once with the Feedback page.
+   */
+  function registeredPages(): Set<string> {
+    const script = ADMIN_UI_HTML.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+    const start = script.indexOf("const pages = {");
+    const close = script.indexOf("\n  };", start);
+    const block = script.slice(start, close + 4);
+    const keys = new Set<string>();
+    for (const m of block.matchAll(/^\s{4}'?([a-z-]+)'?:\s*\{\s*el:/gm)) {
+      if (m[1]) {
+        keys.add(m[1]);
+      }
+    }
+    return keys;
+  }
+
+  it("registers a page for every nav link", () => {
+    const pages = registeredPages();
+    expect(pages.size).toBeGreaterThan(10); // the scrape found something real
+    const linked = Array.from(ADMIN_UI_HTML.matchAll(/<a[^>]*data-page="([a-z-]+)"/g)).map(
+      (m) => m[1] ?? "",
+    );
+    expect(linked.length).toBeGreaterThan(10);
+    expect(linked.filter((p) => !pages.has(p))).toEqual([]);
+  });
+
+  it("gives every registered page an element that exists in the markup", () => {
+    const script = ADMIN_UI_HTML.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+    const start = script.indexOf("const pages = {");
+    const close = script.indexOf("\n  };", start);
+    const missing: string[] = [];
+    for (const m of script.slice(start, close + 4).matchAll(/el:\s*'([a-z-]+)'/g)) {
+      const id = m[1] ?? "";
+      if (!ADMIN_UI_HTML.includes(`id="${id}"`)) {
+        missing.push(id);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("admin SPA page access", () => {
   it("lets an admin reach everything except superadmin-only pages", () => {
     const m = loadAccessModel("admin", []);

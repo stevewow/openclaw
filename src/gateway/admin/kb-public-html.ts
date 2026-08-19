@@ -142,9 +142,35 @@ const HELP_STYLES = `
 
   .hc-empty { color:var(--muted); font-size:0.9rem; margin:0; }
   .hc-more { border-top:1px solid var(--hairline); margin-top:1.6rem; padding-top:1.1rem; }
+
+  /* The listing pages get more room than the 660px the forms want, because a
+     browsable index is a scan rather than a read. The article page keeps the
+     narrow measure: long help text at this width is tiring to read. */
+  .wrap.hc-wide { max-width:1040px; }
+
+  /* Browse-by-category. Pills wrap on their own, so this needs no breakpoint
+     and works from a 320px phone up. */
+  .hc-cats { display:flex; flex-wrap:wrap; gap:0.5rem; margin:0 0 1.6rem; }
+  .hc-cat {
+    display:inline-block; padding:0.5rem 0.95rem; border:1px solid var(--border);
+    border-radius:999px; background:var(--surface); color:var(--ink);
+    font-size:0.82rem; font-weight:600; text-decoration:none; line-height:1.3;
+    /* Comfortably tappable without making the row look like buttons. */
+    min-height:38px;
+  }
+  .hc-cat:hover { border-color:var(--wow); color:var(--wow); }
+  .hc-cat.hc-cat-on { border-color:var(--wow); background:var(--wow-tint); color:var(--wow); }
+
+  /* Two columns only once there is genuinely room for two readable ones. */
+  .hc-groups { display:grid; grid-template-columns:1fr; gap:1.75rem; }
+  @media (min-width:820px) { .hc-groups { grid-template-columns:1fr 1fr; gap:1.9rem 2.75rem; } }
+
+  .hc-group h2 a { color:inherit; text-decoration:none; }
+  .hc-group h2 a:hover { text-decoration:underline; }
+  .hc-count { color:var(--muted); font-weight:600; letter-spacing:0; text-transform:none; }
 `;
 
-function page(title: string, body: string): string {
+function page(title: string, body: string, opts: { wide?: boolean } = {}): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -153,7 +179,7 @@ ${PUBLIC_HEAD_TAGS}
 <style>${PUBLIC_SHELL_CSS}${HELP_STYLES}</style>
 </head>
 <body>
-  <div class="wrap">
+  <div class="wrap${opts.wide ? " hc-wide" : ""}">
     ${BRAND_HEADER_HTML}
     <div class="card">
 ${body}
@@ -169,6 +195,30 @@ function searchForm(query: string): string {
         <input type="search" name="q" value="${escapeHtml(query)}" placeholder="Search help articles…" aria-label="Search help articles" />
         <button class="btn" type="submit">Search</button>
       </form>`;
+}
+
+/**
+ * The browse-by-category row.
+ *
+ * The index already grouped articles under category headings, but nothing
+ * linked to the category pages that exist, so a visitor could only scroll.
+ * `active` marks the shelf being viewed when this is shown on a category page.
+ */
+function categoryPills(
+  categories: Array<KbCategory & { articles?: KbArticle[] }>,
+  active?: string,
+): string {
+  if (categories.length === 0) {
+    return "";
+  }
+  const pills = categories.map((c) => {
+    const on = active && c.slug === active ? " hc-cat-on" : "";
+    const count = c.articles ? ` <span class="hc-count">${c.articles.length}</span>` : "";
+    return `        <a class="hc-cat${on}" href="${categoryUrl(c)}">${escapeHtml(c.title)}${count}</a>`;
+  });
+  return `      <nav class="hc-cats" aria-label="Help categories">
+${pills.join("\n")}
+      </nav>`;
 }
 
 function articleListItem(article: KbArticle): string {
@@ -188,7 +238,7 @@ export type HelpIndexView = {
 export function renderHelpIndexHtml(view: HelpIndexView): string {
   const groups = view.categories.map(
     (category) => `      <section class="hc-group">
-        <h2>${escapeHtml(category.title)}</h2>
+        <h2><a href="${categoryUrl(category)}">${escapeHtml(category.title)}</a></h2>
         ${category.description ? `<p class="hc-desc">${escapeHtml(category.description)}</p>` : ""}
         <ul class="hc-list">
 ${category.articles.map(articleListItem).join("\n")}
@@ -206,20 +256,25 @@ ${view.unfiled.map(articleListItem).join("\n")}
   const body = `      <p class="eyebrow">Help Centre</p>
       <h1 class="title">How can we help?</h1>
 ${searchForm("")}
+${categoryPills(view.categories)}
 ${
   groups.length > 0
-    ? groups.join("\n")
+    ? `      <div class="hc-groups">
+${groups.join("\n")}
+      </div>`
     : `      <p class="hc-empty">There are no help articles yet.</p>`
 }
       <div class="hc-more">
         <p class="hc-empty">Can't find what you need? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
       </div>`;
-  return page("Help Centre — WOW Video Tours", body);
+  return page("Help Centre — WOW Video Tours", body, { wide: true });
 }
 
 export type HelpSearchView = {
   query: string;
   results: KbArticle[];
+  /** So a fruitless search still offers somewhere to go next. */
+  categories: KbCategory[];
   supportUrl: string;
 };
 
@@ -227,22 +282,25 @@ export function renderHelpSearchHtml(view: HelpSearchView): string {
   const body = `      <p class="eyebrow">Help Centre</p>
       <h1 class="title">Search results</h1>
 ${searchForm(view.query)}
+${categoryPills(view.categories)}
 ${
   view.results.length > 0
     ? `      <ul class="hc-list">
 ${view.results.map(articleListItem).join("\n")}
       </ul>`
-    : `      <p class="hc-empty">Nothing matched “${escapeHtml(view.query)}”. Try a shorter word — searching for less finds more.</p>`
+    : `      <p class="hc-empty">Nothing matched “${escapeHtml(view.query)}”. Try a shorter word — searching for less finds more, or pick a category above.</p>`
 }
       <div class="hc-more">
         <p class="hc-empty"><a href="${HELP_PATH}">Back to all help articles</a> · <a href="${escapeHtml(view.supportUrl)}">Submit a request</a></p>
       </div>`;
-  return page(`Search — Help Centre`, body);
+  return page(`Search — Help Centre`, body, { wide: true });
 }
 
 export type HelpCategoryView = {
   category: KbCategory;
   articles: KbArticle[];
+  /** Every category, so a visitor can move sideways without going back first. */
+  categories: KbCategory[];
   supportUrl: string;
 };
 
@@ -251,14 +309,19 @@ export function renderHelpCategoryHtml(view: HelpCategoryView): string {
       <p class="eyebrow">Help Centre</p>
       <h1 class="title">${escapeHtml(view.category.title)}</h1>
       ${view.category.description ? `<p class="lead">${escapeHtml(view.category.description)}</p>` : ""}
+${searchForm("")}
+${categoryPills(view.categories, view.category.slug)}
 ${
   view.articles.length > 0
     ? `      <ul class="hc-list">
 ${view.articles.map(articleListItem).join("\n")}
       </ul>`
     : `      <p class="hc-empty">Nothing here yet.</p>`
-}`;
-  return page(`${view.category.title} — Help Centre`, body);
+}
+      <div class="hc-more">
+        <p class="hc-empty">Can't find what you need? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
+      </div>`;
+  return page(`${view.category.title} — Help Centre`, body, { wide: true });
 }
 
 export type HelpArticleView = {
