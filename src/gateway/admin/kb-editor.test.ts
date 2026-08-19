@@ -205,6 +205,16 @@ describe("the video preview", () => {
     expect(html).toContain("kb-vid-frame");
   });
 
+  it("carries the referrer policy the player needs, as the public page does", () => {
+    // The Hub sends a no-referrer policy; without a referring origin YouTube
+    // renders "Error 153 Video player configuration error" rather than the
+    // video, so the preview showed the same failure the article page did.
+    const kb = mountEditor();
+    expect(kb.setVideo("https://www.youtube.com/watch?v=wkETgVGM0fI")).toContain(
+      'referrerpolicy="strict-origin-when-cross-origin"',
+    );
+  });
+
   it("shows a player for short and vimeo links", () => {
     const kb = mountEditor();
     expect(kb.setVideo("https://youtu.be/wkETgVGM0fI")).toContain(

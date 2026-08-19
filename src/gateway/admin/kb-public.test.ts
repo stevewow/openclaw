@@ -39,6 +39,8 @@ beforeAll(async () => {
     summary: "Move an appointment",
     bodyMd: "## Steps\n\n1. Call us\n2. Pick a new time\n\n[Book now](https://example.com/book)",
     categoryId: scheduling.id,
+    // Carries a video so the embed's attributes are covered by a real page.
+    videoUrl: "https://www.youtube.com/watch?v=wkETgVGM0fI",
   });
   await store.publishArticle(live.id, "steve");
 
@@ -113,6 +115,29 @@ describe("the index", () => {
     const res = await get("/help", "HEAD");
     expect(res.status).toBe(200);
     expect(res.body).toBe("");
+  });
+});
+
+describe("the video embed", () => {
+  it("carries a referrer policy the player will accept", async () => {
+    // The site sends `Referrer-Policy: no-referrer`. Without a referring
+    // origin YouTube's player renders "Error 153 Video player configuration
+    // error" instead of the video — reproduced in a real browser. The
+    // attribute overrides the document policy for this request alone and
+    // sends the origin only, never the article's path.
+    const res = await get("/help/reschedule-a-shoot");
+    expect(res.body).toContain("youtube.com/embed/");
+    expect(res.body).toContain('referrerpolicy="strict-origin-when-cross-origin"');
+  });
+});
+
+describe("spelling", () => {
+  it("says Center, the American spelling this product uses", async () => {
+    for (const path of ["/help", "/help?q=reschedule", "/help/category/scheduling"]) {
+      const body = (await get(path)).body;
+      expect(body).toContain("Help Center");
+      expect(body).not.toContain("Centre");
+    }
   });
 });
 

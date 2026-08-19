@@ -1,4 +1,4 @@
-// The public help centre: what a client sees at /help.
+// The public help center: what a client sees at /help.
 //
 // Nothing on these pages is authenticated and nothing on them reaches the rest
 // of the Hub. They read published articles and nothing else — no session, no
@@ -13,7 +13,7 @@ import type { KbArticle, KbCategory } from "./kb-store.js";
 import { escapeHtml } from "./ticket-email-render.js";
 import { BRAND_HEADER_HTML, PUBLIC_HEAD_TAGS, PUBLIC_SHELL_CSS } from "./ticket-public-shell.js";
 
-/** Where the help centre lives. Article slugs are unique base-wide, so an
+/** Where the help center lives. Article slugs are unique base-wide, so an
  * article is one segment under this and keeps that address when it is refiled;
  * a category takes a reserved segment of its own so the two can never collide. */
 export const HELP_PATH = "/help";
@@ -253,7 +253,7 @@ ${view.unfiled.map(articleListItem).join("\n")}
         </ul>
       </section>`);
   }
-  const body = `      <p class="eyebrow">Help Centre</p>
+  const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">How can we help?</h1>
 ${searchForm("")}
 ${categoryPills(view.categories)}
@@ -267,7 +267,7 @@ ${groups.join("\n")}
       <div class="hc-more">
         <p class="hc-empty">Can't find what you need? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
       </div>`;
-  return page("Help Centre — WOW Video Tours", body, { wide: true });
+  return page("Help Center — WOW Video Tours", body, { wide: true });
 }
 
 export type HelpSearchView = {
@@ -279,7 +279,7 @@ export type HelpSearchView = {
 };
 
 export function renderHelpSearchHtml(view: HelpSearchView): string {
-  const body = `      <p class="eyebrow">Help Centre</p>
+  const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">Search results</h1>
 ${searchForm(view.query)}
 ${categoryPills(view.categories)}
@@ -293,7 +293,7 @@ ${view.results.map(articleListItem).join("\n")}
       <div class="hc-more">
         <p class="hc-empty"><a href="${HELP_PATH}">Back to all help articles</a> · <a href="${escapeHtml(view.supportUrl)}">Submit a request</a></p>
       </div>`;
-  return page(`Search — Help Centre`, body, { wide: true });
+  return page(`Search — Help Center`, body, { wide: true });
 }
 
 export type HelpCategoryView = {
@@ -306,7 +306,7 @@ export type HelpCategoryView = {
 
 export function renderHelpCategoryHtml(view: HelpCategoryView): string {
   const body = `      <a class="hc-back" href="${HELP_PATH}">← All help articles</a>
-      <p class="eyebrow">Help Centre</p>
+      <p class="eyebrow">Help Center</p>
       <h1 class="title">${escapeHtml(view.category.title)}</h1>
       ${view.category.description ? `<p class="lead">${escapeHtml(view.category.description)}</p>` : ""}
 ${searchForm("")}
@@ -321,7 +321,7 @@ ${view.articles.map(articleListItem).join("\n")}
       <div class="hc-more">
         <p class="hc-empty">Can't find what you need? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
       </div>`;
-  return page(`${view.category.title} — Help Centre`, body, { wide: true });
+  return page(`${view.category.title} — Help Center`, body, { wide: true });
 }
 
 export type HelpArticleView = {
@@ -337,13 +337,18 @@ export function renderHelpArticleHtml(view: HelpArticleView): string {
   const { article, category } = view;
   const embed = article.videoUrl ? videoEmbedUrl(article.videoUrl) : null;
   const video = embed
-    ? `      <div class="hc-video"><iframe src="${escapeHtml(embed)}" title="${escapeHtml(article.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>`
+    ? // referrerpolicy is load-bearing: the site sends `Referrer-Policy:
+      // no-referrer`, and YouTube's player answers an embed it cannot attribute
+      // to a referring origin with "Error 153 Video player configuration
+      // error". The attribute overrides the document policy for this one
+      // request and sends the origin only — never the article's path.
+      `      <div class="hc-video"><iframe src="${escapeHtml(embed)}" title="${escapeHtml(article.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe></div>`
     : article.videoUrl
       ? `      <a class="hc-videolink" href="${escapeHtml(article.videoUrl)}" target="_blank" rel="noopener noreferrer">▶ Watch the video</a>`
       : "";
   const others = view.siblings.filter((s) => s.id !== article.id);
   const body = `      <a class="hc-back" href="${category ? categoryUrl(category) : HELP_PATH}">← ${escapeHtml(category ? category.title : "All help articles")}</a>
-      <p class="eyebrow">${escapeHtml(category ? category.title : "Help Centre")}</p>
+      <p class="eyebrow">${escapeHtml(category ? category.title : "Help Center")}</p>
       <h1 class="title">${escapeHtml(article.title)}</h1>
       ${article.summary ? `<p class="lead">${escapeHtml(article.summary)}</p>` : ""}
 ${video}
@@ -353,7 +358,7 @@ ${renderMarkdown(article.bodyMd)}
       <div class="hc-more">
 ${
   others.length > 0
-    ? `        <h2 class="eyebrow">More in ${escapeHtml(category ? category.title : "the help centre")}</h2>
+    ? `        <h2 class="eyebrow">More in ${escapeHtml(category ? category.title : "the help center")}</h2>
         <ul class="hc-list">
 ${others.map(articleListItem).join("\n")}
         </ul>`
@@ -361,7 +366,7 @@ ${others.map(articleListItem).join("\n")}
 }
         <p class="hc-empty" style="margin-top:0.9rem">Still stuck? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
       </div>`;
-  return page(`${article.title} — Help Centre`, body);
+  return page(`${article.title} — Help Center`, body);
 }
 
 /**
@@ -370,10 +375,10 @@ ${others.map(articleListItem).join("\n")}
  * is nothing they could do with either answer.
  */
 export function renderHelpNotFoundHtml(supportUrl: string): string {
-  const body = `      <p class="eyebrow">Help Centre</p>
+  const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">We couldn't find that page</h1>
       <p class="lead">The link may be out of date, or the article may have moved.</p>
 ${searchForm("")}
       <p class="hc-empty"><a href="${HELP_PATH}">Browse all help articles</a> · <a href="${escapeHtml(supportUrl)}">Submit a request</a></p>`;
-  return page("Not found — Help Centre", body);
+  return page("Not found — Help Center", body);
 }

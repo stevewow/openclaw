@@ -1,4 +1,4 @@
-// The public help centre's routes. No session, no cookie, no admin API.
+// The public help center's routes. No session, no cookie, no admin API.
 //
 // This is the whole client-facing surface of the knowledge base:
 //

@@ -15,6 +15,9 @@ export const FEEDBACK_CSS = `
   /* Every select in the SPA is width:100% by default, which would eat the row. */
   .fb-bar select { width: auto; max-width: 16rem; flex: 0 0 auto; font-size: 0.82rem; padding: 0.35rem 0.5rem; }
   .fb-count { font-size: 0.75rem; color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+  /* The button drops under the blurb on a narrow window rather than squeezing it. */
+  .fb-head { display: flex; gap: 0.75rem; align-items: flex-start; flex-wrap: wrap; }
+  .fb-head .btn { width: auto; flex: 0 0 auto; }
 
   .fb-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
   .fb-chip-to_review { background: #6b7280; color: #fff; }
@@ -44,14 +47,20 @@ export const FEEDBACK_CSS = `
 
 export const FEEDBACK_MARKUP = `
 <div id="page-feedback" class="page hidden">
-  <div class="page-head">
-    <div>
-      <h1>Feedback</h1>
-      <p class="text-muted">What the team and our clients told us, from the form at <code>/feedback</code>.</p>
+  <div class="card" style="margin-bottom:1rem">
+    <div class="fb-head">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;margin-bottom:0.35rem">Feedback</div>
+        <p class="text-muted" style="font-size:0.85rem;margin:0">
+          What the team and our clients told us. Anyone can file feedback from the public form —
+          share <code>/feedback</code> with whoever needs it, or use the button to open it yourself.
+        </p>
+      </div>
+      <button type="button" class="btn btn-primary" id="fb-new">＋ Submit feedback</button>
     </div>
   </div>
 
-  <div class="stats" id="fb-stats"></div>
+  <div class="stats-grid" id="fb-stats"></div>
 
   <div class="card">
     <div class="fb-bar">
@@ -86,7 +95,7 @@ export const FEEDBACK_MODALS = `
     </div>
     <div class="modal-actions">
       <button type="button" class="btn btn-danger" id="fb-modal-delete">Delete</button>
-      <button type="button" class="btn btn-secondary" id="fb-modal-close">Close</button>
+      <button type="button" class="btn btn-ghost" id="fb-modal-close">Close</button>
     </div>
   </div>
 </div>`;
@@ -179,9 +188,9 @@ export const FEEDBACK_COMPONENT_JS = `
   function renderFeedbackStats(){
     var el = document.getElementById('fb-stats');
     if(!fbSummary){ el.innerHTML = ''; return; }
-    var html = '<div class="stat"><div class="stat-label">Total</div><div class="stat-value">' + fbSummary.total + '</div></div>';
+    var html = '<div class="stat-card"><div class="stat-label">Total</div><div class="stat-value">' + fbSummary.total + '</div></div>';
     (fbSummary.byStatus || []).forEach(function(s){
-      html += '<div class="stat"><div class="stat-label">' + esc(s.label) + '</div><div class="stat-value">' + s.count + '</div></div>';
+      html += '<div class="stat-card"><div class="stat-label">' + esc(s.label) + '</div><div class="stat-value">' + s.count + '</div></div>';
     });
     el.innerHTML = html;
   }
@@ -213,7 +222,7 @@ export const FEEDBACK_COMPONENT_JS = `
         '<td>' + src + about + '</td>' +
         '<td>' + esc(fbWho(e)) + '<span class="fb-snippet">' + esc(fbWhen(e.createdAt)) + '</span></td>' +
         '<td><span class="fb-chip fb-chip-' + esc(e.status) + '">' + esc(fbStatusLabel(e.status)) + '</span></td>' +
-        '<td><button class="btn btn-sm btn-secondary fb-open">Open</button></td>' +
+        '<td><button class="btn btn-sm btn-ghost fb-open">Open</button></td>' +
       '</tr>';
     });
     body.innerHTML = html;
@@ -287,6 +296,13 @@ export const FEEDBACK_COMPONENT_JS = `
     closeFeedbackModal();
     if(r.ok) await loadFeedback();
   }
+
+  // Opens the public form rather than duplicating it. It is ten fields with a
+  // conditional branch and file upload; a second copy in the SPA would drift
+  // from the one clients actually use.
+  document.getElementById('fb-new').addEventListener('click', function(){
+    window.open('/feedback', '_blank', 'noopener');
+  });
 
   document.getElementById('fb-status').addEventListener('change', loadFeedback);
   document.getElementById('fb-category').addEventListener('change', loadFeedback);

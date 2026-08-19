@@ -257,8 +257,12 @@ export const KB_EDITOR_JS = `
     if(!raw){ box.innerHTML = ''; return; }
     var embed = kbVideoEmbedUrl(raw);
     if(embed){
+      // referrerpolicy matches the public article page: the Hub also sends a
+      // no-referrer policy, and without a referring origin YouTube answers
+      // with "Error 153 Video player configuration error". No backticks in
+      // this comment: the whole module is one template literal.
       box.innerHTML = '<div class="kb-vid-frame"><iframe src="' + esc(embed) +
-        '" title="Video preview" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>' +
+        '" title="Video preview" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe></div>' +
         '<div class="kb-vid-note">This player appears at the top of the article.</div>';
       return;
     }
