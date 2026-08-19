@@ -231,6 +231,18 @@ import {
 } from "./user-store.js";
 
 export { handleKbPublicRequest } from "./kb-public-http.js";
+import {
+  deleteFeedback,
+  FEEDBACK_CATEGORIES,
+  FEEDBACK_SOURCES,
+  FEEDBACK_STATUSES,
+  getFeedback,
+  getFeedbackSummary,
+  isFeedbackStatus,
+  listFeedback,
+  setFeedbackStatus,
+} from "./feedback-store.js";
+export { handleFeedbackIntakeRequest } from "./feedback-http.js";
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
 import {
   CATEGORY_EXTRA_FIELDS,
@@ -3150,6 +3162,65 @@ export async function handleAdminHttpRequest(
     } catch (err) {
       sendJson(res, 502, { error: err instanceof Error ? err.message : String(err) });
     }
+    return true;
+  }
+
+  // ── Team feedback ────────────────────────────────────────────────────────
+  // GET /api/admin/feedback — every submission plus the summary tiles and the
+  // form's own vocabulary, so the page never hardcodes an option list.
+  if (subPath === "/feedback" && req.method === "GET") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const statusParam = url.searchParams.get("status");
+    const entries = await listFeedback({
+      status: statusParam && isFeedbackStatus(statusParam) ? statusParam : "all",
+      category: url.searchParams.get("category") ?? undefined,
+      source: url.searchParams.get("source") ?? undefined,
+      search: url.searchParams.get("q") ?? undefined,
+    });
+    sendJson(res, 200, {
+      entries,
+      summary: await getFeedbackSummary(),
+      statuses: FEEDBACK_STATUSES.map((x) => ({ key: x.key, label: x.label })),
+      categories: FEEDBACK_CATEGORIES,
+      sources: FEEDBACK_SOURCES,
+    });
+    return true;
+  }
+
+  // PUT /api/admin/feedback/:id/status — move a submission along the workflow.
+  const feedbackStatusMatch = subPath.match(/^\/feedback\/([^/]+)\/status$/);
+  if (feedbackStatusMatch && req.method === "PUT") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = (await readJsonBody(req, MAX_BODY_BYTES)) as { status?: unknown } | null;
+    if (!isFeedbackStatus(body?.status)) {
+      sendJson(res, 400, { error: "Unknown status." });
+      return true;
+    }
+    const id = decodeURIComponent(feedbackStatusMatch[1] ?? "");
+    if (!(await getFeedback(id))) {
+      sendJson(res, 404, { error: "Feedback not found." });
+      return true;
+    }
+    await setFeedbackStatus(id, body.status);
+    sendJson(res, 200, { ok: true, entry: await getFeedback(id) });
+    return true;
+  }
+
+  // DELETE /api/admin/feedback/:id — remove a submission and its attachments.
+  const feedbackDeleteMatch = subPath.match(/^\/feedback\/([^/]+)$/);
+  if (feedbackDeleteMatch && req.method === "DELETE") {
+    if (!isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    await deleteFeedback(decodeURIComponent(feedbackDeleteMatch[1] ?? ""));
+    sendJson(res, 200, { ok: true });
     return true;
   }
 

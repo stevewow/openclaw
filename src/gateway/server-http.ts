@@ -590,6 +590,12 @@ export function createGatewayHttpServer(opts: {
           run: async () => (await getAdminHttpModule()).handleTicketIntakeRequest(req, res),
         },
         {
+          // The public team feedback form. Unauthenticated like the intake
+          // form, and writing only its own submissions.
+          name: "feedback-intake",
+          run: async () => (await getAdminHttpModule()).handleFeedbackIntakeRequest(req, res),
+        },
+        {
           // The public help centre. Public like the intake form and, like it,
           // reading nothing but its own published content.
           name: "help-centre",

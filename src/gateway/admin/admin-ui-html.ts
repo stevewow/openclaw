@@ -1,4 +1,10 @@
 import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
+import {
+  FEEDBACK_COMPONENT_JS,
+  FEEDBACK_CSS,
+  FEEDBACK_MARKUP,
+  FEEDBACK_MODALS,
+} from "./feedback-ui.js";
 import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
@@ -495,6 +501,7 @@ ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${KB_CSS}
+${FEEDBACK_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
 ${MARKET_CSS}
@@ -664,6 +671,7 @@ ${MARKET_CSS}
       <a href="#categories" class="nav-link admin-only" data-page="categories"><span class="icon">🗂️</span> Request Types</a>
       <a href="#form-preview" class="nav-link admin-only" data-page="form-preview"><span class="icon">👁️</span> Intake Form</a>
       <a href="#kb" class="nav-link admin-only" data-page="kb"><span class="icon">📖</span> Knowledge Base</a>
+      <a href="#feedback" class="nav-link admin-only" data-page="feedback"><span class="icon">💬</span> Feedback</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
       <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
@@ -1230,6 +1238,7 @@ ${MARKET_CSS}
       </div>
 
 ${KB_MARKUP}
+${FEEDBACK_MARKUP}
 
       <!-- Request Types: the categories offered on the public intake form -->
       <div id="page-categories" class="page hidden">
@@ -1550,6 +1559,7 @@ ${KB_MARKUP}
 
 <!-- Folder Modal: create, rename or move a resource folder. -->
 ${KB_MODALS}
+${FEEDBACK_MODALS}
 
 <div id="folder-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:460px">
@@ -2301,6 +2311,7 @@ ${KB_MODALS}
     if (page === 'categories') loadCategories();
     if (page === 'form-preview') loadFormPreview();
     if (page === 'kb') loadKb();
+    if (page === 'feedback') loadFeedback();
     if (page === 'financials' || page === 'past-due') loadFinancials();
     if (page === 'cleveland') loadCleveland();
     // Only rewrite the hash when it names a different page — overwriting
@@ -3412,6 +3423,7 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
 ${KB_COMPONENT_JS}
+${FEEDBACK_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}
 ${MARKET_COMPONENT_JS}

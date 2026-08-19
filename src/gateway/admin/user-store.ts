@@ -583,6 +583,59 @@ type KbArticlesTable = {
   updated_at: number;
 };
 
+/**
+ * One submission of the team feedback form. Mirrors the ClickUp form it
+ * replaces: the multi-select fields (source, category, services) are stored as
+ * JSON arrays because the form lets a submitter tick more than one, and the
+ * appointment-availability fields are nullable because they only appear when
+ * that category is chosen.
+ */
+type FeedbackTable = {
+  id: string;
+  /** Sequential per-submission reference shown to people, e.g. FB-0007. */
+  reference: string;
+  /** JSON array: "Employee Feedback" / "Client Feedback". */
+  source: string;
+  /** JSON array of category labels. */
+  categories: string;
+  /** The free-text body — the point of the whole form. */
+  body: string;
+  submitted_by: string | null;
+  /** Free text: whoever submits from the public page types their own name. */
+  submitted_by_name: string | null;
+  appointment_link: string | null;
+  /** Conditional on the appointment-availability category. */
+  listing_address: string | null;
+  /** JSON array of service labels, conditional like listing_address. */
+  selected_services: string | null;
+  requested_at: number | null;
+  first_available_at: number | null;
+  status: string;
+  /** Set when imported, so a re-run updates rather than duplicates. */
+  clickup_id: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+/** Single-row counter behind the FB-#### series. */
+type FeedbackSeqTable = {
+  id: number;
+  next_number: number;
+};
+
+type FeedbackAttachmentsTable = {
+  id: string;
+  feedback_id: string;
+  filename: string;
+  mime_type: string | null;
+  byte_size: number | null;
+  /** Where the bytes live on disk, relative to the attachment root. */
+  stored_path: string | null;
+  /** Kept for imported rows whose bytes we could not fetch. */
+  source_url: string | null;
+  created_at: number;
+};
+
 export type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -630,6 +683,9 @@ export type AdminDb = {
   admin_ticket_departments: TicketDepartmentsTable;
   admin_ticket_category_routes: TicketCategoryRoutesTable;
   admin_ticket_categories: TicketCategoriesTable;
+  admin_feedback: FeedbackTable;
+  admin_feedback_seq: FeedbackSeqTable;
+  admin_feedback_attachments: FeedbackAttachmentsTable;
   admin_kb_categories: KbCategoriesTable;
   admin_kb_articles: KbArticlesTable;
   // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
@@ -1262,6 +1318,48 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_kb_articles_category ON admin_kb_articles(category_id);
     CREATE INDEX IF NOT EXISTS admin_kb_articles_status ON admin_kb_articles(status);
+    -- Team feedback, replacing the ClickUp form. Multi-select answers are JSON
+    -- arrays rather than join tables: nothing queries across them, and the
+    -- form's own option lists are the only writers.
+    CREATE TABLE IF NOT EXISTS admin_feedback (
+      id TEXT PRIMARY KEY,
+      reference TEXT UNIQUE NOT NULL,
+      source TEXT NOT NULL DEFAULT '[]',
+      categories TEXT NOT NULL DEFAULT '[]',
+      body TEXT NOT NULL DEFAULT '',
+      submitted_by TEXT,
+      submitted_by_name TEXT,
+      appointment_link TEXT,
+      listing_address TEXT,
+      selected_services TEXT,
+      requested_at INTEGER,
+      first_available_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'to_review',
+      clickup_id TEXT UNIQUE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    -- A persistent counter, not MAX(reference): deleting the newest submission
+    -- must not hand its number to the next one, or an old note citing FB-0007
+    -- would point at different feedback.
+    CREATE TABLE IF NOT EXISTS admin_feedback_seq (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      next_number INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_feedback_status ON admin_feedback(status);
+    CREATE INDEX IF NOT EXISTS admin_feedback_created ON admin_feedback(created_at);
+    -- CASCADE: an attachment has no meaning without the submission it came on.
+    CREATE TABLE IF NOT EXISTS admin_feedback_attachments (
+      id TEXT PRIMARY KEY,
+      feedback_id TEXT NOT NULL REFERENCES admin_feedback(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      mime_type TEXT,
+      byte_size INTEGER,
+      stored_path TEXT,
+      source_url TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_feedback_attachments_parent ON admin_feedback_attachments(feedback_id);
   `);
   initKbSearch(db);
   migrateTicketCategoryCheck(db);
