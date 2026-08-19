@@ -237,8 +237,6 @@ ${BRAND_FAVICON_TAG}
   .fin-flag-clear { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
   /* Pay-at-order is about future orders, not this debt, so it reads in its own
      colour rather than sharing the amber the collections flags use. */
-  .fin-flag-pao { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
-  .fin-pao-banner { border-left: 3px solid #7c3aed; background: var(--surface2); border-radius: 8px; padding: 0.6rem 0.75rem; margin-bottom: 1rem; font-size: 0.82rem; }
   .fin-owner { font-size: 0.72rem; color: var(--text-muted); }
   /* Last contact: silence is the signal, so "Never" and a stale date carry it. */
   .fin-contact { font-weight: 600; }
@@ -1341,7 +1339,6 @@ ${KB_MARKUP}
             </select>
           </label>
           <label><input type="checkbox" id="fin-filter-review" /> Needs review only</label>
-          <label><input type="checkbox" id="fin-filter-payatorder" /> Pay-at-order only</label>
           <label><input type="checkbox" id="fin-filter-open" checked /> Hide resolved</label>
           <span class="text-muted" style="font-size:0.78rem;margin-left:auto" id="fin-visible-count"></span>
         </div>
@@ -1868,7 +1865,6 @@ ${KB_MODALS}
     </div>
     <div id="fin-modal-summary" style="font-size:0.85rem;margin:0.4rem 0 1rem"></div>
     <div id="fin-review-banner" class="hidden" style="border-left:3px solid #d97706;background:var(--surface2);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.82rem"></div>
-    <div id="fin-pao-banner" class="fin-pao-banner hidden"></div>
     <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem">
       <label style="font-size:0.78rem;color:var(--text-muted)">Stage<br />
         <select id="fin-status-select" style="margin-top:0.2rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)"></select>
@@ -4534,7 +4530,7 @@ ${MARKET_COMPONENT_JS}
   let finCanAssign = false;
   let finView = 'board';
   try { finView = localStorage.getItem('oc_fin_view') === 'table' ? 'table' : 'board'; } catch (e) { /* private mode */ }
-  const finFilters = { owner: 'all', reviewOnly: false, payAtOrderOnly: false, hideResolved: true };
+  const finFilters = { owner: 'all', reviewOnly: false, hideResolved: true };
 
   function finStatusLabel(key) {
     const s = finStatuses.find(x => x.key === key);
@@ -4626,8 +4622,7 @@ ${MARKET_COMPONENT_JS}
       tile('Outstanding', money(finBreakdown.totalPastDue)) +
       tile('Accounts', finBreakdown.accountCount) +
       tile('90+ Days', money((bucketAmt['90-119'] ? bucketAmt['90-119'].amount : 0) + (bucketAmt['120+'] ? bucketAmt['120+'].amount : 0))) +
-      tile('Needs review', finBreakdown.manualReviewCount || 0) +
-      tile('Pay at order', finBreakdown.payAtOrderCount || 0);
+      tile('Needs review', finBreakdown.manualReviewCount || 0);
 
     renderFinViews();
   }
@@ -4642,7 +4637,6 @@ ${MARKET_COMPONENT_JS}
       if (finFilters.owner === 'mine' && c.assignedTo !== me) return false;
       if (finFilters.owner === 'unassigned' && c.assignedTo) return false;
       if (finFilters.reviewOnly && !finReviewOpen(a)) return false;
-      if (finFilters.payAtOrderOnly && !(a.payAtOrder && a.payAtOrder.recommended)) return false;
       if (finFilters.hideResolved && c.status === 'resolved') return false;
       return true;
     });
@@ -4661,22 +4655,11 @@ ${MARKET_COMPONENT_JS}
     if (board) renderFinBoard(visible); else renderFinTable(visible);
   }
 
-  /**
-   * The pay-at-order prompt, as a badge. Deliberately worded about future work
-   * so it is not mistaken for another collections step on the current debt.
-   */
-  function finPayAtOrderBadge(a) {
-    if (!a.payAtOrder || !a.payAtOrder.recommended) return '';
-    return '<span class="badge fin-flag-pao" title="' + esc(a.payAtOrder.detail) +
-      '">Pay at order</span>';
-  }
-
   function finCardHtml(a) {
     const c = a.case || {};
     const flag = (finReviewOpen(a)
       ? '<span class="badge fin-flag" title="Partially paid invoice — read before the next collections step">Review</span>'
-      : (a.needsManualReview ? '<span class="badge fin-flag-clear" title="Partial payment reviewed">Reviewed</span>' : ''))
-      + finPayAtOrderBadge(a);
+      : (a.needsManualReview ? '<span class="badge fin-flag-clear" title="Partial payment reviewed">Reviewed</span>' : ''));
     return '<div class="fin-card" draggable="true" data-account="' + esc(a.accountKey) + '">' +
       '<div class="fin-card-name">' + esc(a.accountName) + '</div>' +
       '<div class="fin-card-row">' +
@@ -4877,8 +4860,7 @@ ${MARKET_COMPONENT_JS}
     }
     tbody.innerHTML = finSortAccounts(accounts).map(a => {
       const c = a.case || {};
-      const flag = (finReviewOpen(a) ? ' <span class="badge fin-flag">Review</span>' : '')
-        + (a.payAtOrder && a.payAtOrder.recommended ? ' ' + finPayAtOrderBadge(a) : '');
+      const flag = (finReviewOpen(a) ? ' <span class="badge fin-flag">Review</span>' : '');
       return \`
       <tr class="fin-row-click" data-account="\${esc(a.accountKey)}">
         <td>\${esc(a.accountName)}<span class="fin-owner"> · \${esc(a.accountType)}</span>\${flag}</td>
@@ -4960,10 +4942,6 @@ ${MARKET_COMPONENT_JS}
     finFilters.reviewOnly = e.target.checked;
     renderFinViews();
   });
-  document.getElementById('fin-filter-payatorder').addEventListener('change', e => {
-    finFilters.payAtOrderOnly = e.target.checked;
-    renderFinViews();
-  });
   document.getElementById('fin-filter-open').addEventListener('change', e => {
     finFilters.hideResolved = e.target.checked;
     renderFinViews();
@@ -4991,7 +4969,6 @@ ${MARKET_COMPONENT_JS}
         ' down (10%), up to ' + plan.maxMonths + ' months.</div>';
 
     renderFinReviewBanner();
-    renderFinPayAtOrderBanner();
     renderFinCaseControls();
 
     const invBody = document.getElementById('fin-modal-invoices');
@@ -5048,19 +5025,6 @@ ${MARKET_COMPONENT_JS}
   // Partial payments are the one thing the policy ladder must not be applied to
   // blindly, so the flag gets its own banner with an explicit sign-off rather
   // than a badge someone can scroll past.
-  /**
-   * Spells out the pay-at-order recommendation in the account drawer. The badge
-   * says there is one; this says how many invoices are behind it and what to do,
-   * because the change is made by hand in Spiro rather than from here.
-   */
-  function renderFinPayAtOrderBanner() {
-    const el = document.getElementById('fin-pao-banner');
-    const pao = finAccount && finAccount.payAtOrder;
-    if (!pao || !pao.recommended) { el.classList.add('hidden'); return; }
-    el.classList.remove('hidden');
-    el.innerHTML = '<strong>Switch future orders to Pay at order.</strong> ' + esc(pao.detail);
-  }
-
   function renderFinReviewBanner() {
     const el = document.getElementById('fin-review-banner');
     if (!finAccount || !finAccount.needsManualReview) { el.classList.add('hidden'); return; }
@@ -5130,7 +5094,6 @@ ${MARKET_COMPONENT_JS}
     const acct = (finBreakdown.accounts || []).find(a => a.accountKey === finAccount.accountKey);
     if (acct) acct.case = updated;
     renderFinReviewBanner();
-    renderFinPayAtOrderBanner();
     renderFinCaseControls();
     renderFinViews();
   }

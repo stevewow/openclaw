@@ -5,8 +5,6 @@ import {
   isPastDueActionKey,
   PAST_DUE_ACTIONS,
   PAST_DUE_BUCKETS,
-  PAY_AT_ORDER_MIN_INVOICES,
-  payAtOrderPrompt,
   policyAction,
   resolveAction,
 } from "./past-due-policy.js";
@@ -95,53 +93,5 @@ describe("bucketForDays", () => {
     expect(bucketForDays(119)).toBe("90-119");
     expect(bucketForDays(120)).toBe("120+");
     expect(bucketForDays(4000)).toBe("120+");
-  });
-});
-
-describe("payAtOrderPrompt", () => {
-  it("does not prompt on a single missed invoice", () => {
-    const p = payAtOrderPrompt(1);
-    expect(p.recommended).toBe(false);
-    expect(p.detail).toContain("not yet a pattern");
-  });
-
-  it("does not prompt just below the threshold", () => {
-    expect(payAtOrderPrompt(PAY_AT_ORDER_MIN_INVOICES - 1).recommended).toBe(false);
-  });
-
-  it("prompts once repeat invoices make a pattern", () => {
-    const p = payAtOrderPrompt(PAY_AT_ORDER_MIN_INVOICES);
-    expect(p.recommended).toBe(true);
-    expect(p.invoiceCount).toBe(PAY_AT_ORDER_MIN_INVOICES);
-    // The prompt must be about future work, not about collecting this debt.
-    expect(p.detail).toContain("future orders");
-  });
-
-  it("keeps prompting as the count climbs", () => {
-    for (const n of [4, 7, 17]) {
-      const p = payAtOrderPrompt(n);
-      expect(p.recommended).toBe(true);
-      expect(p.detail).toContain(String(n));
-    }
-  });
-
-  it("treats an account with nothing past due as no pattern", () => {
-    const p = payAtOrderPrompt(0);
-    expect(p.recommended).toBe(false);
-    expect(p.invoiceCount).toBe(0);
-  });
-
-  it("does not trust a junk count into recommending anything", () => {
-    for (const bad of [Number.NaN, -3, Number.POSITIVE_INFINITY]) {
-      const p = payAtOrderPrompt(bad);
-      expect(p.recommended).toBe(false);
-      expect(p.invoiceCount).toBe(0);
-    }
-  });
-
-  it("is decided by invoice count alone, never by age", () => {
-    // Aging already drives the collections step; 76% of the live book is past
-    // 90 days, so folding it in here would flag almost every account.
-    expect(payAtOrderPrompt(2).recommended).toBe(false);
   });
 });

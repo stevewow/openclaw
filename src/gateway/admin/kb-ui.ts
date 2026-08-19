@@ -71,7 +71,7 @@ export const KB_MARKUP = `
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Article</th><th>Status</th><th>Updated</th><th style="width:1%"></th></tr></thead>
-                <tbody id="kb-article-body"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody>
+                <tbody id="kb-article-rows"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -163,7 +163,7 @@ ${KB_EDITOR_JS}
 
   async function loadKb(){
     var r = await api('GET','/kb');
-    if(!r.ok){ document.getElementById('kb-article-body').innerHTML = '<tr><td colspan="4" class="empty-state">Could not load the knowledge base.</td></tr>'; return; }
+    if(!r.ok){ document.getElementById('kb-article-rows').innerHTML = '<tr><td colspan="4" class="empty-state">Could not load the knowledge base.</td></tr>'; return; }
     kbCategories = (r.data && r.data.categories) || [];
     kbArticles = (r.data && r.data.articles) || [];
     renderKbCategories();
@@ -243,7 +243,7 @@ ${KB_EDITOR_JS}
   }
 
   function renderKbArticles(){
-    var body = document.getElementById('kb-article-body');
+    var body = document.getElementById('kb-article-rows');
     var list = kbVisibleArticles();
     var count = document.getElementById('kb-count');
     var live = list.filter(function(a){ return a.status === 'published'; }).length;

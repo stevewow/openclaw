@@ -126,7 +126,7 @@ function mountKb(opts: { searchHits?: string[] } = {}) {
     },
     rows(): HTMLTableRowElement[] {
       return Array.from(
-        doc.querySelectorAll("#kb-article-body tr"),
+        doc.querySelectorAll("#kb-article-rows tr"),
       ) as unknown as HTMLTableRowElement[];
     },
     /** Article titles in the order the table shows them, headings included. */
@@ -141,6 +141,23 @@ function mountKb(opts: { searchHits?: string[] } = {}) {
 }
 
 describe("wiring", () => {
+  it("gives every element in the assembled page a unique id", () => {
+    // The editor surface and the article table both used `kb-article-body`,
+    // so opening an article blanked the list. Duplicate ids are silent in
+    // HTML and getElementById just picks the first, so assert over the whole
+    // assembled page rather than trusting each fragment on its own.
+    const doc = new JSDOM(ADMIN_UI_HTML).window.document;
+    const seen = new Map<string, number>();
+    for (const el of Array.from(doc.querySelectorAll("[id]"))) {
+      const id = el.getAttribute("id") ?? "";
+      seen.set(id, (seen.get(id) ?? 0) + 1);
+    }
+    const dupes = Array.from(seen.entries())
+      .filter(([, n]) => n > 1)
+      .map(([id, n]) => `${id} x${n}`);
+    expect(dupes).toEqual([]);
+  });
+
   it("is actually interpolated into the SPA", () => {
     expect(ADMIN_UI_HTML).toContain(KB_MARKUP.trim());
     expect(ADMIN_UI_HTML).toContain(KB_MODALS.trim());
@@ -274,6 +291,13 @@ describe("the article editor", () => {
     expect((kb.doc.getElementById("kb-article-category") as HTMLSelectElement).value).toBe(
       "cat-sched",
     );
+    // The article list must survive opening the editor. The editor surface and
+    // the results table both answered to `kb-article-body`, so loading an
+    // article wrote its rendered HTML over the table and the list vanished
+    // until a reload. getElementById returns the first match in document
+    // order, so this passed in isolation and failed on the real page.
+    expect(kb.rows().length).toBeGreaterThan(0);
+    expect(kb.lines()).toContain("Reschedule a shoot");
     // The address is only editable once it exists, and it exists now.
     expect(kb.doc.getElementById("kb-article-slug-group")?.classList.contains("hidden")).toBe(
       false,
