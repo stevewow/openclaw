@@ -53,6 +53,9 @@ export const KB_MARKUP = `
             Help articles for clients. An article stays a draft — invisible outside this page — until you publish it.
             File articles in categories to group them, and use ↑ / ↓ to set the order they are read in.
           </p>
+          <p class="text-muted" style="font-size:0.85rem;margin:0.5rem 0 0">
+            Not sure what to write next? <a href="#kb-searches">Help Searches</a> lists what clients looked for and could not find.
+          </p>
         </div>
         <div class="kb-cols">
           <div class="card">

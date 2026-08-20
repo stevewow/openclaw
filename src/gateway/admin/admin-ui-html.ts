@@ -5,6 +5,7 @@ import {
   FEEDBACK_MARKUP,
   FEEDBACK_MODALS,
 } from "./feedback-ui.js";
+import { KB_SEARCHES_COMPONENT_JS, KB_SEARCHES_CSS, KB_SEARCHES_MARKUP } from "./kb-searches-ui.js";
 import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
@@ -501,6 +502,7 @@ ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${KB_CSS}
+${KB_SEARCHES_CSS}
 ${FEEDBACK_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
@@ -671,6 +673,7 @@ ${MARKET_CSS}
       <a href="#categories" class="nav-link admin-only" data-page="categories"><span class="icon">🗂️</span> Request Types</a>
       <a href="#form-preview" class="nav-link admin-only" data-page="form-preview"><span class="icon">👁️</span> Intake Form</a>
       <a href="#kb" class="nav-link admin-only" data-page="kb"><span class="icon">📖</span> Knowledge Base</a>
+      <a href="#kb-searches" class="nav-link admin-only" data-page="kb-searches"><span class="icon">🔍</span> Help Searches</a>
       <a href="#feedback" class="nav-link admin-only" data-page="feedback"><span class="icon">💬</span> Feedback</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
@@ -1238,6 +1241,7 @@ ${MARKET_CSS}
       </div>
 
 ${KB_MARKUP}
+${KB_SEARCHES_MARKUP}
 ${FEEDBACK_MARKUP}
 
       <!-- Request Types: the categories offered on the public intake form -->
@@ -2193,6 +2197,9 @@ ${FEEDBACK_MODALS}
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
     'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: false, superAdminOnly: false, feature: 'ticket-form' },
     kb: { el: 'page-kb', title: 'Knowledge Base', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
+    // Same gate as the authoring page: reading what clients searched for is
+    // part of tending the knowledge base, not a separate permission.
+    'kb-searches': { el: 'page-kb-searches', title: 'Help Searches', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
     feedback: { el: 'page-feedback', title: 'Feedback', adminOnly: true, superAdminOnly: false },
     // Past Due is reachable both from the Financials nav ('financials', the
     // legacy hash) and from the Reports landing ('past-due', matching the
@@ -2312,6 +2319,7 @@ ${FEEDBACK_MODALS}
     if (page === 'categories') loadCategories();
     if (page === 'form-preview') loadFormPreview();
     if (page === 'kb') loadKb();
+    if (page === 'kb-searches') loadKbSearches();
     if (page === 'feedback') loadFeedback();
     if (page === 'financials' || page === 'past-due') loadFinancials();
     if (page === 'cleveland') loadCleveland();
@@ -3424,6 +3432,7 @@ ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
 ${KB_COMPONENT_JS}
+${KB_SEARCHES_COMPONENT_JS}
 ${FEEDBACK_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}

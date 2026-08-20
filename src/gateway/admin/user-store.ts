@@ -584,6 +584,30 @@ type KbArticlesTable = {
 };
 
 /**
+ * One search of the public help center.
+ *
+ * Written by the reader at /help and read only by the search report; nothing
+ * else joins against it. There is deliberately no IP, user agent or session
+ * here — this records what was asked, not who asked it.
+ */
+type KbSearchesTable = {
+  id: string;
+  /** The query as typed, trimmed and capped. Shown back to staff verbatim. */
+  query: string;
+  /** Case- and spacing-folded `query`. The report groups on this, not on `query`. */
+  query_key: string;
+  result_count: number;
+  /**
+   * The article opened from these results, when one was. Null is the
+   * interesting case: the search matched something that did not look like an
+   * answer.
+   */
+  clicked_article_id: string | null;
+  clicked_at: number | null;
+  created_at: number;
+};
+
+/**
  * One submission of the team feedback form. Mirrors the ClickUp form it
  * replaces: the multi-select fields (source, category, services) are stored as
  * JSON arrays because the form lets a submitter tick more than one, and the
@@ -688,6 +712,7 @@ export type AdminDb = {
   admin_feedback_attachments: FeedbackAttachmentsTable;
   admin_kb_categories: KbCategoriesTable;
   admin_kb_articles: KbArticlesTable;
+  admin_kb_searches: KbSearchesTable;
   // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
   // no stable column types for the query builder, and kb-store.ts reaches it
   // through a raw `sql` MATCH query instead.
@@ -1318,6 +1343,26 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_kb_articles_category ON admin_kb_articles(category_id);
     CREATE INDEX IF NOT EXISTS admin_kb_articles_status ON admin_kb_articles(status);
+    -- What clients typed into the help center's search box, and whether it led
+    -- anywhere. Logged so the holes in the knowledge base can be read off the
+    -- questions people actually ask rather than guessed at.
+    --
+    -- No IP, no user agent, no session: what was asked, not who asked it.
+    CREATE TABLE IF NOT EXISTS admin_kb_searches (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      -- Folded form of the query, so "Floor Plans" and "floor plan " are one
+      -- term on the report instead of two one-off searches.
+      query_key TEXT NOT NULL,
+      result_count INTEGER NOT NULL,
+      -- Nulled rather than deleted when the article goes, so the search that
+      -- found it still counts on the report.
+      clicked_article_id TEXT REFERENCES admin_kb_articles(id) ON DELETE SET NULL,
+      clicked_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_kb_searches_created ON admin_kb_searches(created_at);
+    CREATE INDEX IF NOT EXISTS admin_kb_searches_key ON admin_kb_searches(query_key);
     -- Team feedback, replacing the ClickUp form. Multi-select answers are JSON
     -- arrays rather than join tables: nothing queries across them, and the
     -- form's own option lists are the only writers.

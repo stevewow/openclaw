@@ -221,10 +221,33 @@ ${pills.join("\n")}
       </nav>`;
 }
 
-function articleListItem(article: KbArticle): string {
-  return `          <li><a href="${articleUrl(article)}">${escapeHtml(article.title)}${
+/**
+ * One row of a help list.
+ *
+ * `searchId` ties an opened article back to the search that offered it, and is
+ * only ever set on a results page — see searchResultItem.
+ */
+function listItem(article: KbArticle, searchId: string | null): string {
+  const href = searchId
+    ? `${articleUrl(article)}?s=${encodeURIComponent(searchId)}`
+    : articleUrl(article);
+  return `          <li><a href="${href}">${escapeHtml(article.title)}${
     article.summary ? `<span class="hc-sum">${escapeHtml(article.summary)}</span>` : ""
   }</a></li>`;
+}
+
+/**
+ * The map-safe form. Every list here is rendered with `.map(articleListItem)`,
+ * so this must stay single-argument: a second parameter would silently collect
+ * the array index and stamp it onto every link as a search id.
+ */
+function articleListItem(article: KbArticle): string {
+  return listItem(article, null);
+}
+
+/** A row on the results page, carrying the search it came from. */
+function searchResultItem(article: KbArticle, searchId: string | null): string {
+  return listItem(article, searchId);
 }
 
 export type HelpIndexView = {
@@ -276,6 +299,13 @@ export type HelpSearchView = {
   /** So a fruitless search still offers somewhere to go next. */
   categories: KbCategory[];
   supportUrl: string;
+  /**
+   * The logged search these results answer, when it was logged. Rides on the
+   * result links so that opening one records which search it settled — the
+   * difference between "we have an article for that" and "we have an article
+   * for that and it looked like the answer".
+   */
+  searchId?: string | null;
 };
 
 export function renderHelpSearchHtml(view: HelpSearchView): string {
@@ -286,7 +316,7 @@ ${categoryPills(view.categories)}
 ${
   view.results.length > 0
     ? `      <ul class="hc-list">
-${view.results.map(articleListItem).join("\n")}
+${view.results.map((article) => searchResultItem(article, view.searchId ?? null)).join("\n")}
       </ul>`
     : `      <p class="hc-empty">Nothing matched “${escapeHtml(view.query)}”. Try a shorter word — searching for less finds more, or pick a category above.</p>`
 }

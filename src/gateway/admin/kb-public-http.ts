@@ -14,6 +14,11 @@
 //
 // Everything here reads published rows and nothing else. A draft is not
 // "hidden" by the page — it never leaves the store.
+//
+// The one thing these routes write is the search log: the query typed into the
+// box, and — via the `?s=` id carried on a result link — whether it led to an
+// article being opened. Nothing identifying is recorded, and a failed write
+// never reaches the client. See kb-search-store.ts.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { setDefaultSecurityHeaders } from "../http-common.js";
@@ -26,6 +31,7 @@ import {
   renderHelpNotFoundHtml,
   renderHelpSearchHtml,
 } from "./kb-public-html.js";
+import { recordKbSearch, recordKbSearchClick } from "./kb-search-store.js";
 import {
   getArticleBySlug,
   getCategory,
@@ -45,6 +51,23 @@ const SUPPORT_URL = "/support";
  * click, short enough that publishing an article does not feel broken.
  */
 const PAGE_CACHE = "public, max-age=60";
+
+/**
+ * Run a search-log write without letting it reach the client.
+ *
+ * The log is a reporting convenience; the help center is not. A locked
+ * database or a schema that has not caught up must cost us a row on a report,
+ * never a client's answer, so everything written from these routes goes
+ * through here.
+ */
+async function logQuietly<T>(work: () => Promise<T>): Promise<T | null> {
+  try {
+    return await work();
+  } catch (err) {
+    console.warn("kb: search log write failed:", err);
+    return null;
+  }
+}
 
 function sendHtml(
   res: ServerResponse,
@@ -105,11 +128,16 @@ export async function handleKbPublicRequest(
         searchArticles(query, { limit: 25 }),
         browsableCategories(),
       ]);
+      // HEAD is a prefetcher, a link unfurler or a monitor, not a client with a
+      // question — logging it would put words on the gap report nobody typed.
+      const searchId = head
+        ? null
+        : await logQuietly(() => recordKbSearch({ query, resultCount: results.length }));
       // Results turn over with the query; nothing about them is worth caching.
       sendHtml(
         res,
         200,
-        renderHelpSearchHtml({ query, results, categories, supportUrl: SUPPORT_URL }),
+        renderHelpSearchHtml({ query, results, categories, supportUrl: SUPPORT_URL, searchId }),
         {
           cache: "no-store",
           head,
@@ -179,6 +207,13 @@ export async function handleKbPublicRequest(
     // business, and neither answer helps them.
     sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL), { cache: "no-store", head });
     return true;
+  }
+  // Opened from a results page: settle the search that offered this article.
+  // The id only ever arrives on a link we wrote, and names a row that already
+  // exists, so this can stamp one — it cannot create one.
+  const fromSearch = url.searchParams.get("s");
+  if (!head && fromSearch) {
+    await logQuietly(() => recordKbSearchClick(fromSearch, article.id));
   }
   const [category, siblings] = await Promise.all([
     article.categoryId ? getCategory(article.categoryId) : Promise.resolve(null),

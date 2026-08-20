@@ -11,6 +11,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
 import { sendJson } from "../http-common.js";
+import { summarizeKbSearches } from "./kb-search-store.js";
 import {
   type CreateArticleParams,
   type CreateCategoryParams,
@@ -155,6 +156,18 @@ export async function handleKbAdminRequest(
     const query = url.searchParams.get("q") ?? "";
     sendJson(res, 200, {
       articles: await searchArticles(query, { includeDrafts: true }),
+    });
+    return true;
+  }
+
+  // GET /api/admin/kb/searches?days= — the help center's search report:
+  // what clients looked for and what it got them. Read-only; the rows it
+  // summarizes are written by the public reader, not from here.
+  if (subPath === "/kb/searches" && method === "GET") {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const rawDays = Number.parseInt(url.searchParams.get("days") ?? "", 10);
+    sendJson(res, 200, {
+      summary: await summarizeKbSearches(Number.isFinite(rawDays) ? { days: rawDays } : {}),
     });
     return true;
   }

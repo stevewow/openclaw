@@ -261,3 +261,39 @@ describe("search", () => {
     expect(res.json?.articles).toEqual([]);
   });
 });
+
+describe("the search report", () => {
+  type Summary = {
+    since: number;
+    totalSearches: number;
+    zeroResultSearches: number;
+    gaps: Array<{ query: string; searches: number }>;
+  };
+
+  it("rides on the knowledge-base grant, like the rest of this surface", async () => {
+    expect((await call("GET", "/kb/searches", { token: grantedToken })).status).toBe(200);
+    expect((await call("GET", "/kb/searches", { token: strangerToken })).status).toBe(403);
+  });
+
+  it("answers with an empty report rather than an error before anyone has searched", async () => {
+    const res = await call("GET", "/kb/searches", { token: adminToken });
+    expect(res.status).toBe(200);
+    const summary = res.json?.summary as Summary;
+    expect(summary.totalSearches).toBe(0);
+    expect(summary.gaps).toEqual([]);
+  });
+
+  it("takes a window, and ignores one it cannot read", async () => {
+    const week = (await call("GET", "/kb/searches?days=7", { token: adminToken })).json
+      ?.summary as Summary;
+    const nonsense = (await call("GET", "/kb/searches?days=banana", { token: adminToken })).json
+      ?.summary as Summary;
+    // A week's window starts later than the default month's; a window that is
+    // not a number falls back to the default rather than to zero days.
+    expect(week.since).toBeGreaterThan(nonsense.since);
+  });
+
+  it("is read-only — the rows come from the public reader", async () => {
+    expect((await call("POST", "/kb/searches", { token: adminToken })).status).toBe(404);
+  });
+});
