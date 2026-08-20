@@ -48,7 +48,7 @@ afterAll(async () => {
 describe("with no key configured", () => {
   it("draws no form, rather than one that cannot work", async () => {
     const body = await (await fetch(`${baseUrl}/help`)).text();
-    expect(body).not.toContain("Ask a question");
+    expect(body).not.toContain("Need help?");
     expect(body).not.toContain("/help/ask");
   });
 

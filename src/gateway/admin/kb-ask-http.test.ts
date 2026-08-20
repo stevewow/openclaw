@@ -366,7 +366,7 @@ describe("the floating assistant", () => {
   it("is on the help center while a key is configured", async () => {
     const body = await (await fetch(`${baseUrl}/help`)).text();
     expect(body).toContain('id="wow-bot-launch"');
-    expect(body).toContain("Ask a question");
+    expect(body).toContain("Need help?");
   });
 
   it("follows the reader onto every help page, not just the index", async () => {
@@ -379,6 +379,22 @@ describe("the floating assistant", () => {
       const body = await (await fetch(`${baseUrl}${path}`)).text();
       expect(body, path).toContain('id="wow-bot-launch"');
     }
+  });
+
+  it("carries the wording it was given", async () => {
+    // Steve wrote this copy; a careless find-and-replace across the widget is
+    // exactly what would quietly undo it.
+    const body = await (await fetch(`${baseUrl}/help`)).text();
+    expect(body).toContain("Need a hand?");
+    expect(body).toContain("Quick answers from our help library");
+    expect(body).toContain(
+      "Ask me anything about your photos, your listings, or the portal. If I don't have the answer, I'll get it to someone who does.",
+    );
+    expect(body).toContain(
+      "I don't have an answer for that one yet — but our team does. Drop your email and we'll get back to you.",
+    );
+    expect(body).toContain("Your email (so we can reply)");
+    expect(body).toContain("SEND IT TO OUR TEAM");
   });
 
   it("degrades to a plain link where scripts cannot run", async () => {

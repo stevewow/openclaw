@@ -313,18 +313,18 @@ export const HELP_ASK_SEND_PATH = `${HELP_PATH}/ask/send`;
 function askWidget(): string {
   return `      <noscript><a class="wow-bot-fallback" href="${HELP_PATH}">Search help articles</a></noscript>
       <button type="button" class="wow-bot-launch" id="wow-bot-launch" aria-expanded="false" aria-controls="wow-bot-panel" hidden>
-        <span aria-hidden="true">💬</span> Ask a question
+        <span aria-hidden="true">💬</span> Need help?
       </button>
       <section class="wow-bot-panel" id="wow-bot-panel" role="dialog" aria-label="Ask WOW Video Tours" hidden>
         <header class="wow-bot-head">
           <div>
-            <strong>Ask us</strong>
-            <span>Answered from our help articles</span>
+            <strong>Need a hand?</strong>
+            <span>Quick answers from our help library</span>
           </div>
           <button type="button" class="wow-bot-close" id="wow-bot-close" aria-label="Close">×</button>
         </header>
         <div class="wow-bot-log" id="wow-bot-log" aria-live="polite">
-          <div class="wow-bot-msg wow-bot-them">Ask me anything about your photos, your listing or the portal. If I can't answer it, I'll pass it to a person.</div>
+          <div class="wow-bot-msg wow-bot-them">Ask me anything about your photos, your listings, or the portal. If I don't have the answer, I'll get it to someone who does.</div>
         </div>
         <form class="wow-bot-compose" id="wow-bot-form">
           <textarea id="wow-bot-input" rows="1" maxlength="500" placeholder="Type your question…" aria-label="Your question"></textarea>
@@ -390,8 +390,8 @@ function askWidget(): string {
           var wrap = document.createElement('div');
           wrap.className = 'wow-bot-send';
           wrap.innerHTML =
-            '<input type="email" placeholder="Your email (optional, so we can reply)" aria-label="Your email, optional" maxlength="200">' +
-            '<button class="btn btn-primary btn-sm" type="button">Send this to our team</button>';
+            '<input type="email" placeholder="Your email (so we can reply)" aria-label="Your email, so we can reply" maxlength="200">' +
+            '<button class="btn btn-primary btn-sm" type="button">SEND IT TO OUR TEAM</button>';
           var button = wrap.querySelector('button');
           var email = wrap.querySelector('input');
           button.addEventListener('click', function () {
@@ -436,7 +436,8 @@ function askWidget(): string {
               return;
             }
             if (!data || !data.answer) {
-              add(esc((data && data.message) || "I don't have an article covering that yet."), 'them');
+              add(esc((data && data.message) ||
+                "I don't have an answer for that one yet — but our team does. Drop your email and we'll get back to you."), 'them');
               offerHuman(data && data.askId);
               return;
             }
