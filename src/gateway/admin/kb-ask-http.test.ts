@@ -332,8 +332,20 @@ describe("passing a question to a person", () => {
   });
 
   it("cannot create a question, only stamp one that exists", async () => {
-    await sendToTeam({ askId: "a-made-up-id", email: "someone@example.com" });
+    const res = await sendToTeam({ askId: "a-made-up-id", email: "someone@example.com" });
     expect(await rows()).toHaveLength(0);
+    // And it must say so. Answering "sent" here would leave someone waiting on
+    // a reply nobody can send — the one outcome this feature exists to avoid.
+    expect(res.status).toBe(404);
+    expect(res.json.ok).toBe(false);
+  });
+
+  it("reads a second press as sent, because it was", async () => {
+    const asked = await askJson("write me a poem about the ocean");
+    await sendToTeam({ askId: asked.json.askId, email: "first@example.com" });
+    const again = await sendToTeam({ askId: asked.json.askId, email: "first@example.com" });
+    expect(again.status).toBe(200);
+    expect(again.json.ok).toBe(true);
   });
 
   it("refuses a call with no question named", async () => {

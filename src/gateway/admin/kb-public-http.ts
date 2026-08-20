@@ -392,10 +392,16 @@ async function handleAskSend(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  const marked = await logQuietly(() => escalateKbAsk(askId, { email }));
-  // An unknown id and an already-sent one get the same answer: from the
-  // client's side both mean "we have it", and neither is their problem.
-  sendJson(res, 200, { ok: marked !== null });
+  const outcome = await logQuietly(() => escalateKbAsk(askId, { email }));
+  // A second press of the same button is still a promise we will keep, so it
+  // reads as sent. An id naming nothing is NOT: saying "sent" there would leave
+  // someone waiting on a reply nobody can send, which is the one outcome this
+  // whole feature exists to avoid.
+  if (outcome === "marked" || outcome === "already") {
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  sendJson(res, outcome === "unknown" ? 404 : 500, { ok: false });
 }
 
 /** Whether the caller wants JSON — the widget — rather than a page. */

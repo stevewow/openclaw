@@ -125,24 +125,44 @@ function cleanEmail(raw: string | null | undefined): string | null {
 }
 
 /**
+ * What became of a request to pass a question to a person.
+ *
+ * Three outcomes, not two, and the difference matters to the client: "already"
+ * is a second press of the same button and is still a promise we will keep,
+ * while "unknown" means nothing was recorded and telling them it was sent would
+ * leave them waiting for a reply that is never coming.
+ */
+export type KbEscalateResult = "marked" | "already" | "unknown";
+
+/**
  * Note that a client asked for a person to look at their question.
  *
  * Only the first request counts, the same rule the search log's click follows:
- * the id travels to the browser, so a second press of the button must not read
- * as a second request. Returns false when the id names nothing, which is what a
- * hand-made call gets — this can stamp a row, never create one.
+ * the id travels to the browser, so a second press must not read as a second
+ * person waiting. The id names a row that already exists — this can stamp one,
+ * never create one.
  */
 export async function escalateKbAsk(
   askId: string,
   opts: { email?: string | null; at?: number } = {},
-): Promise<boolean> {
-  const result = await getAdminDb()
+): Promise<KbEscalateResult> {
+  const db = getAdminDb();
+  const result = await db
     .updateTable("admin_kb_asks")
     .set({ escalated_at: opts.at ?? Date.now(), contact_email: cleanEmail(opts.email) })
     .where("id", "=", askId)
     .where("escalated_at", "is", null)
     .executeTakeFirst();
-  return (result?.numUpdatedRows ?? 0n) > 0n;
+  if ((result?.numUpdatedRows ?? 0n) > 0n) {
+    return "marked";
+  }
+  // Nothing changed for one of two very different reasons. Ask which.
+  const existing = await db
+    .selectFrom("admin_kb_asks")
+    .select("id")
+    .where("id", "=", askId)
+    .executeTakeFirst();
+  return existing ? "already" : "unknown";
 }
 
 /** One question a client asked a person to look at. */

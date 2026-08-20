@@ -162,11 +162,13 @@ describe("the report", () => {
 });
 
 describe("passing a question to a person", () => {
-  it("reports whether it found the question to mark", async () => {
+  it("tells a second press apart from an id that names nothing", async () => {
     const id = (await store.recordKbAsk({ question: "where are my photos", answered: false }))!;
-    expect(await store.escalateKbAsk(id, { email: "agent@example.com" })).toBe(true);
-    // An id naming nothing changes nothing — this can stamp a row, never make one.
-    expect(await store.escalateKbAsk("no-such-ask", { email: "x@example.com" })).toBe(false);
+    expect(await store.escalateKbAsk(id, { email: "agent@example.com" })).toBe("marked");
+    // Pressing again is still a promise we will keep...
+    expect(await store.escalateKbAsk(id, { email: "agent@example.com" })).toBe("already");
+    // ...but an id naming nothing recorded nothing, and must not read as sent.
+    expect(await store.escalateKbAsk("no-such-ask", { email: "x@example.com" })).toBe("unknown");
   });
 
   it("keeps each request separately rather than grouping them", async () => {
