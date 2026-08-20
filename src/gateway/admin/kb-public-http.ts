@@ -169,12 +169,10 @@ export async function handleKbPublicRequest(
         groups.push(Object.assign(category, { articles: filed }));
       }
     }
-    sendHtml(
-      res,
-      200,
-      renderHelpIndexHtml({ categories: groups, unfiled, supportUrl: SUPPORT_URL }),
-      { cache: PAGE_CACHE, head },
-    );
+    sendHtml(res, 200, renderHelpIndexHtml({ categories: groups, unfiled }), {
+      cache: PAGE_CACHE,
+      head,
+    });
     return true;
   }
 
@@ -190,12 +188,10 @@ export async function handleKbPublicRequest(
       listArticles({ status: "published", categoryId: category.id }),
       browsableCategories(),
     ]);
-    sendHtml(
-      res,
-      200,
-      renderHelpCategoryHtml({ category, articles, categories, supportUrl: SUPPORT_URL }),
-      { cache: PAGE_CACHE, head },
-    );
+    sendHtml(res, 200, renderHelpCategoryHtml({ category, articles, categories }), {
+      cache: PAGE_CACHE,
+      head,
+    });
     return true;
   }
 

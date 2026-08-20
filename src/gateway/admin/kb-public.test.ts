@@ -118,6 +118,27 @@ describe("the index", () => {
   });
 });
 
+describe("the offer to submit a request", () => {
+  // Removed from the listing pages on purpose (Steve, 2026-08-20): browsing is
+  // not the moment to be pointed at the ticket form. The article page keeps its
+  // "Still stuck?" line, where the reader has actually tried an answer.
+  it("is gone from the index and the category pages", async () => {
+    const index = await get("/help");
+    expect(index.body).not.toContain("Can't find what you need?");
+    expect(index.body).not.toContain("Submit a request");
+
+    const category = await get("/help/category/scheduling");
+    expect(category.body).not.toContain("Can't find what you need?");
+    expect(category.body).not.toContain("Submit a request");
+  });
+
+  it("still ends an article, where the reader has tried an answer", async () => {
+    const article = await get("/help/reschedule-a-shoot");
+    expect(article.body).toContain("Still stuck?");
+    expect(article.body).toContain("/support");
+  });
+});
+
 describe("the video embed", () => {
   it("carries a referrer policy the player will accept", async () => {
     // The site sends `Referrer-Policy: no-referrer`. Without a referring

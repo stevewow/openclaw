@@ -255,7 +255,6 @@ export type HelpIndexView = {
   categories: Array<KbCategory & { articles: KbArticle[] }>;
   /** Published articles filed nowhere. Shown last, under their own heading. */
   unfiled: KbArticle[];
-  supportUrl: string;
 };
 
 export function renderHelpIndexHtml(view: HelpIndexView): string {
@@ -287,9 +286,7 @@ ${groups.join("\n")}
       </div>`
     : `      <p class="hc-empty">There are no help articles yet.</p>`
 }
-      <div class="hc-more">
-        <p class="hc-empty">Can't find what you need? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
-      </div>`;
+`;
   return page("Help Center — WOW Video Tours", body, { wide: true });
 }
 
@@ -331,7 +328,6 @@ export type HelpCategoryView = {
   articles: KbArticle[];
   /** Every category, so a visitor can move sideways without going back first. */
   categories: KbCategory[];
-  supportUrl: string;
 };
 
 export function renderHelpCategoryHtml(view: HelpCategoryView): string {
@@ -348,9 +344,7 @@ ${view.articles.map(articleListItem).join("\n")}
       </ul>`
     : `      <p class="hc-empty">Nothing here yet.</p>`
 }
-      <div class="hc-more">
-        <p class="hc-empty">Can't find what you need? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
-      </div>`;
+`;
   return page(`${view.category.title} — Help Center`, body, { wide: true });
 }
 
