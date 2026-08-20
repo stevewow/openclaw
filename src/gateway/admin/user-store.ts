@@ -629,6 +629,17 @@ type KbAsksTable = {
   decline_reason: string | null;
   /** JSON array of the slugs cited, or of what retrieval offered on a decline. */
   article_slugs: string;
+  /**
+   * When the client asked for a person to see this. Null for the great
+   * majority, which are answered or simply abandoned.
+   */
+  escalated_at: number | null;
+  /**
+   * An address the client volunteered so we could reply, and the one exception
+   * to this table holding nothing about who asked. Optional, only ever offered
+   * alongside an explicit "send this to our team", and present on nothing else.
+   */
+  contact_email: string | null;
   /** Best bm25 score retrieval found, so a cut-off can be chosen from real data. */
   top_score: number | null;
   input_tokens: number;
@@ -1408,6 +1419,10 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       top_score REAL,
       input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
+      -- Set when the client asked for a person to look at this, with the
+      -- address they volunteered so one can reply. See KbAsksTable.
+      escalated_at INTEGER,
+      contact_email TEXT,
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_kb_asks_created ON admin_kb_asks(created_at);
@@ -1459,6 +1474,20 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   migrateTicketCategoryCheck(db);
   migrateAttachmentOwnerCheck(db);
   migrateCategoryExtraFieldCheck(db);
+  // The ask log shipped before it could carry a request for a person. Both
+  // columns are nullable with no default, so this is additive: existing rows
+  // read as "never escalated", which is what they were.
+  const askColumns = db.prepare("PRAGMA table_info(admin_kb_asks)").all() as Array<{
+    name: string;
+  }>;
+  if (askColumns.length > 0) {
+    if (!askColumns.some((c) => c.name === "escalated_at")) {
+      db.exec("ALTER TABLE admin_kb_asks ADD COLUMN escalated_at INTEGER");
+    }
+    if (!askColumns.some((c) => c.name === "contact_email")) {
+      db.exec("ALTER TABLE admin_kb_asks ADD COLUMN contact_email TEXT");
+    }
+  }
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {
     db.exec(

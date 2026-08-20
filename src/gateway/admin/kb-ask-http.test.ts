@@ -246,17 +246,135 @@ describe("the limits", () => {
   });
 });
 
-describe("the form on the help center", () => {
-  it("is offered while a key is configured", async () => {
-    const res = await fetch(`${baseUrl}/help`);
-    const body = await res.text();
-    expect(body).toContain('action="/help/ask"');
+async function askJson(question: string) {
+  const res = await fetch(`${baseUrl}/help/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  return { status: res.status, json: (await res.json()) as Record<string, unknown> };
+}
+
+async function sendToTeam(body: Record<string, unknown>) {
+  const res = await fetch(`${baseUrl}/help/ask/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, json: (await res.json()) as Record<string, unknown> };
+}
+
+describe("the widget's own call", () => {
+  it("answers with JSON rather than a page", async () => {
+    const res = await askJson("How do I get into the portal?");
+    expect(res.status).toBe(200);
+    expect(res.json.answer).toBe("Sign in to the portal and open your listing.");
+    expect(res.json.articles).toEqual([
+      { title: "How to access the portal", url: "/help/how-to-access-the-portal" },
+    ]);
+    expect(typeof res.json.askId).toBe("string");
+  });
+
+  it("sends a null answer rather than an error when it cannot answer", async () => {
+    const res = await askJson("write me a poem about the ocean");
+    expect(res.status).toBe(200);
+    expect(res.json.answer).toBeNull();
+    // The id is what lets the widget offer to pass it to a person.
+    expect(typeof res.json.askId).toBe("string");
+  });
+
+  it("says it is rate limited in a shape the widget can read", async () => {
+    for (let i = 0; i < 3; i++) {
+      await askJson("How do I get into the portal?");
+    }
+    const res = await askJson("How do I get into the portal?");
+    expect(res.status).toBe(429);
+    expect(res.json.limited).toBe(true);
+  });
+
+  it("carries no history — each question is sent on its own", async () => {
+    await askJson("How do I get into the portal?");
+    await askJson("What about the second one?");
+    // A thread the model could see is a thread it could be walked along, so
+    // every call must contain exactly one question and no earlier answer.
+    for (const call of calls) {
+      expect(call.userContent.match(/<question>/g)).toHaveLength(1);
+      expect(call.userContent).not.toContain("Sign in to the portal and open your listing.");
+    }
+  });
+});
+
+describe("passing a question to a person", () => {
+  it("marks the question and keeps the address they left", async () => {
+    const asked = await askJson("write me a poem about the ocean");
+    const res = await sendToTeam({ askId: asked.json.askId, email: "agent@example.com" });
+    expect(res.json.ok).toBe(true);
+
+    const [logged] = await rows();
+    expect(logged.escalated_at).toBeGreaterThan(0);
+    expect(logged.contact_email).toBe("agent@example.com");
+  });
+
+  it("works without an address, since asking for one would make it a form", async () => {
+    const asked = await askJson("write me a poem about the ocean");
+    await sendToTeam({ askId: asked.json.askId, email: "" });
+    const [logged] = await rows();
+    expect(logged.escalated_at).toBeGreaterThan(0);
+    expect(logged.contact_email).toBeNull();
+  });
+
+  it("keeps the first send only, so a second press is not a second request", async () => {
+    const asked = await askJson("write me a poem about the ocean");
+    await sendToTeam({ askId: asked.json.askId, email: "first@example.com" });
+    await sendToTeam({ askId: asked.json.askId, email: "second@example.com" });
+    const [logged] = await rows();
+    expect(logged.contact_email).toBe("first@example.com");
+  });
+
+  it("cannot create a question, only stamp one that exists", async () => {
+    await sendToTeam({ askId: "a-made-up-id", email: "someone@example.com" });
+    expect(await rows()).toHaveLength(0);
+  });
+
+  it("refuses a call with no question named", async () => {
+    const res = await sendToTeam({ email: "someone@example.com" });
+    expect(res.status).toBe(400);
+  });
+
+  it("drops an address that is not one rather than storing the text", async () => {
+    const asked = await askJson("write me a poem about the ocean");
+    await sendToTeam({ askId: asked.json.askId, email: "call me on my mobile" });
+    const [logged] = await rows();
+    expect(logged.escalated_at).toBeGreaterThan(0);
+    expect(logged.contact_email).toBeNull();
+  });
+});
+
+describe("the floating assistant", () => {
+  it("is on the help center while a key is configured", async () => {
+    const body = await (await fetch(`${baseUrl}/help`)).text();
+    expect(body).toContain('id="wow-bot-launch"');
     expect(body).toContain("Ask a question");
   });
 
-  it("is offered beside the results of a search", async () => {
-    const res = await fetch(`${baseUrl}/help?q=portal`);
-    expect(await res.text()).toContain('action="/help/ask"');
+  it("follows the reader onto every help page, not just the index", async () => {
+    for (const path of [
+      "/help",
+      "/help?q=portal",
+      "/help/how-to-access-the-portal",
+      "/help/nope",
+    ]) {
+      const body = await (await fetch(`${baseUrl}${path}`)).text();
+      expect(body, path).toContain('id="wow-bot-launch"');
+    }
+  });
+
+  it("degrades to a plain link where scripts cannot run", async () => {
+    const body = await (await fetch(`${baseUrl}/help`)).text();
+    expect(body).toContain('<noscript><a class="wow-bot-fallback" href="/help"');
+    // The button is hidden in the markup and revealed by the script, so a
+    // browser that cannot run it never shows a control that would do nothing.
+    expect(body).toMatch(/id="wow-bot-launch"[^>]*hidden/);
   });
 });
 

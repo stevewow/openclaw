@@ -169,21 +169,6 @@ const HELP_STYLES = `
   .hc-group h2 a:hover { text-decoration:underline; }
   .hc-count { color:var(--muted); font-weight:600; letter-spacing:0; text-transform:none; }
 
-  /* The ask box. Visually quieter than the search field: searching is the
-     first thing to try, and asking costs us something. */
-  .hc-ask { margin:0 0 1.5rem; padding:0.9rem 1rem; border:1px solid var(--border);
-    border-radius:var(--radius, 10px); background:var(--surface); }
-  .hc-ask h2 { font-size:0.9rem; font-weight:700; margin:0 0 0.15rem; }
-  .hc-ask p { color:var(--muted); font-size:0.8rem; margin:0 0 0.6rem; }
-  .hc-ask-row { display:flex; gap:0.5rem; }
-  .hc-ask textarea {
-    flex:1 1 auto; min-width:0; padding:0.6rem 0.8rem; border:1px solid var(--border);
-    border-radius:10px; font-family:inherit; font-size:0.95rem; color:var(--ink); background:#fff;
-    resize:vertical; min-height:2.7rem;
-  }
-  .hc-ask textarea:focus { outline:none; border-color:var(--wow); box-shadow:0 0 0 3px var(--wow-tint); }
-  .hc-ask button { width:auto; padding:0.6rem 1.2rem; flex:0 0 auto; align-self:flex-start; }
-
   /* The answer itself, and the standing reminder of where it came from. */
   .hc-answer { border:1px solid var(--border); border-left:3px solid var(--wow);
     border-radius:var(--radius, 10px); padding:1rem 1.1rem; margin:0 0 1.2rem; background:var(--surface); }
@@ -191,9 +176,94 @@ const HELP_STYLES = `
   .hc-asked { color:var(--muted); font-size:0.82rem; margin:0 0 1rem; }
   .hc-asked span { color:var(--ink); }
   .hc-note { color:var(--muted); font-size:0.75rem; margin:0.9rem 0 0; }
+
+  /* ── The floating assistant ────────────────────────────────────────────
+     Fixed to the lower right on every help page. It sits above the content
+     rather than in it, so nothing on the page has to make room and no layout
+     here has to change to accommodate it. */
+  .wow-bot-launch {
+    position:fixed; right:1.25rem; bottom:1.25rem; z-index:60;
+    display:inline-flex; align-items:center; gap:0.5rem;
+    padding:0.8rem 1.15rem; border:none; border-radius:999px; cursor:pointer;
+    background:var(--wow); color:#fff; font-family:inherit; font-size:0.9rem; font-weight:700;
+    box-shadow:0 6px 20px rgba(0,0,0,0.22);
+  }
+  .wow-bot-launch:hover { filter:brightness(1.07); }
+  .wow-bot-launch:focus-visible { outline:3px solid var(--wow-tint); outline-offset:2px; }
+
+  .wow-bot-panel {
+    position:fixed; right:1.25rem; bottom:1.25rem; z-index:61;
+    width:min(23rem, calc(100vw - 2.5rem));
+    /* Capped against the viewport so the composer stays reachable on a phone
+       in landscape, where a fixed height would push it off the screen. */
+    max-height:min(34rem, calc(100vh - 2.5rem));
+    display:flex; flex-direction:column; overflow:hidden;
+    background:#fff; border:1px solid var(--border); border-radius:14px;
+    box-shadow:0 12px 40px rgba(0,0,0,0.26);
+  }
+  .wow-bot-panel[hidden] { display:none; }
+
+  .wow-bot-head {
+    display:flex; align-items:center; gap:0.6rem; padding:0.8rem 0.9rem;
+    background:var(--wow); color:#fff; flex:0 0 auto;
+  }
+  .wow-bot-head strong { font-size:0.92rem; }
+  .wow-bot-head span { font-size:0.72rem; opacity:0.85; display:block; font-weight:400; }
+  .wow-bot-close {
+    margin-left:auto; background:transparent; border:none; color:#fff; cursor:pointer;
+    font-size:1.35rem; line-height:1; padding:0 0.25rem; width:auto;
+  }
+
+  .wow-bot-log { flex:1 1 auto; overflow-y:auto; padding:0.9rem; }
+  .wow-bot-msg { margin:0 0 0.75rem; font-size:0.88rem; line-height:1.55; }
+  .wow-bot-msg:last-child { margin-bottom:0; }
+  .wow-bot-you {
+    background:var(--wow-tint); color:var(--ink); border-radius:12px 12px 3px 12px;
+    padding:0.5rem 0.7rem; margin-left:auto; max-width:85%; width:fit-content;
+  }
+  .wow-bot-them {
+    background:var(--surface); border:1px solid var(--hairline);
+    border-radius:12px 12px 12px 3px; padding:0.6rem 0.75rem; max-width:92%;
+  }
+  .wow-bot-cites { margin:0.5rem 0 0; padding:0; list-style:none; }
+  .wow-bot-cites a { color:var(--wow); font-size:0.82rem; font-weight:600; text-decoration:none; }
+  .wow-bot-cites a:hover { text-decoration:underline; }
+
+  .wow-bot-send { margin-top:0.6rem; }
+  .wow-bot-send input {
+    width:100%; padding:0.45rem 0.6rem; border:1px solid var(--border); border-radius:8px;
+    font-family:inherit; font-size:0.84rem; margin-bottom:0.4rem; color:var(--ink); background:#fff;
+  }
+  .wow-bot-send button { width:auto; padding:0.45rem 0.9rem; font-size:0.82rem; }
+  .wow-bot-sent { color:var(--muted); font-size:0.82rem; }
+
+  .wow-bot-compose { display:flex; gap:0.45rem; padding:0.7rem; border-top:1px solid var(--hairline); flex:0 0 auto; }
+  .wow-bot-compose textarea {
+    flex:1 1 auto; min-width:0; resize:none; padding:0.5rem 0.65rem;
+    border:1px solid var(--border); border-radius:9px; font-family:inherit;
+    /* 16px stops iOS zooming the viewport when the field takes focus. */
+    font-size:1rem; color:var(--ink); background:#fff; max-height:6rem;
+  }
+  .wow-bot-compose textarea:focus { outline:none; border-color:var(--wow); }
+  .wow-bot-compose button { width:auto; flex:0 0 auto; padding:0.5rem 0.9rem; }
+  .wow-bot-compose button[disabled] { opacity:0.55; cursor:default; }
+
+  /* Nothing here works without JavaScript, so without it the launcher is a
+     plain link to the page that does. */
+  .wow-bot-fallback {
+    position:fixed; right:1.25rem; bottom:1.25rem; z-index:60;
+    padding:0.8rem 1.15rem; border-radius:999px; background:var(--wow); color:#fff;
+    font-size:0.9rem; font-weight:700; text-decoration:none;
+    box-shadow:0 6px 20px rgba(0,0,0,0.22);
+  }
+
+  @media (max-width:420px) {
+    .wow-bot-panel { right:0.6rem; left:0.6rem; bottom:0.6rem; width:auto; }
+    .wow-bot-launch, .wow-bot-fallback { right:0.9rem; bottom:0.9rem; }
+  }
 `;
 
-function page(title: string, body: string, opts: { wide?: boolean } = {}): string {
+function page(title: string, body: string, opts: { wide?: boolean; ask?: boolean } = {}): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -209,6 +279,7 @@ ${body}
     </div>
     <p class="foot">WOW Video Tours</p>
   </div>
+${opts.ask ? askWidget() : ""}
 </body>
 </html>`;
 }
@@ -223,27 +294,166 @@ function searchForm(query: string): string {
 /** Where a question is sent. POST, never GET — see the route for why. */
 export const HELP_ASK_PATH = `${HELP_PATH}/ask`;
 
+/** Where a client asks for a person to look at what the box could not answer. */
+export const HELP_ASK_SEND_PATH = `${HELP_PATH}/ask/send`;
+
 /**
- * The ask box.
+ * The floating assistant, bottom right of every help page.
  *
- * A textarea rather than an input because it takes a sentence, and a POST
- * rather than a GET because a GET would be fetched by link unfurlers, Safe
- * Links and crawlers — each of which would be a question nobody asked and a
- * model call nobody wanted. It also means an answer has no shareable URL, which
- * is the right default for something generated once for one person.
+ * It looks like a chat and it is not one: each question is sent on its own,
+ * with no previous message attached to it. The thread in the panel is a
+ * transcript the browser keeps, not a conversation the model can be walked
+ * along, and that is deliberate — a thread the model could see is a thread it
+ * could be steered down over several turns.
  *
- * Rendered only when the box is switched on, so a help center with no key
- * configured shows no dead form.
+ * The whole widget is inline: no framework, no external script, nothing to
+ * fetch. Without JavaScript the launcher degrades to a link to /help, which
+ * searches without any of this.
  */
-function askForm(question: string): string {
-  return `      <form class="hc-ask" method="post" action="${HELP_ASK_PATH}">
-        <h2>Ask a question</h2>
-        <p>Answered from the help articles on this site. For anything else, <a href="/support">submit a request</a>.</p>
-        <div class="hc-ask-row">
-          <textarea name="question" rows="2" maxlength="500" placeholder="e.g. How do I get to my photos?" aria-label="Ask a question">${escapeHtml(question)}</textarea>
-          <button class="btn btn-primary" type="submit">Ask</button>
+function askWidget(): string {
+  return `      <noscript><a class="wow-bot-fallback" href="${HELP_PATH}">Search help articles</a></noscript>
+      <button type="button" class="wow-bot-launch" id="wow-bot-launch" aria-expanded="false" aria-controls="wow-bot-panel" hidden>
+        <span aria-hidden="true">💬</span> Ask a question
+      </button>
+      <section class="wow-bot-panel" id="wow-bot-panel" role="dialog" aria-label="Ask WOW Video Tours" hidden>
+        <header class="wow-bot-head">
+          <div>
+            <strong>Ask us</strong>
+            <span>Answered from our help articles</span>
+          </div>
+          <button type="button" class="wow-bot-close" id="wow-bot-close" aria-label="Close">×</button>
+        </header>
+        <div class="wow-bot-log" id="wow-bot-log" aria-live="polite">
+          <div class="wow-bot-msg wow-bot-them">Ask me anything about your photos, your listing or the portal. If I can't answer it, I'll pass it to a person.</div>
         </div>
-      </form>`;
+        <form class="wow-bot-compose" id="wow-bot-form">
+          <textarea id="wow-bot-input" rows="1" maxlength="500" placeholder="Type your question…" aria-label="Your question"></textarea>
+          <button class="btn btn-primary" type="submit" id="wow-bot-send">Send</button>
+        </form>
+      </section>
+      <script>
+      (function () {
+        var launch = document.getElementById('wow-bot-launch');
+        var panel = document.getElementById('wow-bot-panel');
+        var log = document.getElementById('wow-bot-log');
+        var form = document.getElementById('wow-bot-form');
+        var input = document.getElementById('wow-bot-input');
+        var send = document.getElementById('wow-bot-send');
+        if (!launch || !panel || !form) return;
+
+        // The launcher is hidden in the markup and revealed here, so a browser
+        // that cannot run this never shows a button that would do nothing.
+        launch.hidden = false;
+
+        function esc(value) {
+          return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        }
+
+        function add(html, who) {
+          var el = document.createElement('div');
+          el.className = 'wow-bot-msg ' + (who === 'you' ? 'wow-bot-you' : 'wow-bot-them');
+          el.innerHTML = html;
+          log.appendChild(el);
+          log.scrollTop = log.scrollHeight;
+          return el;
+        }
+
+        function open(state) {
+          panel.hidden = !state;
+          launch.hidden = state;
+          launch.setAttribute('aria-expanded', state ? 'true' : 'false');
+          if (state) input.focus();
+        }
+
+        launch.addEventListener('click', function () { open(true); });
+        document.getElementById('wow-bot-close').addEventListener('click', function () { open(false); });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && !panel.hidden) open(false);
+        });
+
+        // Enter sends, Shift+Enter breaks the line — what a chat box does.
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+        });
+
+        /**
+         * The offer to pass a question to a person.
+         *
+         * Shown only when the box could not answer. The email is optional and
+         * the button works without it; asking for it as a required field would
+         * turn a ten-second question into a form.
+         */
+        function offerHuman(askId) {
+          if (!askId) return;
+          var wrap = document.createElement('div');
+          wrap.className = 'wow-bot-send';
+          wrap.innerHTML =
+            '<input type="email" placeholder="Your email (optional, so we can reply)" aria-label="Your email, optional" maxlength="200">' +
+            '<button class="btn btn-primary btn-sm" type="button">Send this to our team</button>';
+          var button = wrap.querySelector('button');
+          var email = wrap.querySelector('input');
+          button.addEventListener('click', function () {
+            button.disabled = true;
+            fetch('${HELP_ASK_SEND_PATH}', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ askId: askId, email: email.value })
+            }).then(function (r) { return r.json(); }).then(function (data) {
+              wrap.innerHTML = data && data.ok
+                ? '<p class="wow-bot-sent">Sent — a person will take a look' +
+                  (email.value.trim() ? ' and reply to you.' : '.') + '</p>'
+                : '<p class="wow-bot-sent">That did not send. Please try again in a moment.</p>';
+            }).catch(function () {
+              wrap.innerHTML = '<p class="wow-bot-sent">That did not send. Please try again in a moment.</p>';
+            });
+          });
+          log.lastChild.appendChild(wrap);
+          log.scrollTop = log.scrollHeight;
+        }
+
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var question = input.value.trim();
+          if (!question) return;
+          add(esc(question), 'you');
+          input.value = '';
+          send.disabled = true;
+          var thinking = add('…', 'them');
+
+          fetch('${HELP_ASK_PATH}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ question: question })
+          }).then(function (r) {
+            if (r.status === 429) return { limited: true };
+            return r.json();
+          }).then(function (data) {
+            thinking.remove();
+            if (data && data.limited) {
+              add('That is a few questions in quick succession — give me a minute, or search the help articles.', 'them');
+              return;
+            }
+            if (!data || !data.answer) {
+              add(esc((data && data.message) || "I don't have an article covering that yet."), 'them');
+              offerHuman(data && data.askId);
+              return;
+            }
+            var cites = (data.articles || []).map(function (a) {
+              return '<li><a href="' + esc(a.url) + '">' + esc(a.title) + '</a></li>';
+            }).join('');
+            add(esc(data.answer) + (cites ? '<ul class="wow-bot-cites">' + cites + '</ul>' : ''), 'them');
+          }).catch(function () {
+            thinking.remove();
+            add('Something went wrong at our end. Please try again in a moment.', 'them');
+          }).then(function () {
+            send.disabled = false;
+            input.focus();
+          });
+        });
+      })();
+      </script>`;
 }
 
 /**
@@ -329,7 +539,6 @@ ${view.unfiled.map(articleListItem).join("\n")}
   const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">How can we help?</h1>
 ${searchForm("")}
-${view.askEnabled ? askForm("") : ""}
 ${categoryPills(view.categories)}
 ${
   groups.length > 0
@@ -339,7 +548,7 @@ ${groups.join("\n")}
     : `      <p class="hc-empty">There are no help articles yet.</p>`
 }
 `;
-  return page("Help Center — WOW Video Tours", body, { wide: true });
+  return page("Help Center — WOW Video Tours", body, { wide: true, ask: view.askEnabled });
 }
 
 export type HelpSearchView = {
@@ -363,7 +572,6 @@ export function renderHelpSearchHtml(view: HelpSearchView): string {
   const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">Search results</h1>
 ${searchForm(view.query)}
-${view.askEnabled ? askForm("") : ""}
 ${categoryPills(view.categories)}
 ${
   view.results.length > 0
@@ -375,7 +583,7 @@ ${view.results.map((article) => searchResultItem(article, view.searchId ?? null)
       <div class="hc-more">
         <p class="hc-empty"><a href="${HELP_PATH}">Back to all help articles</a> · <a href="${escapeHtml(view.supportUrl)}">Submit a request</a></p>
       </div>`;
-  return page(`Search — Help Center`, body, { wide: true });
+  return page(`Search — Help Center`, body, { wide: true, ask: view.askEnabled });
 }
 
 export type HelpCategoryView = {
@@ -383,6 +591,7 @@ export type HelpCategoryView = {
   articles: KbArticle[];
   /** Every category, so a visitor can move sideways without going back first. */
   categories: KbCategory[];
+  askEnabled?: boolean;
 };
 
 export function renderHelpCategoryHtml(view: HelpCategoryView): string {
@@ -400,7 +609,7 @@ ${view.articles.map(articleListItem).join("\n")}
     : `      <p class="hc-empty">Nothing here yet.</p>`
 }
 `;
-  return page(`${view.category.title} — Help Center`, body, { wide: true });
+  return page(`${view.category.title} — Help Center`, body, { wide: true, ask: view.askEnabled });
 }
 
 export type HelpArticleView = {
@@ -410,6 +619,7 @@ export type HelpArticleView = {
   /** Its published shelf-mates, for reading on. */
   siblings: KbArticle[];
   supportUrl: string;
+  askEnabled?: boolean;
 };
 
 export function renderHelpArticleHtml(view: HelpArticleView): string {
@@ -445,7 +655,7 @@ ${others.map(articleListItem).join("\n")}
 }
         <p class="hc-empty" style="margin-top:0.9rem">Still stuck? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
       </div>`;
-  return page(`${article.title} — Help Center`, body);
+  return page(`${article.title} — Help Center`, body, { ask: view.askEnabled });
 }
 
 export type HelpAnswerView = {
@@ -459,6 +669,7 @@ export type HelpAnswerView = {
    */
   articles: KbArticle[];
   supportUrl: string;
+  askEnabled?: boolean;
 };
 
 /**
@@ -496,7 +707,7 @@ ${reading ? `      <div class="hc-more">\n${reading}\n      </div>` : ""}`
       <div class="hc-more">
         <p class="hc-empty"><a href="${HELP_PATH}">Back to all help articles</a></p>
       </div>`;
-  return page("Help Center — WOW Video Tours", body);
+  return page("Help Center — WOW Video Tours", body, { ask: view.askEnabled });
 }
 
 /**
@@ -528,11 +739,11 @@ ${searchForm(view.question)}
  * the two it is tells an outsider something about unpublished work, and there
  * is nothing they could do with either answer.
  */
-export function renderHelpNotFoundHtml(supportUrl: string): string {
+export function renderHelpNotFoundHtml(supportUrl: string, askEnabled = false): string {
   const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">We couldn't find that page</h1>
       <p class="lead">The link may be out of date, or the article may have moved.</p>
 ${searchForm("")}
       <p class="hc-empty"><a href="${HELP_PATH}">Browse all help articles</a> · <a href="${escapeHtml(supportUrl)}">Submit a request</a></p>`;
-  return page("Not found — Help Center", body);
+  return page("Not found — Help Center", body, { ask: askEnabled });
 }

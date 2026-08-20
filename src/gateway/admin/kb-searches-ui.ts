@@ -55,6 +55,17 @@ export const KB_SEARCHES_MARKUP = `
 
         <div class="stats-grid" id="kbs-stats"></div>
 
+        <div class="card kbs-sect" id="kbs-req-card" hidden>
+          <h3>Sent to us</h3>
+          <p class="kbs-why">Questions a client asked a person to look at, newest first. Each one is somebody waiting — where they left an address you can reply to them, and where they did not, the question is still worth reading.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Question</th><th>Reply to</th><th>Sent</th></tr></thead>
+              <tbody id="kbs-req-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="card kbs-sect" id="kbs-ask-card" hidden>
           <h3>Questions we could not answer</h3>
           <p class="kbs-why">Asked in the answering box and answered by nothing we have published. These are the plainest statement of what is missing, because they arrive as whole sentences rather than as keywords.</p>
@@ -119,11 +130,13 @@ export const KB_SEARCHES_COMPONENT_JS = `
     kbsAsks = (r.data && r.data.asks) || null;
     renderKbSearches();
     renderKbAsks();
+    renderKbRequests();
   }
 
   function kbsFail(message){
     kbsAsks = null;
     document.getElementById('kbs-ask-card').hidden = true;
+    document.getElementById('kbs-req-card').hidden = true;
     document.getElementById('kbs-stats').innerHTML = '';
     document.getElementById('kbs-count').textContent = '';
     [['kbs-gap-rows',4],['kbs-unhelpful-rows',4],['kbs-top-rows',6]].forEach(function(pair){
@@ -169,6 +182,21 @@ export const KB_SEARCHES_COMPONENT_JS = `
    * section on a page about gaps reads as "no gaps", which is the opposite of
    * what an unused feature means.
    */
+  function renderKbRequests(){
+    var card = document.getElementById('kbs-req-card');
+    var list = (kbsAsks && kbsAsks.requests) || [];
+    if (!list.length){ card.hidden = true; return; }
+    card.hidden = false;
+    document.getElementById('kbs-req-rows').innerHTML = list.map(function(r){
+      return '<tr><td class="kbs-term">' + esc(r.question) + '</td>' +
+        '<td>' + (r.email
+          ? '<a href="mailto:' + encodeURIComponent(r.email) + '?subject=' +
+            encodeURIComponent('Re: your question') + '">' + esc(r.email) + '</a>'
+          : '<span class="text-muted">no address left</span>') + '</td>' +
+        '<td class="kbs-when">' + kbsWhen(r.escalatedAt) + '</td></tr>';
+    }).join('');
+  }
+
   function renderKbAsks(){
     var card = document.getElementById('kbs-ask-card');
     if (!kbsAsks || !kbsAsks.totalAsks){ card.hidden = true; return; }

@@ -78,6 +78,10 @@ export async function recordKbAsk(params: RecordAskParams): Promise<string | nul
       top_score: params.topScore ?? null,
       input_tokens: Math.max(0, Math.trunc(params.inputTokens ?? 0)),
       output_tokens: Math.max(0, Math.trunc(params.outputTokens ?? 0)),
+      // A question starts life as nobody's to answer but the box's; asking for
+      // a person is a separate act, and a separate write.
+      escalated_at: null,
+      contact_email: null,
       created_at: params.at ?? Date.now(),
     })
     .execute();
@@ -101,6 +105,86 @@ export async function countKbAsksSince(since: number): Promise<number> {
   return row?.c ?? 0;
 }
 
+/**
+ * An address is only kept when a client typed one into "send this to our team",
+ * so this is generous on shape and strict on length. Rejecting a real address
+ * for looking unusual would lose the request; what matters is that a reply can
+ * be attempted and that nobody can paste an essay into the column.
+ */
+const MAX_EMAIL = 200;
+
+function cleanEmail(raw: string | null | undefined): string | null {
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim().slice(0, MAX_EMAIL);
+  if (!trimmed.includes("@") || /\s/.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+/**
+ * Note that a client asked for a person to look at their question.
+ *
+ * Only the first request counts, the same rule the search log's click follows:
+ * the id travels to the browser, so a second press of the button must not read
+ * as a second request. Returns false when the id names nothing, which is what a
+ * hand-made call gets — this can stamp a row, never create one.
+ */
+export async function escalateKbAsk(
+  askId: string,
+  opts: { email?: string | null; at?: number } = {},
+): Promise<boolean> {
+  const result = await getAdminDb()
+    .updateTable("admin_kb_asks")
+    .set({ escalated_at: opts.at ?? Date.now(), contact_email: cleanEmail(opts.email) })
+    .where("id", "=", askId)
+    .where("escalated_at", "is", null)
+    .executeTakeFirst();
+  return (result?.numUpdatedRows ?? 0n) > 0n;
+}
+
+/** One question a client asked a person to look at. */
+export type KbAskRequest = {
+  id: string;
+  question: string;
+  /** Null when they did not leave one — you can read it, not answer it. */
+  email: string | null;
+  /** Whether the box had already answered when they asked for a person. */
+  wasAnswered: boolean;
+  escalatedAt: number;
+};
+
+/**
+ * Requests for a person, newest first.
+ *
+ * Ungrouped, unlike everything else on the report: each of these is one client
+ * waiting rather than a trend to read, and rolling two people's identical
+ * question into a row with a "2" on it would lose one of them.
+ */
+export async function listKbAskRequests(
+  opts: { days?: number; limit?: number } = {},
+): Promise<KbAskRequest[]> {
+  const days = Math.max(1, Math.min(Math.trunc(opts.days ?? 30), 365));
+  const limit = Math.max(1, Math.min(Math.trunc(opts.limit ?? 100), 500));
+  const rows = await getAdminDb()
+    .selectFrom("admin_kb_asks")
+    .select(["id", "question", "contact_email", "answered", "escalated_at"])
+    .where("escalated_at", "is not", null)
+    .where("escalated_at", ">=", Date.now() - days * 24 * 60 * 60 * 1000)
+    .orderBy("escalated_at", "desc")
+    .limit(limit)
+    .execute();
+  return rows.map((row) => ({
+    id: row.id,
+    question: row.question,
+    email: row.contact_email,
+    wasAnswered: row.answered === 1,
+    escalatedAt: row.escalated_at ?? 0,
+  }));
+}
+
 export type KbAskGroup = {
   question: string;
   questionKey: string;
@@ -119,6 +203,8 @@ export type KbAskSummary = {
   brokenDeclines: number;
   inputTokens: number;
   outputTokens: number;
+  /** Questions a client asked a person to look at. Each one is someone waiting. */
+  requests: KbAskRequest[];
   /** Questions nothing published could answer: the articles to write. */
   unanswered: KbAskGroup[];
   /** Every question by volume. */
@@ -185,6 +271,7 @@ export async function summarizeKbAsks(
 
   const t = totals.rows[0];
   return {
+    requests: await listKbAskRequests({ days, limit }),
     since,
     totalAsks: t?.total ?? 0,
     answeredAsks: t?.answered ?? 0,

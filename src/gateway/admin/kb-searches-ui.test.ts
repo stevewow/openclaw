@@ -82,6 +82,22 @@ const ASKS = {
   brokenDeclines: 1,
   inputTokens: 7000,
   outputTokens: 300,
+  requests: [
+    {
+      id: "ask-1",
+      question: "can you reshoot the front of the house",
+      email: "agent@example.com",
+      wasAnswered: false,
+      escalatedAt: Date.UTC(2026, 7, 20),
+    },
+    {
+      id: "ask-2",
+      question: "when will the video be ready",
+      email: null,
+      wasAnswered: true,
+      escalatedAt: Date.UTC(2026, 7, 19),
+    },
+  ],
   unanswered: [
     {
       question: "do you shoot twilight photos",
@@ -228,6 +244,31 @@ describe("the help-search report", () => {
     expect(cost).toContain("7,300 tokens");
     // A broken key must not read as a pile of missing articles.
     expect(cost).toContain("1 failed for technical reasons");
+  });
+
+  it("lists the questions a client asked a person to look at", async () => {
+    const ui = mount();
+    await ui.load();
+    expect(ui.doc.getElementById("kbs-req-card")?.hasAttribute("hidden")).toBe(false);
+    expect(ui.rowsIn("kbs-req-rows").map((cells) => cells[0])).toEqual([
+      "can you reshoot the front of the house",
+      "when will the video be ready",
+    ]);
+  });
+
+  it("makes an address it can reply to clickable, and says so when there is none", async () => {
+    const ui = mount();
+    await ui.load();
+    const link = ui.doc.querySelector("#kbs-req-rows a") as HTMLAnchorElement | null;
+    expect(link?.getAttribute("href")).toContain("mailto:agent%40example.com");
+    // A request with no address is still shown — the question is worth reading.
+    expect(ui.rowsIn("kbs-req-rows")[1]?.[1]).toBe("no address left");
+  });
+
+  it("hides the requests card when nobody has asked for a person", async () => {
+    const ui = mount({ asks: false });
+    await ui.load();
+    expect(ui.doc.getElementById("kbs-req-card")?.hasAttribute("hidden")).toBe(true);
   });
 
   it("hides the questions card while the box has never been used", async () => {

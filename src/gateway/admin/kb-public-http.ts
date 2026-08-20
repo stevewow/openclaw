@@ -22,12 +22,14 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readRequestBodyWithLimit } from "../../infra/http-body.js";
-import { setDefaultSecurityHeaders } from "../http-common.js";
+import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { answerHelpQuestion } from "./kb-answer.js";
 import { askApiKey, checkAskAllowance } from "./kb-ask-limits.js";
-import { MAX_QUESTION, recordKbAsk } from "./kb-ask-store.js";
+import { escalateKbAsk, MAX_QUESTION, recordKbAsk } from "./kb-ask-store.js";
 import {
+  articleUrl,
   HELP_ASK_PATH,
+  HELP_ASK_SEND_PATH,
   HELP_CATEGORY_PREFIX,
   HELP_PATH,
   renderHelpAnswerHtml,
@@ -132,17 +134,24 @@ export async function handleKbPublicRequest(
   // POST /help/ask is the one route here that is not a read. Everything else
   // is a page, and a non-read of a page is not ours to answer — it falls
   // through rather than inventing a 405 for a surface that only serves pages.
-  if (path === HELP_ASK_PATH) {
+  if (path === HELP_ASK_PATH || path === HELP_ASK_SEND_PATH) {
     if (req.method !== "POST") {
       return false;
     }
-    await handleAsk(req, res);
+    if (path === HELP_ASK_SEND_PATH) {
+      await handleAskSend(req, res);
+    } else {
+      await handleAsk(req, res);
+    }
     return true;
   }
   if (req.method !== "GET" && req.method !== "HEAD") {
     return false;
   }
   const head = req.method === "HEAD";
+  // Read once: the widget is drawn on every page, so every renderer below
+  // needs the same answer.
+  const askEnabled = Boolean(askApiKey());
 
   // GET /help — the index, or search when the box has been used.
   if (path === HELP_PATH) {
@@ -167,7 +176,7 @@ export async function handleKbPublicRequest(
           categories,
           supportUrl: SUPPORT_URL,
           searchId,
-          askEnabled: Boolean(askApiKey()),
+          askEnabled,
         }),
         {
           cache: "no-store",
@@ -200,12 +209,10 @@ export async function handleKbPublicRequest(
         groups.push(Object.assign(category, { articles: filed }));
       }
     }
-    sendHtml(
-      res,
-      200,
-      renderHelpIndexHtml({ categories: groups, unfiled, askEnabled: Boolean(askApiKey()) }),
-      { cache: PAGE_CACHE, head },
-    );
+    sendHtml(res, 200, renderHelpIndexHtml({ categories: groups, unfiled, askEnabled }), {
+      cache: PAGE_CACHE,
+      head,
+    });
     return true;
   }
 
@@ -214,14 +221,17 @@ export async function handleKbPublicRequest(
     const slug = decodeSlug(path.slice(HELP_CATEGORY_PREFIX.length));
     const category = slug ? await getCategoryBySlug(slug) : null;
     if (!category) {
-      sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL), { cache: "no-store", head });
+      sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL, askEnabled), {
+        cache: "no-store",
+        head,
+      });
       return true;
     }
     const [articles, categories] = await Promise.all([
       listArticles({ status: "published", categoryId: category.id }),
       browsableCategories(),
     ]);
-    sendHtml(res, 200, renderHelpCategoryHtml({ category, articles, categories }), {
+    sendHtml(res, 200, renderHelpCategoryHtml({ category, articles, categories, askEnabled }), {
       cache: PAGE_CACHE,
       head,
     });
@@ -234,7 +244,10 @@ export async function handleKbPublicRequest(
   if (!article || article.status !== "published") {
     // A draft and a typo get the same page: which one it was is not a client's
     // business, and neither answer helps them.
-    sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL), { cache: "no-store", head });
+    sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL, askEnabled), {
+      cache: "no-store",
+      head,
+    });
     return true;
   }
   // Opened from a results page: settle the search that offered this article.
@@ -251,7 +264,7 @@ export async function handleKbPublicRequest(
   sendHtml(
     res,
     200,
-    renderHelpArticleHtml({ article, category, siblings, supportUrl: SUPPORT_URL }),
+    renderHelpArticleHtml({ article, category, siblings, supportUrl: SUPPORT_URL, askEnabled }),
     { cache: PAGE_CACHE, head },
   );
   return true;
@@ -270,17 +283,27 @@ export async function handleKbPublicRequest(
  * became of it, because that log is what the daily ceiling counts.
  */
 async function handleAsk(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  // Not configured: the form was never drawn, so this is a hand-made request.
-  // Give it the page a mistyped link gets rather than explaining ourselves.
+  const wantsJson = prefersJson(req);
+
+  // Not configured: nothing was ever drawn that could send this, so it is a
+  // hand-made request. Give it the page a mistyped link gets.
   if (!askApiKey()) {
+    if (wantsJson) {
+      sendJson(res, 404, { error: "not_found" });
+      return;
+    }
     sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL), { cache: "no-store", head: false });
     return;
   }
 
   const allowance = await checkAskAllowance(req);
   if (!allowance.allowed) {
-    // 429 so a script is told plainly. The page still offers search, which is
-    // not limited and is what most of these questions wanted anyway.
+    // 429 so a script is told plainly. Search is not limited and is what most
+    // of these questions wanted anyway, so the page still leads with it.
+    if (wantsJson) {
+      sendJson(res, 429, { limited: true, reason: allowance.reason });
+      return;
+    }
     sendHtml(
       res,
       429,
@@ -290,23 +313,19 @@ async function handleAsk(req: IncomingMessage, res: ServerResponse): Promise<voi
     return;
   }
 
-  let question = "";
-  try {
-    const body = await readRequestBodyWithLimit(req, { maxBytes: MAX_ASK_BODY_BYTES });
-    question = (new URLSearchParams(body).get("question") ?? "").trim().slice(0, MAX_QUESTION);
-  } catch {
-    // An over-long or abandoned body is not a question; treat it as an empty one.
-    question = "";
-  }
-
+  const question = await readQuestion(req);
   if (!question) {
+    if (wantsJson) {
+      sendJson(res, 400, { error: "question required" });
+      return;
+    }
     sendHtml(res, 303, "", { cache: "no-store", head: false, location: HELP_PATH });
     return;
   }
 
   const { outcome, topScore, slugs } = await answerHelpQuestion(question);
 
-  await logQuietly(() =>
+  const askId = await logQuietly(() =>
     recordKbAsk({
       question,
       answered: outcome.kind === "answered",
@@ -318,6 +337,17 @@ async function handleAsk(req: IncomingMessage, res: ServerResponse): Promise<voi
     }),
   );
 
+  if (wantsJson) {
+    sendJson(res, 200, {
+      answer: outcome.kind === "answered" ? outcome.answer : null,
+      articles: outcome.articles.map((a) => ({ title: a.title, url: articleUrl(a) })),
+      // The widget offers "send this to a person" against this id. It names a
+      // row that already exists, so it can stamp one and never create one.
+      askId,
+    });
+    return;
+  }
+
   sendHtml(
     res,
     200,
@@ -326,10 +356,78 @@ async function handleAsk(req: IncomingMessage, res: ServerResponse): Promise<voi
       answer: outcome.kind === "answered" ? outcome.answer : null,
       articles: outcome.articles,
       supportUrl: SUPPORT_URL,
+      askEnabled: true,
     }),
     // An answer is generated once for one person; nothing may cache it.
     { cache: "no-store", head: false },
   );
+}
+
+/**
+ * POST /help/ask/send — pass a question to a person.
+ *
+ * Deliberately not the ticket form. Someone who has already typed their
+ * question into the box should not have to type it again into a form with a
+ * request type and an attachment field; the question is already recorded, and
+ * this only marks that they would like a human to see it. The email is
+ * optional, and the whole thing works without one — it just cannot be answered
+ * back.
+ *
+ * The id is the authority here, and it only ever came from an answer we served.
+ */
+async function handleAskSend(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let askId = "";
+  let email: string | null = null;
+  try {
+    const raw = await readRequestBodyWithLimit(req, { maxBytes: MAX_ASK_BODY_BYTES });
+    const parsed = JSON.parse(raw) as { askId?: unknown; email?: unknown };
+    askId = typeof parsed.askId === "string" ? parsed.askId : "";
+    email = typeof parsed.email === "string" ? parsed.email : null;
+  } catch {
+    sendJson(res, 400, { error: "bad request" });
+    return;
+  }
+  if (!askId) {
+    sendJson(res, 400, { error: "askId required" });
+    return;
+  }
+
+  const marked = await logQuietly(() => escalateKbAsk(askId, { email }));
+  // An unknown id and an already-sent one get the same answer: from the
+  // client's side both mean "we have it", and neither is their problem.
+  sendJson(res, 200, { ok: marked !== null });
+}
+
+/** Whether the caller wants JSON — the widget — rather than a page. */
+function prefersJson(req: IncomingMessage): boolean {
+  const accept = req.headers.accept ?? "";
+  return accept.includes("application/json");
+}
+
+/**
+ * The question, from either shape the box can be used in: the widget sends
+ * JSON, the no-JS form sends url-encoded fields.
+ */
+async function readQuestion(req: IncomingMessage): Promise<string> {
+  let raw = "";
+  try {
+    raw = await readRequestBodyWithLimit(req, { maxBytes: MAX_ASK_BODY_BYTES });
+  } catch {
+    // An over-long or abandoned body is not a question.
+    return "";
+  }
+  const type = req.headers["content-type"] ?? "";
+  if (type.includes("application/json")) {
+    try {
+      const parsed = JSON.parse(raw) as { question?: unknown };
+      return typeof parsed.question === "string"
+        ? parsed.question.trim().slice(0, MAX_QUESTION)
+        : "";
+    } catch {
+      return "";
+    }
+  }
+  return (new URLSearchParams(raw).get("question") ?? "").trim().slice(0, MAX_QUESTION);
 }
 
 /** A slug segment, or null when it is empty or not decodable. */

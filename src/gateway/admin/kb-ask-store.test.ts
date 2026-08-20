@@ -27,8 +27,10 @@ describe("recording a question", () => {
     expect(Object.keys(rows[0]).toSorted()).toEqual([
       "answered",
       "article_slugs",
+      "contact_email",
       "created_at",
       "decline_reason",
+      "escalated_at",
       "id",
       "input_tokens",
       "output_tokens",
@@ -36,6 +38,10 @@ describe("recording a question", () => {
       "question_key",
       "top_score",
     ]);
+    // The one column that could identify anyone stays empty unless a client
+    // types an address into "send this to our team".
+    expect(rows[0].contact_email).toBeNull();
+    expect(rows[0].escalated_at).toBeNull();
   });
 
   it("groups repeats of the same question however they were typed", async () => {
@@ -152,6 +158,63 @@ describe("the report", () => {
     expect(summary.totalAsks).toBe(0);
     expect(summary.unanswered).toEqual([]);
     expect(summary.inputTokens).toBe(0);
+  });
+});
+
+describe("passing a question to a person", () => {
+  it("reports whether it found the question to mark", async () => {
+    const id = (await store.recordKbAsk({ question: "where are my photos", answered: false }))!;
+    expect(await store.escalateKbAsk(id, { email: "agent@example.com" })).toBe(true);
+    // An id naming nothing changes nothing — this can stamp a row, never make one.
+    expect(await store.escalateKbAsk("no-such-ask", { email: "x@example.com" })).toBe(false);
+  });
+
+  it("keeps each request separately rather than grouping them", async () => {
+    // Two people asking the same thing are two people waiting, and rolling them
+    // into a row with a 2 on it would lose one of them.
+    const first = (await store.recordKbAsk({ question: "where are my photos", answered: false }))!;
+    const second = (await store.recordKbAsk({
+      question: "Where are my photos?",
+      answered: false,
+    }))!;
+    await store.escalateKbAsk(first, { email: "one@example.com" });
+    await store.escalateKbAsk(second, { email: "two@example.com" });
+
+    const requests = await store.listKbAskRequests();
+    expect(requests).toHaveLength(2);
+    expect(
+      requests.map((r) => r.email).toSorted((a, b) => (a ?? "").localeCompare(b ?? "")),
+    ).toEqual(["one@example.com", "two@example.com"]);
+  });
+
+  it("lists the newest first, since the report is a queue of people waiting", async () => {
+    const now = Date.now();
+    const older = (await store.recordKbAsk({ question: "older one", answered: false }))!;
+    const newer = (await store.recordKbAsk({ question: "newer one", answered: false }))!;
+    await store.escalateKbAsk(older, { at: now - 60_000 });
+    await store.escalateKbAsk(newer, { at: now });
+    expect((await store.listKbAskRequests()).map((r) => r.question)).toEqual([
+      "newer one",
+      "older one",
+    ]);
+  });
+
+  it("says whether the box had already answered when they asked for a person", async () => {
+    const id = (await store.recordKbAsk({ question: "that did not help", answered: true }))!;
+    await store.escalateKbAsk(id);
+    expect((await store.listKbAskRequests())[0].wasAnswered).toBe(true);
+  });
+
+  it("leaves unsent questions off the list entirely", async () => {
+    await store.recordKbAsk({ question: "just curious", answered: false });
+    expect(await store.listKbAskRequests()).toEqual([]);
+  });
+
+  it("rides along on the report", async () => {
+    const id = (await store.recordKbAsk({ question: "where are my photos", answered: false }))!;
+    await store.escalateKbAsk(id, { email: "agent@example.com" });
+    const summary = await store.summarizeKbAsks();
+    expect(summary.requests.map((r) => r.email)).toEqual(["agent@example.com"]);
   });
 });
 
