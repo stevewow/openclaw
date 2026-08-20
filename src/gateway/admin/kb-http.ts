@@ -11,6 +11,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
 import { sendJson } from "../http-common.js";
+import { summarizeKbAsks } from "./kb-ask-store.js";
 import { summarizeKbSearches } from "./kb-search-store.js";
 import {
   type CreateArticleParams,
@@ -166,9 +167,15 @@ export async function handleKbAdminRequest(
   if (subPath === "/kb/searches" && method === "GET") {
     const url = new URL(req.url ?? "/", "http://localhost");
     const rawDays = Number.parseInt(url.searchParams.get("days") ?? "", 10);
-    sendJson(res, 200, {
-      summary: await summarizeKbSearches(Number.isFinite(rawDays) ? { days: rawDays } : {}),
-    });
+    const window = Number.isFinite(rawDays) ? { days: rawDays } : {};
+    // Searches and questions in one call: they are two readings of the same
+    // thing — what clients wanted and could not find — and a page that had to
+    // fetch them separately would show one of them stale.
+    const [summary, asks] = await Promise.all([
+      summarizeKbSearches(window),
+      summarizeKbAsks(window),
+    ]);
+    sendJson(res, 200, { summary, asks });
     return true;
   }
 

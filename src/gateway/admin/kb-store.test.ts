@@ -248,3 +248,64 @@ describe("searchArticles", () => {
     expect(await store.searchArticles("capped", { limit: 2 })).toHaveLength(2);
   });
 });
+
+describe("searching from a question", () => {
+  // The search box and the answering box need different queries over the same
+  // index. Search joins terms with AND, because every word you type should
+  // narrow the results. A question is mostly grammar, and under AND would find
+  // nothing at all — so the grammar is dropped and the rest is ORed.
+
+  it("drops the grammar and keeps the subject", () => {
+    expect(store.toQuestionMatchQuery("How do I get my photos?")).toBe('"photos"*');
+    expect(store.toQuestionMatchQuery("where is the floor plan")).toBe('"floor"* OR "plan"*');
+  });
+
+  it("returns nothing for a question with no subject in it", () => {
+    // The first gate on the answering path: no content words, no retrieval, and
+    // therefore no model call.
+    expect(store.toQuestionMatchQuery("how do I")).toBeNull();
+    expect(store.toQuestionMatchQuery("???")).toBeNull();
+    expect(store.toQuestionMatchQuery("what is it")).toBeNull();
+  });
+
+  it("does not let a pasted essay become a hundred-clause MATCH", () => {
+    const query = store.toQuestionMatchQuery(
+      Array.from({ length: 200 }, (_, i) => `word${i}`).join(" "),
+    );
+    expect(query?.split(" OR ")).toHaveLength(12);
+  });
+
+  it("counts a repeated word once", () => {
+    expect(store.toQuestionMatchQuery("photos photos photos")).toBe('"photos"*');
+  });
+
+  it("finds an article a whole question is about", async () => {
+    const article = await store.createArticle({
+      title: "Reschedule a shoot",
+      bodyMd: "Call the office to move an appointment.",
+      status: "published",
+    });
+    const hits = await store.searchArticlesForQuestion("how do I reschedule my shoot?");
+    expect(hits.map((h) => h.article.id)).toContain(article.id);
+    // bm25 is more negative for a better match, so a hit always scores below 0.
+    expect(hits[0].score).toBeLessThan(0);
+  });
+
+  it("finds nothing for a question about something we have not written about", async () => {
+    await store.createArticle({
+      title: "Reschedule a shoot",
+      bodyMd: "Call the office.",
+      status: "published",
+    });
+    expect(await store.searchArticlesForQuestion("write me a poem about the ocean")).toEqual([]);
+  });
+
+  it("never offers a draft, which is what keeps unpublished work out of an answer", async () => {
+    await store.createArticle({
+      title: "Zebra pricing",
+      bodyMd: "Zebra shoots cost a lot.",
+      status: "draft",
+    });
+    expect(await store.searchArticlesForQuestion("what does a zebra shoot cost")).toEqual([]);
+  });
+});

@@ -608,6 +608,35 @@ type KbSearchesTable = {
 };
 
 /**
+ * One question put to the help center's answering box.
+ *
+ * Same privacy stance as KbSearchesTable: the words asked, never who asked
+ * them. The token counts are here so the running cost of the feature can be
+ * read off the table it already writes to, rather than from a provider console.
+ */
+type KbAsksTable = {
+  id: string;
+  question: string;
+  /** Folded question, so the report groups repeats of the same ask. */
+  question_key: string;
+  /** 1 only when an answer was actually produced from published articles. */
+  answered: number;
+  /**
+   * Why no answer came back, as a closed code. Null when one did. The two that
+   * matter for the knowledge base are the ones meaning "nothing we have
+   * covers this"; the rest are operational.
+   */
+  decline_reason: string | null;
+  /** JSON array of the slugs cited, or of what retrieval offered on a decline. */
+  article_slugs: string;
+  /** Best bm25 score retrieval found, so a cut-off can be chosen from real data. */
+  top_score: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  created_at: number;
+};
+
+/**
  * One submission of the team feedback form. Mirrors the ClickUp form it
  * replaces: the multi-select fields (source, category, services) are stored as
  * JSON arrays because the form lets a submitter tick more than one, and the
@@ -713,6 +742,7 @@ export type AdminDb = {
   admin_kb_categories: KbCategoriesTable;
   admin_kb_articles: KbArticlesTable;
   admin_kb_searches: KbSearchesTable;
+  admin_kb_asks: KbAsksTable;
   // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
   // no stable column types for the query builder, and kb-store.ts reaches it
   // through a raw `sql` MATCH query instead.
@@ -1363,6 +1393,25 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_kb_searches_created ON admin_kb_searches(created_at);
     CREATE INDEX IF NOT EXISTS admin_kb_searches_key ON admin_kb_searches(query_key);
+    -- Questions put to the help center's answering box. Same stance as
+    -- admin_kb_searches: the words asked, never who asked them.
+    --
+    -- created_at is indexed because the daily spend ceiling counts rows in this
+    -- table on every question; that count is on the request path.
+    CREATE TABLE IF NOT EXISTS admin_kb_asks (
+      id TEXT PRIMARY KEY,
+      question TEXT NOT NULL,
+      question_key TEXT NOT NULL,
+      answered INTEGER NOT NULL DEFAULT 0,
+      decline_reason TEXT,
+      article_slugs TEXT NOT NULL DEFAULT '[]',
+      top_score REAL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_kb_asks_created ON admin_kb_asks(created_at);
+    CREATE INDEX IF NOT EXISTS admin_kb_asks_key ON admin_kb_asks(question_key);
     -- Team feedback, replacing the ClickUp form. Multi-select answers are JSON
     -- arrays rather than join tables: nothing queries across them, and the
     -- form's own option lists are the only writers.

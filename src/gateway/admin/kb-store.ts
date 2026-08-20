@@ -579,6 +579,145 @@ export function toMatchQuery(raw: string): string | null {
 }
 
 /**
+ * Words too common to narrow anything, dropped before a question is turned into
+ * a MATCH.
+ *
+ * Deliberately small and closed: these are the words that carry a question's
+ * grammar rather than its subject. Trimming further starts discarding words a
+ * client might genuinely be searching for.
+ */
+const QUESTION_STOPWORDS = new Set([
+  "a",
+  "about",
+  "an",
+  "and",
+  "any",
+  "are",
+  "at",
+  "be",
+  "but",
+  "by",
+  "can",
+  "do",
+  "does",
+  "for",
+  "from",
+  "get",
+  "got",
+  "has",
+  "have",
+  "how",
+  "i",
+  "if",
+  "in",
+  "is",
+  "it",
+  "me",
+  "my",
+  "of",
+  "on",
+  "or",
+  "our",
+  "should",
+  "that",
+  "the",
+  "their",
+  "them",
+  "then",
+  "there",
+  "they",
+  "this",
+  "to",
+  "was",
+  "we",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "will",
+  "with",
+  "would",
+  "you",
+  "your",
+]);
+
+/** A long paste must not become a MATCH with a hundred clauses in it. */
+const MAX_QUESTION_TERMS = 12;
+
+/**
+ * Turn a typed question into an FTS query.
+ *
+ * Different from toMatchQuery on purpose. That one joins with AND, which is
+ * right for a search box — every word you type narrows the result. A question
+ * is mostly grammar: "how do I get my photos from the portal" under AND
+ * requires one article to contain all eight words and finds nothing. So the
+ * grammar is dropped and what is left is ORed, ranked by bm25.
+ *
+ * Returns null when nothing but stopwords was typed, which is the first gate on
+ * the answering path: no content words means no retrieval, and no retrieval
+ * means no model call.
+ */
+export function toQuestionMatchQuery(raw: string): string | null {
+  const terms = raw.toLowerCase().match(/[\p{L}\p{N}]+/gu);
+  if (!terms) {
+    return null;
+  }
+  const content: string[] = [];
+  for (const term of terms) {
+    // Single characters match nearly everything under a prefix search.
+    if (term.length < 2 || QUESTION_STOPWORDS.has(term) || content.includes(term)) {
+      continue;
+    }
+    content.push(term);
+    if (content.length === MAX_QUESTION_TERMS) {
+      break;
+    }
+  }
+  if (content.length === 0) {
+    return null;
+  }
+  return content.map((term) => `"${term}"*`).join(" OR ");
+}
+
+/** An article and how well it matched. More negative is a better bm25 match. */
+export type ScoredArticle = {
+  article: KbArticle;
+  score: number;
+};
+
+/**
+ * Published articles that bear on a question, best first, with their scores.
+ *
+ * The score is returned rather than thresholded here because there is no
+ * defensible threshold to pick yet: bm25 is relative to the corpus, and this
+ * one is small. It is logged with every question instead, so a cut-off can be
+ * chosen later from real numbers rather than guessed at now.
+ */
+export async function searchArticlesForQuestion(
+  question: string,
+  opts: { limit?: number } = {},
+): Promise<ScoredArticle[]> {
+  const match = toQuestionMatchQuery(question);
+  if (!match) {
+    return [];
+  }
+  const db: Kysely<AdminDb> = getAdminDb();
+  const limit = Math.max(1, Math.min(opts.limit ?? 3, 10));
+  const result = await sql<ArticleRow & { score: number }>`
+    SELECT a.*, bm25(admin_kb_search, 10.0, 4.0, 1.0) AS score
+    FROM admin_kb_articles a
+    JOIN admin_kb_search ON admin_kb_search.rowid = a.rowid
+    WHERE admin_kb_search MATCH ${match}
+      AND a.status = 'published'
+    ORDER BY score
+    LIMIT ${limit}
+  `.execute(db);
+  return result.rows.map((row) => ({ article: rowToArticle(row), score: row.score }));
+}
+
+/**
  * Full-text search over titles, summaries and bodies, ranked by bm25 with the
  * title weighted hardest — someone searching "reschedule" wants the article
  * called Reschedule a shoot, not the one that mentions it in passing.

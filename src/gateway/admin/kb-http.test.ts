@@ -293,6 +293,14 @@ describe("the search report", () => {
     expect(week.since).toBeGreaterThan(nonsense.since);
   });
 
+  it("carries the questions alongside the searches, in one call", async () => {
+    const res = await call("GET", "/kb/searches", { token: adminToken });
+    expect(res.status).toBe(200);
+    // Two readings of the same thing; fetching them apart would show one stale.
+    expect(res.json?.summary).toBeTruthy();
+    expect((res.json?.asks as { totalAsks: number }).totalAsks).toBe(0);
+  });
+
   it("is read-only — the rows come from the public reader", async () => {
     expect((await call("POST", "/kb/searches", { token: adminToken })).status).toBe(404);
   });

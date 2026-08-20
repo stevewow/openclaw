@@ -21,11 +21,18 @@
 // never reaches the client. See kb-search-store.ts.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { readRequestBodyWithLimit } from "../../infra/http-body.js";
 import { setDefaultSecurityHeaders } from "../http-common.js";
+import { answerHelpQuestion } from "./kb-answer.js";
+import { askApiKey, checkAskAllowance } from "./kb-ask-limits.js";
+import { MAX_QUESTION, recordKbAsk } from "./kb-ask-store.js";
 import {
+  HELP_ASK_PATH,
   HELP_CATEGORY_PREFIX,
   HELP_PATH,
+  renderHelpAnswerHtml,
   renderHelpArticleHtml,
+  renderHelpAskLimitedHtml,
   renderHelpCategoryHtml,
   renderHelpIndexHtml,
   renderHelpNotFoundHtml,
@@ -53,6 +60,12 @@ const SUPPORT_URL = "/support";
 const PAGE_CACHE = "public, max-age=60";
 
 /**
+ * A question is a sentence. Four times the store's own character cap, so an
+ * over-long one is trimmed to the cap rather than refused at the door.
+ */
+const MAX_ASK_BODY_BYTES = 4 * 1024;
+
+/**
  * Run a search-log write without letting it reach the client.
  *
  * The log is a reporting convenience; the help center is not. A locked
@@ -73,12 +86,15 @@ function sendHtml(
   res: ServerResponse,
   status: number,
   html: string,
-  opts: { cache: string; head: boolean },
+  opts: { cache: string; head: boolean; location?: string },
 ): void {
   setDefaultSecurityHeaders(res);
   res.statusCode = status;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", opts.cache);
+  if (opts.location) {
+    res.setHeader("Location", opts.location);
+  }
   if (opts.head) {
     res.end();
     return;
@@ -113,8 +129,16 @@ export async function handleKbPublicRequest(
   if (path !== HELP_PATH && !path.startsWith(`${HELP_PATH}/`)) {
     return false;
   }
-  // Anything but a read of a page is not ours to answer; let the request fall
+  // POST /help/ask is the one route here that is not a read. Everything else
+  // is a page, and a non-read of a page is not ours to answer — it falls
   // through rather than inventing a 405 for a surface that only serves pages.
+  if (path === HELP_ASK_PATH) {
+    if (req.method !== "POST") {
+      return false;
+    }
+    await handleAsk(req, res);
+    return true;
+  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     return false;
   }
@@ -137,7 +161,14 @@ export async function handleKbPublicRequest(
       sendHtml(
         res,
         200,
-        renderHelpSearchHtml({ query, results, categories, supportUrl: SUPPORT_URL, searchId }),
+        renderHelpSearchHtml({
+          query,
+          results,
+          categories,
+          supportUrl: SUPPORT_URL,
+          searchId,
+          askEnabled: Boolean(askApiKey()),
+        }),
         {
           cache: "no-store",
           head,
@@ -169,10 +200,12 @@ export async function handleKbPublicRequest(
         groups.push(Object.assign(category, { articles: filed }));
       }
     }
-    sendHtml(res, 200, renderHelpIndexHtml({ categories: groups, unfiled }), {
-      cache: PAGE_CACHE,
-      head,
-    });
+    sendHtml(
+      res,
+      200,
+      renderHelpIndexHtml({ categories: groups, unfiled, askEnabled: Boolean(askApiKey()) }),
+      { cache: PAGE_CACHE, head },
+    );
     return true;
   }
 
@@ -222,6 +255,81 @@ export async function handleKbPublicRequest(
     { cache: PAGE_CACHE, head },
   );
   return true;
+}
+
+/**
+ * POST /help/ask — one question, one answer, no conversation.
+ *
+ * Single-turn on purpose. There is no thread to steer and nothing carried from
+ * one question into the next, so there is no walking the model somewhere over
+ * several messages. It also means the page works with no JavaScript at all,
+ * which is why this is a plain form POST rather than a chat widget.
+ *
+ * The order below is the cost control: refuse before reading, read before
+ * retrieving, retrieve before spending. Every question is logged whatever
+ * became of it, because that log is what the daily ceiling counts.
+ */
+async function handleAsk(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // Not configured: the form was never drawn, so this is a hand-made request.
+  // Give it the page a mistyped link gets rather than explaining ourselves.
+  if (!askApiKey()) {
+    sendHtml(res, 404, renderHelpNotFoundHtml(SUPPORT_URL), { cache: "no-store", head: false });
+    return;
+  }
+
+  const allowance = await checkAskAllowance(req);
+  if (!allowance.allowed) {
+    // 429 so a script is told plainly. The page still offers search, which is
+    // not limited and is what most of these questions wanted anyway.
+    sendHtml(
+      res,
+      429,
+      renderHelpAskLimitedHtml({ question: "", reason: allowance.reason, supportUrl: SUPPORT_URL }),
+      { cache: "no-store", head: false },
+    );
+    return;
+  }
+
+  let question = "";
+  try {
+    const body = await readRequestBodyWithLimit(req, { maxBytes: MAX_ASK_BODY_BYTES });
+    question = (new URLSearchParams(body).get("question") ?? "").trim().slice(0, MAX_QUESTION);
+  } catch {
+    // An over-long or abandoned body is not a question; treat it as an empty one.
+    question = "";
+  }
+
+  if (!question) {
+    sendHtml(res, 303, "", { cache: "no-store", head: false, location: HELP_PATH });
+    return;
+  }
+
+  const { outcome, topScore, slugs } = await answerHelpQuestion(question);
+
+  await logQuietly(() =>
+    recordKbAsk({
+      question,
+      answered: outcome.kind === "answered",
+      declineReason: outcome.kind === "declined" ? outcome.reason : null,
+      articleSlugs: slugs,
+      topScore,
+      inputTokens: outcome.inputTokens,
+      outputTokens: outcome.outputTokens,
+    }),
+  );
+
+  sendHtml(
+    res,
+    200,
+    renderHelpAnswerHtml({
+      question,
+      answer: outcome.kind === "answered" ? outcome.answer : null,
+      articles: outcome.articles,
+      supportUrl: SUPPORT_URL,
+    }),
+    // An answer is generated once for one person; nothing may cache it.
+    { cache: "no-store", head: false },
+  );
 }
 
 /** A slug segment, or null when it is empty or not decodable. */

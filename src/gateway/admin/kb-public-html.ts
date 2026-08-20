@@ -168,6 +168,29 @@ const HELP_STYLES = `
   .hc-group h2 a { color:inherit; text-decoration:none; }
   .hc-group h2 a:hover { text-decoration:underline; }
   .hc-count { color:var(--muted); font-weight:600; letter-spacing:0; text-transform:none; }
+
+  /* The ask box. Visually quieter than the search field: searching is the
+     first thing to try, and asking costs us something. */
+  .hc-ask { margin:0 0 1.5rem; padding:0.9rem 1rem; border:1px solid var(--border);
+    border-radius:var(--radius, 10px); background:var(--surface); }
+  .hc-ask h2 { font-size:0.9rem; font-weight:700; margin:0 0 0.15rem; }
+  .hc-ask p { color:var(--muted); font-size:0.8rem; margin:0 0 0.6rem; }
+  .hc-ask-row { display:flex; gap:0.5rem; }
+  .hc-ask textarea {
+    flex:1 1 auto; min-width:0; padding:0.6rem 0.8rem; border:1px solid var(--border);
+    border-radius:10px; font-family:inherit; font-size:0.95rem; color:var(--ink); background:#fff;
+    resize:vertical; min-height:2.7rem;
+  }
+  .hc-ask textarea:focus { outline:none; border-color:var(--wow); box-shadow:0 0 0 3px var(--wow-tint); }
+  .hc-ask button { width:auto; padding:0.6rem 1.2rem; flex:0 0 auto; align-self:flex-start; }
+
+  /* The answer itself, and the standing reminder of where it came from. */
+  .hc-answer { border:1px solid var(--border); border-left:3px solid var(--wow);
+    border-radius:var(--radius, 10px); padding:1rem 1.1rem; margin:0 0 1.2rem; background:var(--surface); }
+  .hc-answer-text { font-size:1rem; line-height:1.65; margin:0 0 0.8rem; }
+  .hc-asked { color:var(--muted); font-size:0.82rem; margin:0 0 1rem; }
+  .hc-asked span { color:var(--ink); }
+  .hc-note { color:var(--muted); font-size:0.75rem; margin:0.9rem 0 0; }
 `;
 
 function page(title: string, body: string, opts: { wide?: boolean } = {}): string {
@@ -194,6 +217,32 @@ function searchForm(query: string): string {
   return `      <form class="hc-search" method="get" action="${HELP_PATH}" role="search">
         <input type="search" name="q" value="${escapeHtml(query)}" placeholder="Search help articles…" aria-label="Search help articles" />
         <button class="btn" type="submit">Search</button>
+      </form>`;
+}
+
+/** Where a question is sent. POST, never GET — see the route for why. */
+export const HELP_ASK_PATH = `${HELP_PATH}/ask`;
+
+/**
+ * The ask box.
+ *
+ * A textarea rather than an input because it takes a sentence, and a POST
+ * rather than a GET because a GET would be fetched by link unfurlers, Safe
+ * Links and crawlers — each of which would be a question nobody asked and a
+ * model call nobody wanted. It also means an answer has no shareable URL, which
+ * is the right default for something generated once for one person.
+ *
+ * Rendered only when the box is switched on, so a help center with no key
+ * configured shows no dead form.
+ */
+function askForm(question: string): string {
+  return `      <form class="hc-ask" method="post" action="${HELP_ASK_PATH}">
+        <h2>Ask a question</h2>
+        <p>Answered from the help articles on this site. For anything else, <a href="/support">submit a request</a>.</p>
+        <div class="hc-ask-row">
+          <textarea name="question" rows="2" maxlength="500" placeholder="e.g. How do I get to my photos?" aria-label="Ask a question">${escapeHtml(question)}</textarea>
+          <button class="btn btn-primary" type="submit">Ask</button>
+        </div>
       </form>`;
 }
 
@@ -255,6 +304,8 @@ export type HelpIndexView = {
   categories: Array<KbCategory & { articles: KbArticle[] }>;
   /** Published articles filed nowhere. Shown last, under their own heading. */
   unfiled: KbArticle[];
+  /** Whether the answering box is configured. Off means no form is drawn. */
+  askEnabled?: boolean;
 };
 
 export function renderHelpIndexHtml(view: HelpIndexView): string {
@@ -278,6 +329,7 @@ ${view.unfiled.map(articleListItem).join("\n")}
   const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">How can we help?</h1>
 ${searchForm("")}
+${view.askEnabled ? askForm("") : ""}
 ${categoryPills(view.categories)}
 ${
   groups.length > 0
@@ -296,6 +348,8 @@ export type HelpSearchView = {
   /** So a fruitless search still offers somewhere to go next. */
   categories: KbCategory[];
   supportUrl: string;
+  /** Whether the answering box is configured. Off means no form is drawn. */
+  askEnabled?: boolean;
   /**
    * The logged search these results answer, when it was logged. Rides on the
    * result links so that opening one records which search it settled — the
@@ -309,6 +363,7 @@ export function renderHelpSearchHtml(view: HelpSearchView): string {
   const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">Search results</h1>
 ${searchForm(view.query)}
+${view.askEnabled ? askForm("") : ""}
 ${categoryPills(view.categories)}
 ${
   view.results.length > 0
@@ -391,6 +446,81 @@ ${others.map(articleListItem).join("\n")}
         <p class="hc-empty" style="margin-top:0.9rem">Still stuck? <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and we'll help.</p>
       </div>`;
   return page(`${article.title} — Help Center`, body);
+}
+
+export type HelpAnswerView = {
+  question: string;
+  /** The answer, or null when none could be given. */
+  answer: string | null;
+  /**
+   * Articles to offer: the ones the answer cited, or — when there is no answer
+   * — whatever retrieval found. A question we could not answer is still worth
+   * pointing somewhere, and this is the closest thing we have.
+   */
+  articles: KbArticle[];
+  supportUrl: string;
+};
+
+/**
+ * The answer page.
+ *
+ * Two things are non-negotiable in this markup. The answer is escaped, not
+ * rendered as Markdown: it is model output, the only text on this site not
+ * written by a person, and it is not going to be the first thing here allowed
+ * to emit tags. And the cited articles are always shown — an answer without the
+ * articles behind it asks a client to take a machine's word for it, when the
+ * real answer is one click away and was written by someone who knows.
+ */
+export function renderHelpAnswerHtml(view: HelpAnswerView): string {
+  const reading =
+    view.articles.length > 0
+      ? `        <h2 class="eyebrow">${escapeHtml(view.answer ? "Where this came from" : "You might want")}</h2>
+        <ul class="hc-list">
+${view.articles.map(articleListItem).join("\n")}
+        </ul>`
+      : "";
+  const body = `      <a class="hc-back" href="${HELP_PATH}">← All help articles</a>
+      <p class="eyebrow">Help Center</p>
+      <h1 class="title">${escapeHtml(view.answer ? "Here's what we found" : "We don't have an answer for that")}</h1>
+      <p class="hc-asked">You asked: <span>${escapeHtml(view.question)}</span></p>
+${
+  view.answer
+    ? `      <div class="hc-answer">
+        <p class="hc-answer-text">${escapeHtml(view.answer)}</p>
+${reading}
+        <p class="hc-note">Answered from the help articles on this site. If it does not match what you were told, trust the article — or <a href="${escapeHtml(view.supportUrl)}">submit a request</a> and a person will help.</p>
+      </div>`
+    : `      <p class="lead">Nothing in our help articles covers that yet. <a href="${escapeHtml(view.supportUrl)}">Submit a request</a> and a person will get back to you.</p>
+${reading ? `      <div class="hc-more">\n${reading}\n      </div>` : ""}`
+}
+      <div class="hc-more">
+        <p class="hc-empty"><a href="${HELP_PATH}">Back to all help articles</a></p>
+      </div>`;
+  return page("Help Center — WOW Video Tours", body);
+}
+
+/**
+ * What someone sees when they have asked too often, or when the day's questions
+ * are spent.
+ *
+ * Searching still works and is not rate limited, so the page leads with it
+ * rather than with an apology — the thing they wanted is still available.
+ */
+export function renderHelpAskLimitedHtml(view: {
+  question: string;
+  reason: "client_rate" | "daily_cap";
+  supportUrl: string;
+}): string {
+  const body = `      <p class="eyebrow">Help Center</p>
+      <h1 class="title">${escapeHtml(view.reason === "daily_cap" ? "The answer box is resting" : "One moment")}</h1>
+      <p class="lead">${escapeHtml(
+        view.reason === "daily_cap"
+          ? "It has had a busy day and is back tomorrow. Searching still works, and a person can help with anything it would have answered."
+          : "That's a few questions in quick succession. Try again in a minute — or search, which has no such limit.",
+      )}</p>
+${searchForm(view.question)}
+      <p class="hc-empty"><a href="${HELP_PATH}">Browse all help articles</a> · <a href="${escapeHtml(view.supportUrl)}">Submit a request</a></p>`;
+  return page("Help Center — WOW Video Tours", body);
 }
 
 /**

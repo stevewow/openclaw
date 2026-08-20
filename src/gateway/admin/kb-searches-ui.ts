@@ -55,6 +55,18 @@ export const KB_SEARCHES_MARKUP = `
 
         <div class="stats-grid" id="kbs-stats"></div>
 
+        <div class="card kbs-sect" id="kbs-ask-card" hidden>
+          <h3>Questions we could not answer</h3>
+          <p class="kbs-why">Asked in the answering box and answered by nothing we have published. These are the plainest statement of what is missing, because they arrive as whole sentences rather than as keywords.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Question</th><th class="kbs-num">Times</th><th>Last asked</th></tr></thead>
+              <tbody id="kbs-unanswered-rows"></tbody>
+            </table>
+          </div>
+          <p class="kbs-why" id="kbs-ask-cost" style="margin:0.75rem 0 0"></p>
+        </div>
+
         <div class="card kbs-sect">
           <h3>Nothing matched</h3>
           <p class="kbs-why">Searches that came back empty. These are the articles the help center is missing — the wording is the client's, so it is also a decent title.</p>
@@ -93,6 +105,7 @@ export const KB_SEARCHES_MARKUP = `
 export const KB_SEARCHES_COMPONENT_JS = `
   // ── Help searches ──────────────────────────────────────────────────────────
   var kbsSummary = null;
+  var kbsAsks = null;
   var kbsDays = 30;
 
   async function loadKbSearches(){
@@ -103,10 +116,14 @@ export const KB_SEARCHES_COMPONENT_JS = `
       return;
     }
     kbsSummary = (r.data && r.data.summary) || null;
+    kbsAsks = (r.data && r.data.asks) || null;
     renderKbSearches();
+    renderKbAsks();
   }
 
   function kbsFail(message){
+    kbsAsks = null;
+    document.getElementById('kbs-ask-card').hidden = true;
     document.getElementById('kbs-stats').innerHTML = '';
     document.getElementById('kbs-count').textContent = '';
     [['kbs-gap-rows',4],['kbs-unhelpful-rows',4],['kbs-top-rows',6]].forEach(function(pair){
@@ -143,6 +160,41 @@ export const KB_SEARCHES_COMPONENT_JS = `
       return;
     }
     body.innerHTML = groups.map(build).join('');
+  }
+
+  /**
+   * The questions half.
+   *
+   * The card stays hidden until the box has actually been used — an empty
+   * section on a page about gaps reads as "no gaps", which is the opposite of
+   * what an unused feature means.
+   */
+  function renderKbAsks(){
+    var card = document.getElementById('kbs-ask-card');
+    if (!kbsAsks || !kbsAsks.totalAsks){ card.hidden = true; return; }
+    card.hidden = false;
+
+    document.getElementById('kbs-unanswered-rows').innerHTML =
+      kbsAsks.unanswered.length
+        ? kbsAsks.unanswered.map(function(g){
+            return '<tr><td class="kbs-term">' + esc(g.question) + '</td>' +
+              '<td class="kbs-num">' + g.asks + '</td>' +
+              '<td class="kbs-when">' + kbsWhen(g.lastAt) + '</td></tr>';
+          }).join('')
+        : '<tr><td colspan="3" class="empty-state">Everything asked was answered.</td></tr>';
+
+    // Tokens rather than dollars: the rate depends on the model configured, and
+    // a number labelled in dollars that quietly used the wrong rate is worse
+    // than no number at all.
+    var cost = kbsAsks.totalAsks + ' question' + (kbsAsks.totalAsks===1?'':'s') +
+      ' · ' + kbsAsks.answeredAsks + ' answered' +
+      ' · ' + (kbsAsks.inputTokens + kbsAsks.outputTokens).toLocaleString() + ' tokens';
+    if (kbsAsks.brokenDeclines){
+      // Not a content gap. Saying so here stops a broken key being read as a
+      // sudden pile of missing articles.
+      cost += ' · ' + kbsAsks.brokenDeclines + ' failed for technical reasons';
+    }
+    document.getElementById('kbs-ask-cost').textContent = cost;
   }
 
   function renderKbSearches(){

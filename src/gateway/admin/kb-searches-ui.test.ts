@@ -74,9 +74,29 @@ const SUMMARY = {
   ],
 };
 
+const ASKS = {
+  since: Date.UTC(2026, 6, 21),
+  totalAsks: 6,
+  answeredAsks: 4,
+  contentDeclines: 1,
+  brokenDeclines: 1,
+  inputTokens: 7000,
+  outputTokens: 300,
+  unanswered: [
+    {
+      question: "do you shoot twilight photos",
+      questionKey: "do you shoot twilight photos",
+      asks: 2,
+      answered: 0,
+      lastAt: Date.UTC(2026, 7, 19),
+    },
+  ],
+  top: [],
+};
+
 type Call = { method: string; path: string };
 
-function mount(opts: { ok?: boolean } = {}) {
+function mount(opts: { ok?: boolean; asks?: boolean } = {}) {
   const dom = new JSDOM(ADMIN_UI_HTML, { runScripts: "outside-only" });
   const win = dom.window as unknown as Record<string, unknown> & {
     document: Document;
@@ -95,7 +115,10 @@ function mount(opts: { ok?: boolean } = {}) {
     if (opts.ok === false) {
       return Promise.resolve({ ok: false, data: {} });
     }
-    return Promise.resolve({ ok: true, data: { summary: SUMMARY } });
+    return Promise.resolve({
+      ok: true,
+      data: { summary: SUMMARY, asks: opts.asks === false ? undefined : ASKS },
+    });
   };
 
   win.eval(KB_SEARCHES_COMPONENT_JS);
@@ -185,6 +208,32 @@ describe("the help-search report", () => {
     select.dispatchEvent(new ui.win.Event("change"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(ui.calls.at(-1)).toEqual({ method: "GET", path: "/kb/searches?days=90" });
+  });
+
+  it("lists the questions nothing could answer", async () => {
+    const ui = mount();
+    await ui.load();
+    expect(ui.doc.getElementById("kbs-ask-card")?.hasAttribute("hidden")).toBe(false);
+    expect(ui.rowsIn("kbs-unanswered-rows").map((cells) => cells[0])).toEqual([
+      "do you shoot twilight photos",
+    ]);
+  });
+
+  it("counts the tokens spent, and calls out failures as failures", async () => {
+    const ui = mount();
+    await ui.load();
+    const cost = ui.doc.getElementById("kbs-ask-cost")?.textContent ?? "";
+    expect(cost).toContain("6 questions");
+    expect(cost).toContain("4 answered");
+    expect(cost).toContain("7,300 tokens");
+    // A broken key must not read as a pile of missing articles.
+    expect(cost).toContain("1 failed for technical reasons");
+  });
+
+  it("hides the questions card while the box has never been used", async () => {
+    const ui = mount({ asks: false });
+    await ui.load();
+    expect(ui.doc.getElementById("kbs-ask-card")?.hasAttribute("hidden")).toBe(true);
   });
 
   it("says so when the report will not load, rather than sitting on Loading…", async () => {
