@@ -22,6 +22,7 @@ function article(over: Partial<KbArticle> = {}): KbArticle {
     publishedBy: null,
     publishedAt: 0,
     createdAt: 0,
+    contentUpdatedAt: null,
     updatedAt: 0,
     ...over,
   };

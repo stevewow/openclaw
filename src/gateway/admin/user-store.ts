@@ -580,7 +580,54 @@ type KbArticlesTable = {
   published_by: string | null;
   published_at: number | null;
   created_at: number;
+  /**
+   * When the words last changed: title, summary, body or video. Null on rows
+   * written before this column existed. Distinct from `updated_at`, which moves
+   * on a reorder or a refile too and so cannot be shown to a client.
+   */
+  content_updated_at: number | null;
   updated_at: number;
+};
+
+/**
+ * Running counts for one help center article.
+ *
+ * One row per article rather than one row per event: a view is written on every
+ * page load, and a table of individual views would be the largest thing in this
+ * database within a month while answering no question the counters cannot.
+ *
+ * Same stance as the search and ask logs — this records how many, never who.
+ * There is no client identifier here, which is also why a like can be pressed
+ * twice from two browsers: the honest limit of counting without identifying.
+ */
+type KbArticleStatsTable = {
+  article_id: string;
+  /** Page loads of the article, excluding HEAD and anything self-declared a bot. */
+  views: number;
+  /** Net likes. Floored at zero — an unlike arriving without its like cannot go negative. */
+  likes: number;
+  helpful_yes: number;
+  helpful_no: number;
+  updated_at: number;
+};
+
+/**
+ * The optional comment left with a "was this helpful?" vote.
+ *
+ * Free text a client typed, so it is treated the way ticket bodies are: stored
+ * verbatim, escaped on the way out, never rendered as markup. The vote is
+ * repeated here as well as counted in the stats row, because a note reads very
+ * differently depending on which button it came with.
+ */
+type KbArticleNotesTable = {
+  id: string;
+  /** Nulled rather than deleted with the article, so the note still reports. */
+  article_id: string | null;
+  /** The title as it stood when the note was left; the article may be renamed. */
+  article_title: string;
+  helpful: number;
+  note: string;
+  created_at: number;
 };
 
 /**
@@ -754,6 +801,8 @@ export type AdminDb = {
   admin_kb_articles: KbArticlesTable;
   admin_kb_searches: KbSearchesTable;
   admin_kb_asks: KbAsksTable;
+  admin_kb_article_stats: KbArticleStatsTable;
+  admin_kb_article_notes: KbArticleNotesTable;
   // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
   // no stable column types for the query builder, and kb-store.ts reaches it
   // through a raw `sql` MATCH query instead.
@@ -1380,6 +1429,10 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       published_by TEXT,
       published_at INTEGER,
       created_at INTEGER NOT NULL,
+      -- updated_at moves on any write at all, reordering and refiling included,
+      -- so it cannot be shown to a client as "updated". content_updated_at moves
+      -- only when the words change. See kb-store.ts updateArticle.
+      content_updated_at INTEGER,
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_kb_articles_category ON admin_kb_articles(category_id);
@@ -1427,6 +1480,29 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_kb_asks_created ON admin_kb_asks(created_at);
     CREATE INDEX IF NOT EXISTS admin_kb_asks_key ON admin_kb_asks(question_key);
+    -- How an article is doing: read, liked, and voted useful or not. CASCADE
+    -- here, unlike the logs above: a count of views of a deleted article names
+    -- nothing and reports nothing.
+    CREATE TABLE IF NOT EXISTS admin_kb_article_stats (
+      article_id TEXT PRIMARY KEY REFERENCES admin_kb_articles(id) ON DELETE CASCADE,
+      views INTEGER NOT NULL DEFAULT 0,
+      likes INTEGER NOT NULL DEFAULT 0,
+      helpful_yes INTEGER NOT NULL DEFAULT 0,
+      helpful_no INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+    -- The comment left with a helpful vote. SET NULL rather than CASCADE: the
+    -- words someone wrote about an article outlive the article, and a note
+    -- saying "this doesn't cover X" is most useful once X has been rewritten.
+    CREATE TABLE IF NOT EXISTS admin_kb_article_notes (
+      id TEXT PRIMARY KEY,
+      article_id TEXT REFERENCES admin_kb_articles(id) ON DELETE SET NULL,
+      article_title TEXT NOT NULL,
+      helpful INTEGER NOT NULL,
+      note TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_kb_article_notes_created ON admin_kb_article_notes(created_at);
     -- Team feedback, replacing the ClickUp form. Multi-select answers are JSON
     -- arrays rather than join tables: nothing queries across them, and the
     -- form's own option lists are the only writers.
@@ -1487,6 +1563,20 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     if (!askColumns.some((c) => c.name === "contact_email")) {
       db.exec("ALTER TABLE admin_kb_asks ADD COLUMN contact_email TEXT");
     }
+  }
+  // Articles shipped before anything showed a client when one was last written.
+  // Deliberately NOT backfilled from updated_at: that column has been moved by
+  // reorders and refiles, so copying it across would stamp a date on every
+  // existing article that nobody wrote anything on. A null reads as "we only
+  // know when this was published", which is the truth. See kb-store.ts.
+  const kbArticleColumns = db.prepare("PRAGMA table_info(admin_kb_articles)").all() as Array<{
+    name: string;
+  }>;
+  if (
+    kbArticleColumns.length > 0 &&
+    !kbArticleColumns.some((c) => c.name === "content_updated_at")
+  ) {
+    db.exec("ALTER TABLE admin_kb_articles ADD COLUMN content_updated_at INTEGER");
   }
   const taskColumns = db.prepare("PRAGMA table_info(admin_tasks)").all() as Array<{ name: string }>;
   if (!taskColumns.some((c) => c.name === "recurrence")) {

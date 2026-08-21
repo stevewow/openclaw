@@ -30,16 +30,30 @@ export const KB_SEARCHES_CSS = `
 
   /* The gap list is the one that costs us something, so it reads as a warning. */
   .kbs-sect-gap .stat-card, .kbs-gap-head { border-top-color: #b45309; }
+
+  /* A vote tally reads as one thing, not two numbers to subtract in your head. */
+  .kbs-votes { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .kbs-yes { color: #15803d; font-weight: 600; }
+  .kbs-no { color: #b91c1c; font-weight: 600; }
+  .kbs-none { color: var(--text-muted); }
+  .kbs-note { font-size: 0.85rem; }
+  .kbs-note-tag {
+    display: inline-block; margin-right: 0.4rem; padding: 0.05rem 0.4rem; border-radius: 999px;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .kbs-note-yes { background: #dcfce7; color: #15803d; }
+  .kbs-note-no { background: #fee2e2; color: #b91c1c; }
 `;
 
 export const KB_SEARCHES_MARKUP = `
-      <!-- Help searches: the knowledge base's gaps, in clients' own words -->
+      <!-- Help insights: the help center's gaps and how its articles land -->
       <div id="page-kb-searches" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">Help Searches</div>
+          <div style="font-weight:700;margin-bottom:0.35rem">Help Insights</div>
           <p class="text-muted" style="font-size:0.85rem;margin:0">
-            What clients searched for in the <a href="/help" target="_blank" rel="noopener">help center</a>.
-            Nothing here identifies anyone — only the words typed and whether they led to an article.
+            What clients searched for in the <a href="/help" target="_blank" rel="noopener">Help Center</a>, and how the
+            articles they found are doing. Nothing here identifies anyone — only what was typed, what was opened,
+            and which buttons were pressed.
           </p>
         </div>
 
@@ -76,6 +90,28 @@ export const KB_SEARCHES_MARKUP = `
             </table>
           </div>
           <p class="kbs-why" id="kbs-ask-cost" style="margin:0.75rem 0 0"></p>
+        </div>
+
+        <div class="card kbs-sect" id="kbs-note-card" hidden>
+          <h3>What readers said</h3>
+          <p class="kbs-why">Comments left with a "was this helpful?" vote, newest first. A No with a sentence attached is the most specific thing on this page — it names what an article that already exists still does not cover.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Comment</th><th>Article</th><th>Left</th></tr></thead>
+              <tbody id="kbs-note-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card kbs-sect" id="kbs-perf-card" hidden>
+          <h3>How articles are doing</h3>
+          <p class="kbs-why">Every published article by how often it is read. Reads are counted all-time rather than over the period above, because an article's readership is not a thing that resets. An article nobody opens and an article everybody opens and votes down are different problems, and neither shows up in a list ordered by title.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Article</th><th class="kbs-num">Reads</th><th class="kbs-num">Likes</th><th>Helpful?</th><th>Last written</th></tr></thead>
+              <tbody id="kbs-perf-rows"></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="card kbs-sect">
@@ -117,6 +153,8 @@ export const KB_SEARCHES_COMPONENT_JS = `
   // ── Help searches ──────────────────────────────────────────────────────────
   var kbsSummary = null;
   var kbsAsks = null;
+  var kbsArticles = null;
+  var kbsNotes = null;
   var kbsDays = 30;
 
   async function loadKbSearches(){
@@ -128,15 +166,23 @@ export const KB_SEARCHES_COMPONENT_JS = `
     }
     kbsSummary = (r.data && r.data.summary) || null;
     kbsAsks = (r.data && r.data.asks) || null;
+    kbsArticles = (r.data && r.data.articles) || null;
+    kbsNotes = (r.data && r.data.notes) || null;
     renderKbSearches();
     renderKbAsks();
     renderKbRequests();
+    renderKbNotes();
+    renderKbPerformance();
   }
 
   function kbsFail(message){
     kbsAsks = null;
+    kbsArticles = null;
+    kbsNotes = null;
     document.getElementById('kbs-ask-card').hidden = true;
     document.getElementById('kbs-req-card').hidden = true;
+    document.getElementById('kbs-note-card').hidden = true;
+    document.getElementById('kbs-perf-card').hidden = true;
     document.getElementById('kbs-stats').innerHTML = '';
     document.getElementById('kbs-count').textContent = '';
     [['kbs-gap-rows',4],['kbs-unhelpful-rows',4],['kbs-top-rows',6]].forEach(function(pair){
@@ -194,6 +240,46 @@ export const KB_SEARCHES_COMPONENT_JS = `
             encodeURIComponent('Re: your question') + '">' + esc(r.email) + '</a>'
           : '<span class="text-muted">no address left</span>') + '</td>' +
         '<td class="kbs-when">' + kbsWhen(r.escalatedAt) + '</td></tr>';
+    }).join('');
+  }
+
+  /**
+   * The comments half.
+   *
+   * Hidden until there is one, like the questions card above and for the same
+   * reason: an empty table on a page about what is missing reads as "nothing
+   * is missing".
+   */
+  function renderKbNotes(){
+    var card = document.getElementById('kbs-note-card');
+    var list = kbsNotes || [];
+    if (!list.length){ card.hidden = true; return; }
+    card.hidden = false;
+    document.getElementById('kbs-note-rows').innerHTML = list.map(function(n){
+      return '<tr><td class="kbs-note">' +
+        '<span class="kbs-note-tag ' + (n.helpful ? 'kbs-note-yes">Helpful' : 'kbs-note-no">Not helpful') + '</span>' +
+        esc(n.note) + '</td>' +
+        '<td>' + esc(n.articleTitle) + '</td>' +
+        '<td class="kbs-when">' + kbsWhen(n.createdAt) + '</td></tr>';
+    }).join('');
+  }
+
+  /** Reads, likes and votes, one row per published article. */
+  function renderKbPerformance(){
+    var card = document.getElementById('kbs-perf-card');
+    var list = kbsArticles || [];
+    if (!list.length){ card.hidden = true; return; }
+    card.hidden = false;
+    document.getElementById('kbs-perf-rows').innerHTML = list.map(function(a){
+      var votes = (a.helpfulYes || a.helpfulNo)
+        ? '<span class="kbs-yes">' + a.helpfulYes + ' yes</span> · <span class="kbs-no">' + a.helpfulNo + ' no</span>'
+        : '<span class="kbs-none">no votes yet</span>';
+      return '<tr><td class="kbs-term"><a href="' + esc(a.url) + '" target="_blank" rel="noopener">' +
+          esc(a.title) + '</a></td>' +
+        '<td class="kbs-num">' + a.views + '</td>' +
+        '<td class="kbs-num">' + (a.likes || '<span class="kbs-none">—</span>') + '</td>' +
+        '<td class="kbs-votes">' + votes + '</td>' +
+        '<td class="kbs-when">' + esc(a.dateLabel) + ' ' + kbsWhen(a.dateAt) + '</td></tr>';
     }).join('');
   }
 

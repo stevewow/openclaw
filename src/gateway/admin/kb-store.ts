@@ -48,6 +48,14 @@ export type KbArticle = {
   publishedBy: string | null;
   publishedAt: number | null;
   createdAt: number;
+  /**
+   * When the words last changed — title, summary, body or video — and nothing
+   * else. `updatedAt` moves when an article is dragged into a new order or
+   * refiled, so it is the wrong thing to show a client as "last updated"; this
+   * is the one the public reader prints. Null on articles written before the
+   * column existed, which read as their published date instead.
+   */
+  contentUpdatedAt: number | null;
   updatedAt: number;
 };
 
@@ -107,6 +115,7 @@ type ArticleRow = {
   published_by: string | null;
   published_at: number | null;
   created_at: number;
+  content_updated_at: number | null;
   updated_at: number;
 };
 
@@ -136,6 +145,7 @@ function rowToArticle(row: ArticleRow): KbArticle {
     publishedBy: row.published_by,
     publishedAt: row.published_at,
     createdAt: row.created_at,
+    contentUpdatedAt: row.content_updated_at,
     updatedAt: row.updated_at,
   };
 }
@@ -447,6 +457,7 @@ export async function createArticle(params: CreateArticleParams): Promise<KbArti
     published_by: null,
     published_at: status === "published" ? now : null,
     created_at: now,
+    content_updated_at: now,
     updated_at: now,
   };
   await db.insertInto("admin_kb_articles").values(row).execute();
@@ -463,25 +474,38 @@ export async function updateArticle(
     return null;
   }
 
-  const updates: Partial<ArticleRow> = { updated_at: Date.now() };
+  const now = Date.now();
+  const updates: Partial<ArticleRow> = { updated_at: now };
+  // Whether the words changed, as opposed to where the article sits. Compared
+  // against the current value rather than merely "was this field sent": the
+  // editor PATCHes the whole article on every save, so presence would stamp a
+  // new date on an article whose author only pressed Save. See content_updated_at.
+  let contentChanged = false;
   if (params.title !== undefined) {
     const title = trimTo(params.title, MAX_TITLE);
     if (!title) {
       throw new Error("kb: article title is required");
     }
     updates.title = title;
+    contentChanged ||= title !== current.title;
   }
   if (params.summary !== undefined) {
     updates.summary = optionalText(params.summary, MAX_SUMMARY);
+    contentChanged ||= updates.summary !== current.summary;
   }
   if (params.bodyMd !== undefined) {
     updates.body_md = params.bodyMd.slice(0, MAX_BODY);
+    contentChanged ||= updates.body_md !== current.bodyMd;
   }
   if (params.categoryId !== undefined) {
     updates.category_id = params.categoryId;
   }
   if (params.videoUrl !== undefined) {
     updates.video_url = optionalText(params.videoUrl, MAX_SLUG * 8);
+    contentChanged ||= updates.video_url !== current.videoUrl;
+  }
+  if (contentChanged) {
+    updates.content_updated_at = now;
   }
   // As with categories: a retitle never silently moves a published article.
   if (params.slug !== undefined && params.slug !== null) {

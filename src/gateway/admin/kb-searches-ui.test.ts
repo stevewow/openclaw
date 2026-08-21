@@ -110,9 +110,45 @@ const ASKS = {
   top: [],
 };
 
+const ARTICLES = [
+  {
+    slug: "where-are-my-photos",
+    title: "Where are my photos",
+    url: "/help/where-are-my-photos",
+    views: 42,
+    likes: 5,
+    helpfulYes: 3,
+    helpfulNo: 1,
+    dateLabel: "Updated",
+    dateAt: Date.UTC(2026, 7, 18),
+  },
+  {
+    slug: "reschedule-a-shoot",
+    title: "Reschedule a shoot",
+    url: "/help/reschedule-a-shoot",
+    views: 4,
+    likes: 0,
+    helpfulYes: 0,
+    helpfulNo: 0,
+    dateLabel: "Published",
+    dateAt: Date.UTC(2026, 6, 2),
+  },
+];
+
+const NOTES = [
+  {
+    id: "note-1",
+    articleId: "a-1",
+    articleTitle: "Where are my photos",
+    helpful: false,
+    note: "It never says where the download link is.",
+    createdAt: Date.UTC(2026, 7, 20),
+  },
+];
+
 type Call = { method: string; path: string };
 
-function mount(opts: { ok?: boolean; asks?: boolean } = {}) {
+function mount(opts: { ok?: boolean; asks?: boolean; engagement?: boolean } = {}) {
   const dom = new JSDOM(ADMIN_UI_HTML, { runScripts: "outside-only" });
   const win = dom.window as unknown as Record<string, unknown> & {
     document: Document;
@@ -133,7 +169,12 @@ function mount(opts: { ok?: boolean; asks?: boolean } = {}) {
     }
     return Promise.resolve({
       ok: true,
-      data: { summary: SUMMARY, asks: opts.asks === false ? undefined : ASKS },
+      data: {
+        summary: SUMMARY,
+        asks: opts.asks === false ? undefined : ASKS,
+        articles: opts.engagement === false ? [] : ARTICLES,
+        notes: opts.engagement === false ? [] : NOTES,
+      },
     });
   };
 
@@ -304,5 +345,61 @@ describe("the help-search report", () => {
     await ui.load();
     expect(ui.doc.getElementById("kbs-gap-rows")?.textContent).toContain("Nothing in this period");
     expect(ui.doc.getElementById("kbs-count")?.textContent).toBe("");
+  });
+});
+
+describe("how articles are doing", () => {
+  it("shows reads, likes and votes for each published article", async () => {
+    const ui = mount();
+    await ui.load();
+    const rows = ui.rowsIn("kbs-perf-rows");
+    expect(rows[0]?.[0]).toBe("Where are my photos");
+    expect(rows[0]?.[1]).toBe("42");
+    expect(rows[0]?.[2]).toBe("5");
+    expect(rows[0]?.[3]).toContain("3 yes");
+    expect(rows[0]?.[3]).toContain("1 no");
+  });
+
+  /** A zero is a number somebody chose; "no votes yet" is the absence of one,
+   * and reading the second as the first is how an unused feature gets mistaken
+   * for a badly received article. */
+  it("says an article has no votes rather than showing it zero of each", async () => {
+    const ui = mount();
+    await ui.load();
+    expect(ui.rowsIn("kbs-perf-rows")[1]?.[3]).toBe("no votes yet");
+  });
+
+  it("labels the date the same way the public page does", async () => {
+    const ui = mount();
+    await ui.load();
+    expect(ui.rowsIn("kbs-perf-rows")[0]?.[4]).toContain("Updated");
+    expect(ui.rowsIn("kbs-perf-rows")[1]?.[4]).toContain("Published");
+  });
+
+  it("shows the comments left with a vote, tagged with which vote it was", async () => {
+    const ui = mount();
+    await ui.load();
+    const rows = ui.rowsIn("kbs-note-rows");
+    expect(rows[0]?.[0]).toContain("Not helpful");
+    expect(rows[0]?.[0]).toContain("It never says where the download link is.");
+    expect(rows[0]?.[1]).toBe("Where are my photos");
+  });
+
+  /**
+   * An empty table on a page about what is missing reads as "nothing is
+   * missing", so both cards stay hidden until they have something to say.
+   */
+  it("hides both cards until there is something in them", async () => {
+    const ui = mount({ engagement: false });
+    await ui.load();
+    expect(ui.doc.getElementById("kbs-perf-card")?.hasAttribute("hidden")).toBe(true);
+    expect(ui.doc.getElementById("kbs-note-card")?.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("hides them again when the report fails to load", async () => {
+    const ui = mount({ ok: false });
+    await ui.load();
+    expect(ui.doc.getElementById("kbs-perf-card")?.hasAttribute("hidden")).toBe(true);
+    expect(ui.doc.getElementById("kbs-note-card")?.hasAttribute("hidden")).toBe(true);
   });
 });

@@ -13,6 +13,7 @@ process.env.OPENCLAW_STATE_DIR = TMP_DIR;
 
 const { handleAdminHttpRequest } = await import("./admin-http.js");
 const userStore = await import("./user-store.js");
+const { PORTAL_FEATURES } = await import("./types.js");
 
 let server: Server;
 let base: string;
@@ -303,5 +304,41 @@ describe("the search report", () => {
 
   it("is read-only — the rows come from the public reader", async () => {
     expect((await call("POST", "/kb/searches", { token: adminToken })).status).toBe(404);
+  });
+});
+
+describe("the article performance report", () => {
+  it("carries a row per published article alongside the searches", async () => {
+    const res = await call("GET", "/kb/searches", { token: adminToken });
+    expect(res.status).toBe(200);
+    const articles = res.json?.articles as Array<Record<string, unknown>>;
+    expect(Array.isArray(articles)).toBe(true);
+    // Counters for an article nobody has opened read as zero, not as missing.
+    for (const article of articles) {
+      expect(article).toMatchObject({ views: 0, likes: 0, helpfulYes: 0, helpfulNo: 0 });
+      expect(typeof article.title).toBe("string");
+      expect(typeof article.url).toBe("string");
+      expect(["Published", "Updated"]).toContain(article.dateLabel);
+    }
+  });
+
+  it("answers with an empty comment list rather than an error before anyone comments", async () => {
+    const res = await call("GET", "/kb/searches", { token: adminToken });
+    expect(res.json?.notes).toEqual([]);
+  });
+});
+
+describe("the Help Center grant", () => {
+  /**
+   * The label on this feature became "Help Center"; the stored value must not
+   * follow it. `knowledge-base` is written into every grant row that already
+   * exists, so renaming the value would quietly revoke everyone's access to the
+   * page it names.
+   */
+  it("keeps its stored value while carrying the new label", () => {
+    const feature = PORTAL_FEATURES.find((f) => f.value === "knowledge-base");
+    expect(feature).toBeTruthy();
+    expect(feature?.label).toBe("Help Center");
+    expect(PORTAL_FEATURES.some((f) => (f.value as string) === "help-center")).toBe(false);
   });
 });

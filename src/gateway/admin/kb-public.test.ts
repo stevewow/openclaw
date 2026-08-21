@@ -15,6 +15,7 @@ process.env.OPENCLAW_STATE_DIR = TMP_DIR;
 const { handleKbPublicRequest } = await import("./kb-public-http.js");
 const { renderMarkdown, videoEmbedUrl } = await import("./kb-public-html.js");
 const store = await import("./kb-store.js");
+const { getAdminDb } = await import("./user-store.js");
 
 let server: Server;
 let baseUrl: string;
@@ -222,7 +223,10 @@ describe("an article", () => {
   it("renders its markdown", async () => {
     const res = await get("/help/reschedule-a-shoot");
     expect(res.status).toBe(200);
-    expect(res.body).toContain("<h2>Steps</h2>");
+    // Headings carry an id and an anchor mark so a step can be linked to
+    // directly; the heading text itself is unchanged.
+    expect(res.body).toContain('<h2 id="steps">Steps');
+    expect(res.body).toContain('href="#steps"');
     expect(res.body).toContain("<li>Call us</li>");
     expect(res.body).toContain('href="https://example.com/book"');
   });
@@ -388,5 +392,161 @@ describe("video links", () => {
     const withLink = await get("/help/watch-that");
     expect(withLink.body).not.toContain("<iframe");
     expect(withLink.body).toContain("https://files.example.com/clip.mp4");
+  });
+});
+
+describe("when an article was written", () => {
+  it("reads as published until the words change", async () => {
+    const article = await store.createArticle({ title: "Dated one", bodyMd: "First draft." });
+    await store.publishArticle(article.id, "steve");
+    const res = await get("/help/dated-one");
+    expect(res.body).toMatch(/Published \w+ \d+, \d{4}/);
+    expect(res.body).not.toContain("Updated ");
+  });
+
+  /**
+   * The reason content_updated_at exists at all. `updated_at` moves when an
+   * article is dragged into a new order or filed somewhere else, so showing it
+   * would date-stamp a whole shelf of articles nobody wrote a word on.
+   */
+  it("does not read as updated after a reorder or a refile", async () => {
+    const shelf = await store.createCategory({ title: "Shelf" });
+    const article = await store.createArticle({ title: "Dated two", bodyMd: "First draft." });
+    await store.publishArticle(article.id, "steve");
+    await store.updateArticle(article.id, { categoryId: shelf.id });
+    await store.reorderArticles(shelf.id, [article.id]);
+
+    const res = await get("/help/dated-two");
+    expect(res.body).not.toContain("Updated ");
+    expect(res.body).toMatch(/Published \w+ \d+, \d{4}/);
+  });
+
+  it("reads as updated once the body actually changes", async () => {
+    const article = await store.createArticle({ title: "Dated three", bodyMd: "First draft." });
+    await store.publishArticle(article.id, "steve");
+    // Publishing stamps both dates in the same tick, and the label only flips
+    // once the change is a minute clear of publication.
+    await store.updateArticle(article.id, { bodyMd: "Rewritten properly." });
+    const stamped = await store.getArticle(article.id);
+    await getAdminDb()
+      .updateTable("admin_kb_articles")
+      .set({ content_updated_at: (stamped?.publishedAt ?? 0) + 5 * 60_000 })
+      .where("id", "=", article.id)
+      .execute();
+
+    const res = await get("/help/dated-three");
+    expect(res.body).toMatch(/Updated \w+ \d+, \d{4}/);
+  });
+
+  it("says roughly how long it takes to read", async () => {
+    const res = await get("/help/reschedule-a-shoot");
+    expect(res.body).toMatch(/\d+ min read/);
+    // Never zero: the number is an orientation, not a measurement.
+    expect(res.body).not.toContain("0 min read");
+  });
+});
+
+describe("linking into an article", () => {
+  it("gives every heading an id and an anchor of its own", async () => {
+    const article = await store.createArticle({
+      title: "Deep linked",
+      bodyMd:
+        "## First step\n\nDo this.\n\n### A detail\n\nAnd this.\n\n## Second step\n\nThen that.",
+    });
+    await store.publishArticle(article.id, "steve");
+    const res = await get("/help/deep-linked");
+    expect(res.body).toContain('<h2 id="first-step">First step');
+    expect(res.body).toContain('<h3 id="a-detail">A detail');
+    expect(res.body).toContain('href="#second-step"');
+  });
+
+  /** Two headings with one id would send both links to the first of them. */
+  it("suffixes a heading that repeats rather than reusing its id", async () => {
+    const article = await store.createArticle({
+      title: "Repeated headings",
+      bodyMd: "## Step one\n\nA.\n\n## Step one\n\nB.\n\n## Step one\n\nC.",
+    });
+    await store.publishArticle(article.id, "steve");
+    const res = await get("/help/repeated-headings");
+    expect(res.body).toContain('<h2 id="step-one">');
+    expect(res.body).toContain('<h2 id="step-one-2">');
+    expect(res.body).toContain('<h2 id="step-one-3">');
+  });
+
+  /**
+   * markdown-it's default renderer prints a token's attributes on a CLOSING
+   * tag as happily as on an opening one, so an id carried on the close token
+   * emits `</h2 data-anchor="…">`. Every other assertion in this file passed
+   * while that was the output.
+   */
+  it("closes the heading cleanly, with the anchor inside it", async () => {
+    const res = await get("/help/deep-linked");
+    expect(res.body).toContain(
+      '<a class="hc-anchor" href="#first-step" aria-label="Link to this section">#</a></h2>',
+    );
+    expect(res.body).not.toMatch(/<\/h[1-6] /);
+  });
+
+  it("offers a contents list once there is something to navigate", async () => {
+    const res = await get("/help/deep-linked");
+    expect(res.body).toContain("On this page");
+    expect(res.body).toContain('<a href="#first-step">First step</a>');
+  });
+
+  /** Two headings is a page, not an outline; a contents list there is noise. */
+  it("leaves the contents list off a short article", async () => {
+    const res = await get("/help/reschedule-a-shoot");
+    expect(res.body).not.toContain("On this page");
+  });
+
+  it("still refuses raw HTML in a heading", async () => {
+    const article = await store.createArticle({
+      title: "Hostile heading",
+      bodyMd: "## <img src=x onerror=alert(1)>\n\nBody.",
+    });
+    await store.publishArticle(article.id, "steve");
+    const res = await get("/help/hostile-heading");
+    expect(res.body).not.toContain("<img src=x");
+    expect(res.body).toContain("&lt;img");
+  });
+});
+
+describe("liking and voting", () => {
+  it("offers both on an article, hidden until the script reveals them", async () => {
+    const res = await get("/help/reschedule-a-shoot");
+    expect(res.body).toContain('id="hc-react"');
+    expect(res.body).toContain("Was this article helpful?");
+    // Neither does anything without JavaScript, so neither is shown without it.
+    expect(res.body).toContain(
+      'class="hc-react" id="hc-react" data-slug="reschedule-a-shoot" hidden',
+    );
+    expect(res.body).toContain('id="hc-helpful" hidden');
+  });
+
+  it("keeps them off the listing pages, which have nothing to vote on", async () => {
+    const index = await get("/help");
+    expect(index.body).not.toContain('id="hc-react"');
+    const category = await get("/help/category/scheduling");
+    expect(category.body).not.toContain('id="hc-react"');
+  });
+});
+
+describe("search suggestions", () => {
+  it("wires the box up on every page that has one", async () => {
+    for (const page of ["/help", "/help?q=shoot", "/help/category/scheduling"]) {
+      const res = await get(page);
+      expect(res.body).toContain('id="hc-sugg"');
+      expect(res.body).toContain("/help/suggest");
+    }
+  });
+
+  /** The form is the real thing; the suggestions are laid over a page that
+   * already worked without them. */
+  it("leaves the plain form intact underneath", async () => {
+    const res = await get("/help");
+    expect(res.body).toContain(
+      '<form class="hc-search" method="get" action="/help" role="search">',
+    );
+    expect(res.body).toContain('<button class="btn" type="submit">Search</button>');
   });
 });

@@ -26,12 +26,27 @@ import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { answerHelpQuestion } from "./kb-answer.js";
 import { askApiKey, checkAskAllowance } from "./kb-ask-limits.js";
 import { escalateKbAsk, MAX_QUESTION, recordKbAsk } from "./kb-ask-store.js";
+import { checkEngagementAllowance } from "./kb-engagement-limits.js";
 import {
+  getArticleStats,
+  likeArticle,
+  listArticleStats,
+  MAX_NOTE,
+  recordArticleNote,
+  recordArticleView,
+  recordHelpfulVote,
+} from "./kb-engagement-store.js";
+import {
+  articleDate,
   articleUrl,
   HELP_ASK_PATH,
   HELP_ASK_SEND_PATH,
   HELP_CATEGORY_PREFIX,
+  HELP_HELPFUL_PATH,
+  HELP_LIKE_PATH,
+  HELP_NOTE_PATH,
   HELP_PATH,
+  HELP_SUGGEST_PATH,
   renderHelpAnswerHtml,
   renderHelpArticleHtml,
   renderHelpAskLimitedHtml,
@@ -66,6 +81,34 @@ const PAGE_CACHE = "public, max-age=60";
  * over-long one is trimmed to the cap rather than refused at the door.
  */
 const MAX_ASK_BODY_BYTES = 4 * 1024;
+
+/** How many articles the index offers as shortcuts in each highlight list. */
+const HIGHLIGHT_LIMIT = 5;
+
+/** Suggestions under the search box. A shortlist, not a results page. */
+const SUGGEST_LIMIT = 6;
+
+/**
+ * A like or a vote is a slug and a boolean. Small enough that anything larger
+ * is not one, and refusing early keeps a public write endpoint cheap.
+ */
+const MAX_ENGAGEMENT_BODY_BYTES = 2 * 1024;
+
+/**
+ * Self-declared crawlers, so they do not fill the read counts.
+ *
+ * The user agent is read and immediately discarded — nothing here stores it,
+ * which keeps the promise the rest of these tables make. This is not a defence
+ * against anything; a crawler that does not say it is one is counted as a
+ * reader, and that is fine. The counts rank articles against each other, and a
+ * bias that falls on all of them equally does not change the ranking.
+ */
+const BOT_UA = /bot|crawler|spider|crawling|preview|monitor|curl|wget|headless|slurp|fetch/i;
+
+function looksLikeBot(req: IncomingMessage): boolean {
+  const agent = req.headers["user-agent"];
+  return typeof agent === "string" && BOT_UA.test(agent);
+}
 
 /**
  * Run a search-log write without letting it reach the client.
@@ -145,10 +188,39 @@ export async function handleKbPublicRequest(
     }
     return true;
   }
+  // Liking an article and voting on it. Exact-match, not prefixed: the note
+  // route sits under the vote route's path, and a prefix test would give one
+  // of them the other's handler.
+  if (path === HELP_LIKE_PATH || path === HELP_HELPFUL_PATH || path === HELP_NOTE_PATH) {
+    if (req.method !== "POST") {
+      return false;
+    }
+    await handleEngagement(req, res, path);
+    return true;
+  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     return false;
   }
   const head = req.method === "HEAD";
+
+  // GET /help/suggest?q= — the search box's own shortlist.
+  //
+  // Deliberately NOT logged. The gap report counts searches somebody chose to
+  // run; logging keystrokes would fill it with the prefixes of words and bury
+  // the questions actually asked underneath them.
+  if (path === HELP_SUGGEST_PATH) {
+    const query = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
+    const results = query.length >= 2 ? await searchArticles(query, { limit: SUGGEST_LIMIT }) : [];
+    sendJson(res, 200, {
+      articles: results.map((article) => ({
+        title: article.title,
+        summary: article.summary,
+        url: articleUrl(article),
+      })),
+    });
+    return true;
+  }
+
   // Read once: the widget is drawn on every page, so every renderer below
   // needs the same answer.
   const askEnabled = Boolean(askApiKey());
@@ -209,10 +281,23 @@ export async function handleKbPublicRequest(
         groups.push(Object.assign(category, { articles: filed }));
       }
     }
-    sendHtml(res, 200, renderHelpIndexHtml({ categories: groups, unfiled, askEnabled }), {
-      cache: PAGE_CACHE,
-      head,
-    });
+    // The two shortcut lists. Read counts come from their own table, and an
+    // article with no row there has simply not been opened yet — it sorts as
+    // zero rather than dropping out.
+    const stats = (await logQuietly(() => listArticleStats())) ?? new Map();
+    const popular = articles
+      .filter((article) => (stats.get(article.id)?.views ?? 0) > 0)
+      .toSorted((a, b) => (stats.get(b.id)?.views ?? 0) - (stats.get(a.id)?.views ?? 0))
+      .slice(0, HIGHLIGHT_LIMIT);
+    const recent = articles
+      .toSorted((a, b) => articleDate(b).at - articleDate(a).at)
+      .slice(0, HIGHLIGHT_LIMIT);
+    sendHtml(
+      res,
+      200,
+      renderHelpIndexHtml({ categories: groups, unfiled, askEnabled, popular, recent }),
+      { cache: PAGE_CACHE, head },
+    );
     return true;
   }
 
@@ -257,14 +342,32 @@ export async function handleKbPublicRequest(
   if (!head && fromSearch) {
     await logQuietly(() => recordKbSearchClick(fromSearch, article.id));
   }
-  const [category, siblings] = await Promise.all([
+  // One more read. HEAD is a prefetcher or an unfurler rather than a reader,
+  // and a self-declared crawler is not one either; both would otherwise make
+  // the most-linked article look like the most-read one.
+  if (!head && !looksLikeBot(req)) {
+    await logQuietly(() => recordArticleView(article.id));
+  }
+  const [category, siblings, stats] = await Promise.all([
     article.categoryId ? getCategory(article.categoryId) : Promise.resolve(null),
     listArticles({ status: "published", categoryId: article.categoryId ?? null }),
+    logQuietly(() => getArticleStats(article.id)),
   ]);
   sendHtml(
     res,
     200,
-    renderHelpArticleHtml({ article, category, siblings, supportUrl: SUPPORT_URL, askEnabled }),
+    renderHelpArticleHtml({
+      article,
+      category,
+      siblings,
+      supportUrl: SUPPORT_URL,
+      askEnabled,
+      likes: stats?.likes ?? 0,
+    }),
+    // The like count is inside a cached page, so it can be up to a minute
+    // stale. The script corrects it the moment anyone presses the button, and
+    // a number that lags by a minute is not worth making every article page
+    // uncacheable for.
     { cache: PAGE_CACHE, head },
   );
   return true;
@@ -402,6 +505,90 @@ async function handleAskSend(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
   sendJson(res, outcome === "unknown" ? 404 : 500, { ok: false });
+}
+
+/**
+ * POST /help/like, /help/helpful and /help/helpful/note.
+ *
+ * The first writes the public help center accepts that are not a page being
+ * read, so the shape is deliberately narrow: a slug that must name a published
+ * article, a boolean, and — on the note route only — some text. Nothing here
+ * can create an article, name one that is not published, or write anything
+ * about who pressed the button.
+ *
+ * A draft is treated exactly as a typo is, the way the reader treats it: the
+ * same 404, so the vote endpoints cannot be used to probe for unpublished work
+ * that the pages themselves refuse to confirm exists.
+ */
+async function handleEngagement(
+  req: IncomingMessage,
+  res: ServerResponse,
+  path: string,
+): Promise<void> {
+  if (!checkEngagementAllowance(req)) {
+    sendJson(res, 429, { ok: false, limited: true });
+    return;
+  }
+
+  let slug = "";
+  let on = true;
+  let helpful = true;
+  let note = "";
+  try {
+    const raw = await readRequestBodyWithLimit(req, { maxBytes: MAX_ENGAGEMENT_BODY_BYTES });
+    const parsed = JSON.parse(raw) as {
+      slug?: unknown;
+      on?: unknown;
+      helpful?: unknown;
+      note?: unknown;
+    };
+    slug = typeof parsed.slug === "string" ? parsed.slug : "";
+    on = parsed.on !== false;
+    helpful = parsed.helpful === true;
+    note = typeof parsed.note === "string" ? parsed.note.trim().slice(0, MAX_NOTE) : "";
+  } catch {
+    sendJson(res, 400, { ok: false, error: "bad request" });
+    return;
+  }
+  if (!slug) {
+    sendJson(res, 400, { ok: false, error: "slug required" });
+    return;
+  }
+
+  const article = await getArticleBySlug(slug);
+  if (!article || article.status !== "published") {
+    sendJson(res, 404, { ok: false });
+    return;
+  }
+
+  if (path === HELP_LIKE_PATH) {
+    const likes = await logQuietly(() => likeArticle(article.id, on));
+    // A failed write costs a count, never the press: the button has already
+    // moved in the client's own browser and telling them it did not is worse
+    // than a number that catches up on the next page load.
+    sendJson(res, 200, { ok: true, likes: likes ?? 0 });
+    return;
+  }
+
+  if (path === HELP_NOTE_PATH) {
+    // Note-only. The vote itself was counted when the button was pressed; this
+    // route must not count it a second time, which is why `recordHelpfulVote`
+    // is not what runs here.
+    if (!note) {
+      sendJson(res, 400, { ok: false, error: "note required" });
+      return;
+    }
+    await logQuietly(() =>
+      recordArticleNote({ articleId: article.id, articleTitle: article.title, helpful, note }),
+    );
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  await logQuietly(() =>
+    recordHelpfulVote({ articleId: article.id, articleTitle: article.title, helpful }),
+  );
+  sendJson(res, 200, { ok: true });
 }
 
 /** Whether the caller wants JSON — the widget — rather than a page. */

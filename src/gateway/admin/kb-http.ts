@@ -12,6 +12,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
 import { sendJson } from "../http-common.js";
 import { summarizeKbAsks } from "./kb-ask-store.js";
+import { listArticleNotes, listArticleStats } from "./kb-engagement-store.js";
+// The reader's own idea of which date to show an article by, reused rather
+// than restated: two answers to "when was this last written" that could drift
+// is exactly the confusion the content_updated_at column exists to end.
+import { articleDate, articleUrl } from "./kb-public-html.js";
 import { summarizeKbSearches } from "./kb-search-store.js";
 import {
   type CreateArticleParams,
@@ -171,11 +176,35 @@ export async function handleKbAdminRequest(
     // Searches and questions in one call: they are two readings of the same
     // thing — what clients wanted and could not find — and a page that had to
     // fetch them separately would show one of them stale.
-    const [summary, asks] = await Promise.all([
+    const since = Date.now() - (Number.isFinite(rawDays) ? rawDays : 30) * 24 * 60 * 60 * 1000;
+    const [summary, asks, stats, notes, articles] = await Promise.all([
       summarizeKbSearches(window),
       summarizeKbAsks(window),
+      listArticleStats(),
+      listArticleNotes({ since, limit: 50 }),
+      listArticles({ status: "published" }),
     ]);
-    sendJson(res, 200, { summary, asks });
+    // How each article is doing, in one row per article. Sorted by reads: the
+    // article nobody opens and the article everybody opens and votes down are
+    // different problems, and both are invisible in a list ordered by title.
+    const performance = articles
+      .map((article) => {
+        const row = stats.get(article.id);
+        const { label, at } = articleDate(article);
+        return {
+          slug: article.slug,
+          title: article.title,
+          url: articleUrl(article),
+          views: row?.views ?? 0,
+          likes: row?.likes ?? 0,
+          helpfulYes: row?.helpfulYes ?? 0,
+          helpfulNo: row?.helpfulNo ?? 0,
+          dateLabel: label,
+          dateAt: at,
+        };
+      })
+      .toSorted((a, b) => b.views - a.views);
+    sendJson(res, 200, { summary, asks, articles: performance, notes });
     return true;
   }
 

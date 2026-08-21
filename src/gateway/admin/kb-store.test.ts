@@ -309,3 +309,74 @@ describe("searching from a question", () => {
     expect(await store.searchArticlesForQuestion("what does a zebra shoot cost")).toEqual([]);
   });
 });
+
+describe("the content date", () => {
+  it("is stamped when the article is written", async () => {
+    const article = await store.createArticle({ title: "Fresh", bodyMd: "Body." });
+    expect(article.contentUpdatedAt).toBe(article.createdAt);
+  });
+
+  it("moves when the words change", async () => {
+    const article = await store.createArticle({ title: "Fresh", bodyMd: "Body." });
+    const before = article.contentUpdatedAt ?? 0;
+    await new Promise((r) => setTimeout(r, 2));
+    const updated = await store.updateArticle(article.id, { bodyMd: "A better body." });
+    expect(updated?.contentUpdatedAt ?? 0).toBeGreaterThan(before);
+  });
+
+  /**
+   * The whole point of the column. `updated_at` moves on any write at all, so
+   * a drag-reorder in the Hub would otherwise date-stamp every article in the
+   * category as freshly updated for every client reading them.
+   */
+  it("does not move when the article is only refiled or reordered", async () => {
+    const shelf = await store.createCategory({ title: "Shelf" });
+    const article = await store.createArticle({ title: "Fresh", bodyMd: "Body." });
+    const before = article.contentUpdatedAt ?? 0;
+    await new Promise((r) => setTimeout(r, 2));
+
+    const refiled = await store.updateArticle(article.id, { categoryId: shelf.id });
+    await store.reorderArticles(shelf.id, [article.id]);
+    const after = await store.getArticle(article.id);
+
+    expect(refiled?.contentUpdatedAt).toBe(before);
+    expect(after?.contentUpdatedAt).toBe(before);
+    // …and updated_at did move, which is exactly why it cannot be shown.
+    expect(after?.updatedAt ?? 0).toBeGreaterThan(before);
+  });
+
+  /**
+   * The editor PATCHes the whole article on every save, so "was this field
+   * sent" is not the same question as "did it change" — and only the second
+   * one should stamp a new date on somebody's article.
+   */
+  it("does not move when a save changes nothing", async () => {
+    const article = await store.createArticle({
+      title: "Fresh",
+      summary: "A summary",
+      bodyMd: "Body.",
+    });
+    const before = article.contentUpdatedAt ?? 0;
+    await new Promise((r) => setTimeout(r, 2));
+    const saved = await store.updateArticle(article.id, {
+      title: "Fresh",
+      summary: "A summary",
+      bodyMd: "Body.",
+    });
+    expect(saved?.contentUpdatedAt).toBe(before);
+  });
+
+  it("moves for a retitle, a new summary or a new video", async () => {
+    for (const change of [
+      { title: "Renamed" },
+      { summary: "Now summarized" },
+      { videoUrl: "https://vimeo.com/12345" },
+    ]) {
+      const article = await store.createArticle({ title: "Fresh", bodyMd: "Body." });
+      const before = article.contentUpdatedAt ?? 0;
+      await new Promise((r) => setTimeout(r, 2));
+      const updated = await store.updateArticle(article.id, change);
+      expect(updated?.contentUpdatedAt ?? 0).toBeGreaterThan(before);
+    }
+  });
+});

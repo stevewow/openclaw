@@ -50,6 +50,143 @@ export function renderMarkdown(source: string): string {
   return md.render(source);
 }
 
+/** A heading in an article body, for the contents list and its anchor. */
+export type ArticleHeading = {
+  id: string;
+  text: string;
+  level: number;
+};
+
+/**
+ * The anchor mark a heading carries. Rendered from an id we generated in
+ * renderArticleBody, never from anything in the source, so this is our markup
+ * and not a hole in the `html: false` above.
+ *
+ * The id is read back off the opening token — two along, since markdown-it
+ * emits a heading as open, inline, close — rather than stashed on the closing
+ * token. Attributes on a closing token are still rendered by markdown-it's
+ * default renderer, so carrying it there emits `</h2 data-anchor="…">`.
+ */
+md.renderer.rules.heading_close = (tokens, idx, options, _env, self) => {
+  const closing = self.renderToken(tokens, idx, options);
+  const open = tokens[idx - 2];
+  if (open?.type !== "heading_open" || open.tag !== tokens[idx]?.tag) {
+    return closing;
+  }
+  const anchor = open.attrGet?.("id");
+  return anchor
+    ? `<a class="hc-anchor" href="#${escapeHtml(anchor)}" aria-label="Link to this section">#</a>${closing}`
+    : closing;
+};
+
+/** A heading turned into a fragment id: the same shape as an article slug. */
+function headingId(text: string): string {
+  return (
+    text
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "section"
+  );
+}
+
+/**
+ * An article body, plus the headings inside it.
+ *
+ * Rendered in one pass rather than two so the ids in the contents list and the
+ * ids on the page cannot disagree — a contents list that scrolls nowhere is
+ * worse than no contents list. Duplicate headings are suffixed, because "Step
+ * one" appearing twice is ordinary in help writing and two elements with one id
+ * would send both links to the first.
+ */
+export function renderArticleBody(source: string): {
+  html: string;
+  headings: ArticleHeading[];
+} {
+  const tokens = md.parse(source, {});
+  const headings: ArticleHeading[] = [];
+  const used = new Map<string, number>();
+  for (let i = 0; i < tokens.length; i += 1) {
+    const open = tokens[i];
+    if (open?.type !== "heading_open") {
+      continue;
+    }
+    const text = (tokens[i + 1]?.content ?? "").trim();
+    const level = Number.parseInt(open.tag.slice(1), 10);
+    if (!text || !Number.isFinite(level) || level > 4) {
+      continue;
+    }
+    const base = headingId(text);
+    const seen = used.get(base) ?? 0;
+    used.set(base, seen + 1);
+    const id = seen === 0 ? base : `${base}-${seen + 1}`;
+    open.attrSet("id", id);
+    // Only the levels a reader navigates by. An h4 gets an anchor to link to
+    // and stays out of the contents, which is a summary and not an outline.
+    if (level === 2 || level === 3) {
+      headings.push({ id, text, level });
+    }
+  }
+  return { html: md.renderer.render(tokens, md.options, {}), headings };
+}
+
+/**
+ * How long an article takes to read, in whole minutes.
+ *
+ * 220 words a minute, rounded up, floor of one. Shown so someone deciding
+ * whether to read now or later can tell a two-line answer from a walkthrough —
+ * not as a precise claim, which is why it is never shown as "0 min".
+ */
+export function readingMinutes(bodyMd: string): number {
+  const words = bodyMd.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words / 220));
+}
+
+/**
+ * The date to show a client, and what to call it.
+ *
+ * `updatedAt` is deliberately not consulted: it moves when an article is
+ * dragged into a new order or refiled, so showing it would date-stamp a shelf
+ * of articles nobody wrote a word on. `contentUpdatedAt` moves only when the
+ * words change, and an article written before that column existed has none —
+ * which reads as its publication date, the only thing actually known about it.
+ */
+export function articleDate(article: {
+  publishedAt: number | null;
+  contentUpdatedAt: number | null;
+  createdAt: number;
+}): { label: "Published" | "Updated"; at: number } {
+  const published = article.publishedAt ?? article.createdAt;
+  const changed = article.contentUpdatedAt;
+  // A minute's grace: publishing writes both stamps, and an article published
+  // the moment it was written has not been "updated" since.
+  return changed && changed > published + 60_000
+    ? { label: "Updated", at: changed }
+    : { label: "Published", at: published };
+}
+
+/** A date a client reads, not an ISO stamp. Fixed to the business's own zone. */
+export function formatHelpDate(at: number): string {
+  return new Date(at).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "America/New_York",
+  });
+}
+
+/** Articles changed this recently are worth marking as new on the index. */
+const NEW_FOR_DAYS = 30;
+
+export function isRecentlyChanged(
+  article: { publishedAt: number | null; contentUpdatedAt: number | null; createdAt: number },
+  now = Date.now(),
+): boolean {
+  return now - articleDate(article).at < NEW_FOR_DAYS * 24 * 60 * 60 * 1000;
+}
+
 /**
  * A video link becomes a player only for hosts we can build an embed URL for,
  * and a plain link otherwise. Guessing an embed URL for an unknown host would
@@ -169,6 +306,111 @@ const HELP_STYLES = `
   .hc-group h2 a:hover { text-decoration:underline; }
   .hc-count { color:var(--muted); font-weight:600; letter-spacing:0; text-transform:none; }
 
+  /* When the article was written, how long it takes, and the link to it. One
+     quiet line: it answers "is this current and is it long" without competing
+     with the title. */
+  .hc-meta {
+    display:flex; flex-wrap:wrap; align-items:center; gap:0.35rem 0.7rem;
+    color:var(--muted); font-size:0.8rem; margin:0 0 1.3rem;
+  }
+  .hc-meta .hc-dot { opacity:0.5; }
+  .hc-copy {
+    width:auto; padding:0; border:none; background:none; cursor:pointer;
+    color:var(--muted); font-family:inherit; font-size:0.8rem; text-decoration:underline;
+  }
+  .hc-copy:hover { color:var(--wow); }
+
+  /* A heading's own link. Kept out of the way until the heading is hovered or
+     the link itself is focused, so a printed or scanned article is not littered
+     with hashes — but reachable by keyboard, which display:none would not be. */
+  .hc-anchor {
+    margin-left:0.4rem; color:var(--muted); text-decoration:none; font-weight:400;
+    opacity:0; transition:opacity 0.12s ease;
+  }
+  .hc-body h1:hover .hc-anchor, .hc-body h2:hover .hc-anchor,
+  .hc-body h3:hover .hc-anchor, .hc-body h4:hover .hc-anchor,
+  .hc-anchor:focus { opacity:1; }
+  .hc-anchor:hover { color:var(--wow); }
+  /* Landing on an anchor must not tuck the heading under the top of the window. */
+  .hc-body :target { scroll-margin-top:1rem; }
+
+  .hc-toc {
+    border:1px solid var(--hairline); border-radius:12px; background:var(--surface);
+    padding:0.85rem 1rem; margin:0 0 1.4rem;
+  }
+  .hc-toc h2 {
+    font-size:0.7rem; font-weight:700; letter-spacing:0.09em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 0.5rem;
+  }
+  .hc-toc ol { list-style:none; margin:0; padding:0; }
+  .hc-toc li { margin:0 0 0.3rem; font-size:0.88rem; }
+  .hc-toc li:last-child { margin-bottom:0; }
+  .hc-toc .hc-toc-3 { padding-left:0.9rem; font-size:0.84rem; }
+  .hc-toc a { color:var(--ink); text-decoration:none; }
+  .hc-toc a:hover { color:var(--wow); text-decoration:underline; }
+
+  /* Liking and voting. Both need JavaScript to do anything at all, so both are
+     hidden in the markup and revealed by the script — the same rule the
+     assistant launcher follows. A button that silently does nothing is worse
+     than no button. */
+  .hc-react[hidden], .hc-helpful[hidden] { display:none; }
+  .hc-react { display:flex; align-items:center; gap:0.6rem; margin:1.4rem 0 0; }
+  .hc-like {
+    width:auto; display:inline-flex; align-items:center; gap:0.4rem;
+    padding:0.5rem 0.95rem; border:1px solid var(--border); border-radius:999px;
+    background:var(--surface); color:var(--muted); font-family:inherit;
+    font-size:0.84rem; font-weight:600; cursor:pointer; min-height:38px;
+  }
+  .hc-like:hover { border-color:var(--wow); color:var(--wow); }
+  .hc-like[aria-pressed="true"] { border-color:var(--wow); background:var(--wow-tint); color:var(--wow); }
+  .hc-like .hc-heart { font-size:0.95rem; line-height:1; }
+
+  .hc-helpful { border-top:1px solid var(--hairline); margin-top:1.5rem; padding-top:1.1rem; }
+  .hc-helpful p { margin:0 0 0.6rem; font-size:0.9rem; font-weight:600; }
+  .hc-vote { display:flex; gap:0.5rem; flex-wrap:wrap; }
+  .hc-vote button {
+    width:auto; padding:0.5rem 1.3rem; border:1px solid var(--border); border-radius:999px;
+    background:#fff; color:var(--ink); font-family:inherit; font-size:0.84rem;
+    font-weight:600; cursor:pointer; min-height:38px;
+  }
+  .hc-vote button:hover { border-color:var(--wow); color:var(--wow); }
+  .hc-note { margin-top:0.75rem; }
+  .hc-note textarea {
+    width:100%; resize:vertical; min-height:4.5rem; padding:0.55rem 0.7rem;
+    border:1px solid var(--border); border-radius:9px; font-family:inherit;
+    /* 16px stops iOS zooming the viewport when the field takes focus. */
+    font-size:1rem; color:var(--ink); background:#fff;
+  }
+  .hc-note textarea:focus { outline:none; border-color:var(--wow); }
+  .hc-note button { width:auto; margin-top:0.5rem; padding:0.45rem 1.1rem; font-size:0.82rem; }
+  .hc-thanks { color:var(--muted); font-size:0.88rem; font-weight:400 !important; margin:0 !important; }
+
+  /* Suggestions under the search box. The form still works without any of
+     this; the list is an accelerator laid over a page that already worked. */
+  .hc-search { position:relative; }
+  .hc-sugg {
+    position:absolute; top:calc(100% + 0.35rem); left:0; right:0; z-index:20;
+    background:#fff; border:1px solid var(--border); border-radius:12px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.12); padding:0.3rem; margin:0;
+    list-style:none; max-height:19rem; overflow-y:auto;
+  }
+  .hc-sugg[hidden] { display:none; }
+  .hc-sugg li a {
+    display:block; padding:0.55rem 0.7rem; border-radius:8px; color:var(--ink);
+    text-decoration:none; font-size:0.9rem; font-weight:600;
+  }
+  .hc-sugg li a:hover, .hc-sugg li a:focus, .hc-sugg li.hc-sugg-on a {
+    background:var(--wow-tint); color:var(--wow); outline:none;
+  }
+  .hc-sugg .hc-sugg-sum { display:block; color:var(--muted); font-weight:400; font-size:0.8rem; margin-top:0.1rem; }
+  .hc-sugg .hc-sugg-none { padding:0.55rem 0.7rem; color:var(--muted); font-size:0.88rem; }
+
+  .hc-new {
+    display:inline-block; margin-left:0.45rem; padding:0.05rem 0.4rem; border-radius:999px;
+    background:var(--wow-tint); color:var(--wow); font-size:0.66rem; font-weight:700;
+    letter-spacing:0.05em; text-transform:uppercase; vertical-align:0.1em;
+  }
+
   /* The answer itself, and the standing reminder of where it came from. */
   .hc-answer { border:1px solid var(--border); border-left:3px solid var(--wow);
     border-radius:var(--radius, 10px); padding:1rem 1.1rem; margin:0 0 1.2rem; background:var(--surface); }
@@ -284,11 +526,137 @@ ${opts.ask ? askWidget() : ""}
 </html>`;
 }
 
+/** Where the search box reads its live suggestions from. GET, and read-only. */
+export const HELP_SUGGEST_PATH = `${HELP_PATH}/suggest`;
+
+/** Where a like is sent. */
+export const HELP_LIKE_PATH = `${HELP_PATH}/like`;
+
+/** Where a "was this helpful?" vote is sent. */
+export const HELP_HELPFUL_PATH = `${HELP_PATH}/helpful`;
+
+/**
+ * Where the comment left with a vote is sent.
+ *
+ * Its own route rather than a field on the vote, because the vote is cast the
+ * moment Yes or No is pressed and the comment is written afterwards. One route
+ * taking both would have to be told which of the two it was doing, and a flag
+ * that decides whether a counter moves is a flag that will eventually move it
+ * twice.
+ */
+export const HELP_NOTE_PATH = `${HELP_PATH}/helpful/note`;
+
+/**
+ * The search box, with suggestions as you type.
+ *
+ * The form is the real thing and works on its own: no JavaScript, no fetch, a
+ * GET to /help?q=. Everything the script adds sits on top of that and can fail
+ * without taking the box with it.
+ *
+ * Typing does NOT log a search. The gap report counts searches somebody
+ * submitted, and a suggestion endpoint that logged every keystroke would fill
+ * it with the prefixes of words — "f", "fl", "flo" — and bury the questions
+ * actually asked. The route enforces this; the note is here because this is
+ * where the temptation to "just log it too" will arrive.
+ */
 function searchForm(query: string): string {
   return `      <form class="hc-search" method="get" action="${HELP_PATH}" role="search">
-        <input type="search" name="q" value="${escapeHtml(query)}" placeholder="Search help articles…" aria-label="Search help articles" />
+        <input type="search" name="q" id="hc-q" value="${escapeHtml(query)}" placeholder="Search help articles…" aria-label="Search help articles" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="hc-sugg" aria-autocomplete="list" />
         <button class="btn" type="submit">Search</button>
-      </form>`;
+        <ul class="hc-sugg" id="hc-sugg" role="listbox" aria-label="Suggested articles" hidden></ul>
+      </form>
+      <script>
+      (function () {
+        var input = document.getElementById('hc-q');
+        var list = document.getElementById('hc-sugg');
+        if (!input || !list || !window.fetch) return;
+        var timer = null;
+        var seq = 0;
+        var cursor = -1;
+
+        function esc(value) {
+          return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        }
+
+        function close() {
+          list.hidden = true;
+          list.innerHTML = '';
+          cursor = -1;
+          input.setAttribute('aria-expanded', 'false');
+        }
+
+        function move(step) {
+          var items = list.querySelectorAll('li[data-i]');
+          if (!items.length) return;
+          if (cursor >= 0 && items[cursor]) items[cursor].classList.remove('hc-sugg-on');
+          cursor = (cursor + step + items.length) % items.length;
+          items[cursor].classList.add('hc-sugg-on');
+          items[cursor].scrollIntoView({ block: 'nearest' });
+        }
+
+        function show(articles) {
+          if (!articles.length) {
+            // Say so rather than closing: silence reads as a broken box, and
+            // "nothing matches yet" is the cue to try a shorter word.
+            list.innerHTML = '<li class="hc-sugg-none">No articles match that yet — press Search to look properly.</li>';
+          } else {
+            list.innerHTML = articles.map(function (a, i) {
+              return '<li data-i="' + i + '" role="option"><a href="' + esc(a.url) + '">' + esc(a.title) +
+                (a.summary ? '<span class="hc-sugg-sum">' + esc(a.summary) + '</span>' : '') + '</a></li>';
+            }).join('');
+          }
+          cursor = -1;
+          list.hidden = false;
+          input.setAttribute('aria-expanded', 'true');
+        }
+
+        input.addEventListener('input', function () {
+          var q = input.value.trim();
+          if (timer) clearTimeout(timer);
+          if (q.length < 2) { close(); return; }
+          // Debounced so a typed word is one request rather than six, and
+          // sequenced so a slow early reply cannot overwrite a fast later one.
+          timer = setTimeout(function () {
+            var mine = ++seq;
+            fetch('${HELP_SUGGEST_PATH}?q=' + encodeURIComponent(q), {
+              headers: { 'Accept': 'application/json' }
+            }).then(function (r) { return r.json(); }).then(function (data) {
+              if (mine !== seq || input.value.trim() !== q) return;
+              show((data && data.articles) || []);
+            }).catch(function () { close(); });
+          }, 150);
+        });
+
+        input.addEventListener('keydown', function (e) {
+          if (list.hidden) return;
+          if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+          else if (e.key === 'Escape') { close(); }
+          else if (e.key === 'Enter' && cursor >= 0) {
+            var link = list.querySelectorAll('li[data-i] a')[cursor];
+            if (link) { e.preventDefault(); window.location.href = link.getAttribute('href'); }
+          }
+        });
+
+        // A click inside the list is a click on a link and must not race the
+        // blur that closes it, so this waits a tick.
+        input.addEventListener('blur', function () { setTimeout(close, 150); });
+
+        // "/" jumps to the box, the way search does everywhere else — but not
+        // while someone is typing into a field, where it is just a slash.
+        document.addEventListener('keydown', function (e) {
+          if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+          var el = document.activeElement;
+          var tag = el && el.tagName;
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || (el && el.isContentEditable)) return;
+          e.preventDefault();
+          input.focus();
+          input.select();
+        });
+      })();
+      </script>`;
 }
 
 /** Where a question is sent. POST, never GET — see the route for why. */
@@ -458,6 +826,188 @@ function askWidget(): string {
 }
 
 /**
+ * The contents of a long article.
+ *
+ * Only drawn when there is genuinely something to navigate: three headings is
+ * where a list stops restating the page and starts saving a scroll. Nested one
+ * level, because help articles that go deeper than that want splitting up.
+ */
+function tableOfContents(headings: ArticleHeading[]): string {
+  if (headings.length < 3) {
+    return "";
+  }
+  const items = headings.map(
+    (h) =>
+      `          <li class="hc-toc-${h.level}"><a href="#${escapeHtml(h.id)}">${escapeHtml(h.text)}</a></li>`,
+  );
+  return `      <nav class="hc-toc" aria-label="On this page">
+        <h2>On this page</h2>
+        <ol>
+${items.join("\n")}
+        </ol>
+      </nav>`;
+}
+
+/** When it was written, how long it takes, and a link straight to it. */
+function articleMeta(article: KbArticle): string {
+  const { label, at } = articleDate(article);
+  return `      <p class="hc-meta">
+        <span>${label} ${escapeHtml(formatHelpDate(at))}</span>
+        <span class="hc-dot" aria-hidden="true">·</span>
+        <span>${readingMinutes(article.bodyMd)} min read</span>
+        <span class="hc-dot hc-copy-only" aria-hidden="true" hidden>·</span>
+        <button type="button" class="hc-copy" id="hc-copy" hidden>Copy link</button>
+      </p>`;
+}
+
+/**
+ * Liking an article, and saying whether it helped.
+ *
+ * Both are hidden in the markup and revealed by the script below, for the same
+ * reason the assistant launcher is: without JavaScript neither button can do
+ * anything, and a button that silently fails is worse than one that was never
+ * offered.
+ *
+ * Whether this visitor already liked or voted lives in their own localStorage
+ * and nowhere else. The server counts presses and stores no identity at all, so
+ * it genuinely cannot tell one visitor from another — the browser remembering
+ * is the honest version of "you already said this", not a weaker one.
+ */
+function engagementBlock(article: KbArticle, likes: number): string {
+  const slug = escapeHtml(article.slug);
+  return `      <div class="hc-react" id="hc-react" data-slug="${slug}" hidden>
+        <button type="button" class="hc-like" id="hc-like" aria-pressed="false" aria-label="Like this article">
+          <span class="hc-heart" aria-hidden="true">♥</span>
+          <span id="hc-like-label">Helpful</span>
+          <span class="hc-like-n" id="hc-like-n"${likes > 0 ? "" : " hidden"}>${likes}</span>
+        </button>
+      </div>
+      <section class="hc-helpful" id="hc-helpful" hidden aria-label="Was this article helpful?">
+        <p id="hc-helpful-q">Was this article helpful?</p>
+        <div class="hc-vote" id="hc-vote">
+          <button type="button" data-vote="yes">Yes</button>
+          <button type="button" data-vote="no">No</button>
+        </div>
+        <div class="hc-note" id="hc-note" hidden>
+          <textarea id="hc-note-text" maxlength="500" rows="3" aria-label="What were you looking for?"></textarea>
+          <button class="btn btn-primary" type="button" id="hc-note-send">Send</button>
+        </div>
+        <p class="hc-thanks" id="hc-thanks" hidden></p>
+      </section>
+      <script>
+      (function () {
+        var react = document.getElementById('hc-react');
+        var helpful = document.getElementById('hc-helpful');
+        if (!react || !helpful || !window.fetch) return;
+        var slug = react.getAttribute('data-slug');
+        var like = document.getElementById('hc-like');
+        var likeN = document.getElementById('hc-like-n');
+        var likeLabel = document.getElementById('hc-like-label');
+        var vote = document.getElementById('hc-vote');
+        var note = document.getElementById('hc-note');
+        var noteText = document.getElementById('hc-note-text');
+        var thanks = document.getElementById('hc-thanks');
+        var question = document.getElementById('hc-helpful-q');
+
+        // Private-mode Safari throws on localStorage rather than returning
+        // null, and a thrown storage read must not cost the whole block.
+        function remembered(key) {
+          try { return window.localStorage.getItem(key); } catch (e) { return null; }
+        }
+        function remember(key, value) {
+          try {
+            if (value === null) window.localStorage.removeItem(key);
+            else window.localStorage.setItem(key, value);
+          } catch (e) { /* nothing to do; the buttons still work, they just forget */ }
+        }
+
+        var likeKey = 'wow-help-like:' + slug;
+        var voteKey = 'wow-help-vote:' + slug;
+        var liked = remembered(likeKey) === '1';
+
+        react.hidden = false;
+        like.setAttribute('aria-pressed', liked ? 'true' : 'false');
+        likeLabel.textContent = liked ? 'Liked' : 'Helpful';
+
+        like.addEventListener('click', function () {
+          liked = !liked;
+          like.setAttribute('aria-pressed', liked ? 'true' : 'false');
+          likeLabel.textContent = liked ? 'Liked' : 'Helpful';
+          remember(likeKey, liked ? '1' : null);
+          fetch('${HELP_LIKE_PATH}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ slug: slug, on: liked })
+          }).then(function (r) { return r.json(); }).then(function (data) {
+            // The server's count, not ours: two people liking at once should
+            // both end up seeing two.
+            if (!data || typeof data.likes !== 'number') return;
+            likeN.textContent = String(data.likes);
+            likeN.hidden = data.likes <= 0;
+          }).catch(function () { /* the press stands locally; the count catches up on reload */ });
+        });
+
+        function askedAlready(answer) {
+          vote.hidden = true;
+          question.hidden = true;
+          note.hidden = true;
+          thanks.hidden = false;
+          thanks.textContent = answer === 'no'
+            ? "Thanks — we'll use that to improve this article."
+            : 'Thanks for letting us know.';
+        }
+
+        helpful.hidden = false;
+        var already = remembered(voteKey);
+        if (already) askedAlready(already);
+
+        vote.addEventListener('click', function (e) {
+          var button = e.target.closest('button[data-vote]');
+          if (!button) return;
+          var answer = button.getAttribute('data-vote');
+          remember(voteKey, answer);
+          vote.hidden = true;
+          // The vote is counted now. The comment below is optional and its own
+          // request, so leaving without writing one still records the vote.
+          fetch('${HELP_HELPFUL_PATH}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ slug: slug, helpful: answer === 'yes' })
+          }).catch(function () { /* counted or not, the client is not told off for it */ });
+          question.textContent = answer === 'no'
+            ? 'Sorry about that. What were you looking for?'
+            : 'Glad it helped. Anything we could add?';
+          note.hidden = false;
+          noteText.focus();
+          document.getElementById('hc-note-send').addEventListener('click', function () {
+            var text = noteText.value.trim();
+            if (!text) { askedAlready(answer); return; }
+            fetch('${HELP_NOTE_PATH}', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ slug: slug, helpful: answer === 'yes', note: text })
+            }).catch(function () { /* as above */ });
+            askedAlready(answer);
+          }, { once: true });
+        });
+
+        var copy = document.getElementById('hc-copy');
+        if (copy && navigator.clipboard) {
+          copy.hidden = false;
+          var dot = document.querySelector('.hc-copy-only');
+          if (dot) dot.hidden = false;
+          copy.addEventListener('click', function () {
+            navigator.clipboard.writeText(window.location.href.split('#')[0]).then(function () {
+              copy.textContent = 'Link copied';
+              setTimeout(function () { copy.textContent = 'Copy link'; }, 2000);
+            }).catch(function () { copy.textContent = 'Press Ctrl+C to copy'; });
+          });
+        }
+      })();
+      </script>`;
+}
+
+/**
  * The browse-by-category row.
  *
  * The index already grouped articles under category headings, but nothing
@@ -510,6 +1060,61 @@ function searchResultItem(article: KbArticle, searchId: string | null): string {
   return listItem(article, searchId);
 }
 
+/**
+ * A row in the "recently updated" list, marked when it is genuinely new.
+ *
+ * Single-argument like articleListItem and for the same reason — it is called
+ * with `.map()`, which would otherwise hand it the array index.
+ */
+function recentListItem(article: KbArticle): string {
+  const badge = isRecentlyChanged(article)
+    ? ` <span class="hc-new">${articleDate(article).label === "Updated" ? "Updated" : "New"}</span>`
+    : "";
+  return `          <li><a href="${articleUrl(article)}">${escapeHtml(article.title)}${badge}${
+    article.summary ? `<span class="hc-sum">${escapeHtml(article.summary)}</span>` : ""
+  }</a></li>`;
+}
+
+/**
+ * The two shortcut lists at the top of the index: what people read most, and
+ * what changed lately.
+ *
+ * Left out entirely below a handful of articles, where they would be the same
+ * list as the page beneath them written twice. They are a shortcut through a
+ * long index, not a feature the index needs.
+ */
+const HIGHLIGHT_FLOOR = 5;
+
+function highlights(popular: KbArticle[], recent: KbArticle[], total: number): string {
+  if (total < HIGHLIGHT_FLOOR) {
+    return "";
+  }
+  const sections: string[] = [];
+  if (popular.length > 0) {
+    sections.push(`      <section class="hc-group">
+        <h2>Most read</h2>
+        <ul class="hc-list">
+${popular.map(articleListItem).join("\n")}
+        </ul>
+      </section>`);
+  }
+  if (recent.length > 0) {
+    sections.push(`      <section class="hc-group">
+        <h2>Recently updated</h2>
+        <ul class="hc-list">
+${recent.map(recentListItem).join("\n")}
+        </ul>
+      </section>`);
+  }
+  if (sections.length === 0) {
+    return "";
+  }
+  return `      <div class="hc-groups">
+${sections.join("\n")}
+      </div>
+`;
+}
+
 export type HelpIndexView = {
   /** Categories in their authored order; empty ones are left out by the caller. */
   categories: Array<KbCategory & { articles: KbArticle[] }>;
@@ -517,6 +1122,10 @@ export type HelpIndexView = {
   unfiled: KbArticle[];
   /** Whether the answering box is configured. Off means no form is drawn. */
   askEnabled?: boolean;
+  /** Most-read published articles, already ordered and capped by the caller. */
+  popular?: KbArticle[];
+  /** Most recently written or rewritten, newest first. */
+  recent?: KbArticle[];
 };
 
 export function renderHelpIndexHtml(view: HelpIndexView): string {
@@ -537,10 +1146,14 @@ ${view.unfiled.map(articleListItem).join("\n")}
         </ul>
       </section>`);
   }
+  const total =
+    view.categories.reduce((sum, category) => sum + category.articles.length, 0) +
+    view.unfiled.length;
   const body = `      <p class="eyebrow">Help Center</p>
       <h1 class="title">How can we help?</h1>
 ${searchForm("")}
 ${categoryPills(view.categories)}
+${highlights(view.popular ?? [], view.recent ?? [], total)}
 ${
   groups.length > 0
     ? `      <div class="hc-groups">
@@ -621,10 +1234,13 @@ export type HelpArticleView = {
   siblings: KbArticle[];
   supportUrl: string;
   askEnabled?: boolean;
+  /** Likes so far. Rendered server-side so the number is right before any script runs. */
+  likes?: number;
 };
 
 export function renderHelpArticleHtml(view: HelpArticleView): string {
   const { article, category } = view;
+  const rendered = renderArticleBody(article.bodyMd);
   const embed = article.videoUrl ? videoEmbedUrl(article.videoUrl) : null;
   const video = embed
     ? // referrerpolicy is load-bearing: the site sends `Referrer-Policy:
@@ -641,10 +1257,13 @@ export function renderHelpArticleHtml(view: HelpArticleView): string {
       <p class="eyebrow">${escapeHtml(category ? category.title : "Help Center")}</p>
       <h1 class="title">${escapeHtml(article.title)}</h1>
       ${article.summary ? `<p class="lead">${escapeHtml(article.summary)}</p>` : ""}
+${articleMeta(article)}
 ${video}
+${tableOfContents(rendered.headings)}
       <div class="hc-body">
-${renderMarkdown(article.bodyMd)}
+${rendered.html}
       </div>
+${engagementBlock(article, view.likes ?? 0)}
       <div class="hc-more">
 ${
   others.length > 0
