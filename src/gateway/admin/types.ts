@@ -51,7 +51,9 @@ export const PORTAL_FEATURES = [
   { value: "ticket-form", label: "Ticket Intake Form" },
   // Authoring only. Reading a published article needs no grant at all — the
   // public reader is a separate, unauthenticated surface.
-  { value: "knowledge-base", label: "Knowledge Base" },
+  // The stored value stays `knowledge-base`: it is written into every
+  // existing grant row, and renaming a label must not revoke anybody's access.
+  { value: "knowledge-base", label: "Help Center" },
 ] as const;
 
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["value"];

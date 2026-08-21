@@ -1,4 +1,4 @@
-// The Hub's knowledge-base authoring page: categories, articles, and the
+// The Hub's help center authoring page: categories, articles, and the
 // draft/publish step between writing one and a client seeing it.
 //
 // Shaped like task-list-ui.ts and market-ui.ts — CSS, markup and component JS
@@ -45,16 +45,16 @@ ${KB_EDITOR_CSS}
 `;
 
 export const KB_MARKUP = `
-      <!-- Knowledge Base: help articles and the categories they are filed in -->
+      <!-- Help Center: help articles and the categories they are filed in -->
       <div id="page-kb" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">Knowledge Base</div>
+          <div style="font-weight:700;margin-bottom:0.35rem">Help Center</div>
           <p class="text-muted" style="font-size:0.85rem;margin:0">
             Help articles for clients. An article stays a draft — invisible outside this page — until you publish it.
             File articles in categories to group them, and use ↑ / ↓ to set the order they are read in.
           </p>
           <p class="text-muted" style="font-size:0.85rem;margin:0.5rem 0 0">
-            Not sure what to write next? <a href="#kb-searches">Help Searches</a> lists what clients looked for and could not find.
+            Not sure what to write next? <a href="#kb-searches">Help Insights</a> lists what clients looked for and could not find, and how the articles you have already published are landing.
           </p>
         </div>
         <div class="kb-cols">
@@ -156,7 +156,7 @@ ${KB_EDITOR_MARKUP}
 export const KB_COMPONENT_JS = `
 ${KB_EDITOR_JS}
 
-  // ── Knowledge Base ─────────────────────────────────────────────────────────
+  // ── Help Center ────────────────────────────────────────────────────────────
   var kbCategories = [];
   var kbArticles = [];
   var kbCategoryFilter = null;   // null = every category
@@ -166,7 +166,7 @@ ${KB_EDITOR_JS}
 
   async function loadKb(){
     var r = await api('GET','/kb');
-    if(!r.ok){ document.getElementById('kb-article-rows').innerHTML = '<tr><td colspan="4" class="empty-state">Could not load the knowledge base.</td></tr>'; return; }
+    if(!r.ok){ document.getElementById('kb-article-rows').innerHTML = '<tr><td colspan="4" class="empty-state">Could not load the Help Center.</td></tr>'; return; }
     kbCategories = (r.data && r.data.categories) || [];
     kbArticles = (r.data && r.data.articles) || [];
     renderKbCategories();

@@ -672,8 +672,8 @@ ${MARKET_CSS}
       <a href="#departments" class="nav-link admin-only" data-page="departments"><span class="icon">🏷️</span> Departments</a>
       <a href="#categories" class="nav-link admin-only" data-page="categories"><span class="icon">🗂️</span> Request Types</a>
       <a href="#form-preview" class="nav-link admin-only" data-page="form-preview"><span class="icon">👁️</span> Intake Form</a>
-      <a href="#kb" class="nav-link admin-only" data-page="kb"><span class="icon">📖</span> Knowledge Base</a>
-      <a href="#kb-searches" class="nav-link admin-only" data-page="kb-searches"><span class="icon">🔍</span> Help Searches</a>
+      <a href="#kb" class="nav-link admin-only" data-page="kb"><span class="icon">📖</span> Help Center</a>
+      <a href="#kb-searches" class="nav-link admin-only" data-page="kb-searches"><span class="icon">🔍</span> Help Insights</a>
       <a href="#feedback" class="nav-link admin-only" data-page="feedback"><span class="icon">💬</span> Feedback</a>
       <div class="nav-section">Financials</div>
       <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
@@ -2196,10 +2196,10 @@ ${FEEDBACK_MODALS}
     departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
     'form-preview': { el: 'page-form-preview', title: 'Intake Form', adminOnly: false, superAdminOnly: false, feature: 'ticket-form' },
-    kb: { el: 'page-kb', title: 'Knowledge Base', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
+    kb: { el: 'page-kb', title: 'Help Center', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
     // Same gate as the authoring page: reading what clients searched for is
     // part of tending the knowledge base, not a separate permission.
-    'kb-searches': { el: 'page-kb-searches', title: 'Help Searches', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
+    'kb-searches': { el: 'page-kb-searches', title: 'Help Insights', adminOnly: false, superAdminOnly: false, feature: 'knowledge-base' },
     feedback: { el: 'page-feedback', title: 'Feedback', adminOnly: true, superAdminOnly: false },
     // Past Due is reachable both from the Financials nav ('financials', the
     // legacy hash) and from the Reports landing ('past-due', matching the
