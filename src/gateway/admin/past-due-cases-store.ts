@@ -51,6 +51,15 @@ export type PastDueCase = {
   reviewClearedBy: string | null;
   reviewClearedByName: string | null;
   reviewClearedAt: number | null;
+  /** What the client committed to pay, and by when. Null until they promise. */
+  promisedAmount: number | null;
+  promisedDate: number | null;
+  /** The handoff for the final letter: when, by whom, and off whom. */
+  escalatedAt: number | null;
+  escalatedBy: string | null;
+  escalatedByName: string | null;
+  escalatedFrom: string | null;
+  escalatedReason: string | null;
   createdAt: number;
   updatedAt: number;
   updatedByName: string | null;
@@ -68,6 +77,13 @@ type CaseRow = {
   review_cleared_by: string | null;
   review_cleared_by_name: string | null;
   review_cleared_at: number | null;
+  promised_amount: number | null;
+  promised_date: number | null;
+  escalated_at: number | null;
+  escalated_by: string | null;
+  escalated_by_name: string | null;
+  escalated_from: string | null;
+  escalated_reason: string | null;
   created_at: number;
   updated_at: number;
   updated_by_name: string | null;
@@ -87,6 +103,13 @@ function rowToCase(row: CaseRow, assigneeName: string | null): PastDueCase {
     reviewClearedBy: row.review_cleared_by,
     reviewClearedByName: row.review_cleared_by_name,
     reviewClearedAt: row.review_cleared_at,
+    promisedAmount: row.promised_amount,
+    promisedDate: row.promised_date,
+    escalatedAt: row.escalated_at,
+    escalatedBy: row.escalated_by,
+    escalatedByName: row.escalated_by_name,
+    escalatedFrom: row.escalated_from,
+    escalatedReason: row.escalated_reason,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     updatedByName: row.updated_by_name,
@@ -112,6 +135,13 @@ export function defaultCase(
     reviewClearedBy: null,
     reviewClearedByName: null,
     reviewClearedAt: null,
+    promisedAmount: null,
+    promisedDate: null,
+    escalatedAt: null,
+    escalatedBy: null,
+    escalatedByName: null,
+    escalatedFrom: null,
+    escalatedReason: null,
     createdAt: now,
     updatedAt: now,
     updatedByName: null,
@@ -204,6 +234,13 @@ async function upsertCase(
         review_cleared_by: null,
         review_cleared_by_name: null,
         review_cleared_at: null,
+        promised_amount: null,
+        promised_date: null,
+        escalated_at: null,
+        escalated_by: null,
+        escalated_by_name: null,
+        escalated_from: null,
+        escalated_reason: null,
         created_at: now,
         updated_at: now,
         updated_by_name: null,
@@ -326,6 +363,90 @@ export async function setPastDueCaseDueAt(params: {
     params.accountKey,
     params.accountName,
     { due_at: params.dueAt, updated_by_name: params.byUserName ?? null },
+    now,
+  );
+}
+
+/**
+ * Record what the client committed to, or with `amount: null, date: null` drop
+ * the promise. A promise also moves the case to `promised`: agreeing a date is
+ * the moment the account stops being generically "worked", and leaving the
+ * stage behind would hide the commitment from the board.
+ *
+ * The stage is only advanced from the earlier steps — an account already on a
+ * plan or escalated keeps its stage, because a promise made there is a detail
+ * of that state rather than a step back to it.
+ */
+export async function setPastDueCasePromise(params: {
+  accountKey: string;
+  accountName: string;
+  promisedAmount: number | null;
+  promisedDate: number | null;
+  byUserName?: string | null;
+  now?: number;
+}): Promise<PastDueCase> {
+  const now = params.now ?? Date.now();
+  const current = await getPastDueCase(params.accountKey);
+  const patch: Partial<CaseRow> = {
+    promised_amount: params.promisedAmount,
+    promised_date: params.promisedDate,
+    updated_by_name: params.byUserName ?? null,
+  };
+  const advances = !current || current.status === "new" || current.status === "working";
+  if (params.promisedDate !== null && advances) {
+    patch.status = "promised";
+  }
+  return upsertCase(params.accountKey, params.accountName, patch, now);
+}
+
+/**
+ * A promise is broken once its date has passed and the case is still sitting at
+ * `promised` — nobody moved it to `resolved`, so the money did not arrive.
+ * Derived rather than stored: the answer changes with the clock, and a stored
+ * flag would need a sweep to stay true.
+ */
+export function isPromiseBroken(c: PastDueCase, now = Date.now()): boolean {
+  return c.status === "promised" && c.promisedDate !== null && c.promisedDate < now;
+}
+
+/**
+ * Hand the case to whoever owns escalations, for the final letter and the
+ * referral to collections.
+ *
+ * Ownership moves as part of the same write that sets the stage: the whole
+ * point of escalating is that it stops being the collector's account and starts
+ * being the admin's, and two separate writes could leave it escalated but still
+ * sitting in the collector's queue. Who escalated it, off whom, and why are all
+ * kept — the letter is written from that.
+ */
+export async function markPastDueCaseEscalated(params: {
+  accountKey: string;
+  accountName: string;
+  ownerId: string | null;
+  reason: string | null;
+  byUserId: string;
+  byUserName?: string | null;
+  now?: number;
+}): Promise<PastDueCase> {
+  const now = params.now ?? Date.now();
+  const current = await getPastDueCase(params.accountKey);
+  return upsertCase(
+    params.accountKey,
+    params.accountName,
+    {
+      status: "escalated",
+      // A case with no escalation owner configured still escalates; it simply
+      // stays where it is rather than being handed to nobody.
+      ...(params.ownerId
+        ? { assigned_to: params.ownerId, assigned_by: params.byUserId, assigned_at: now }
+        : {}),
+      escalated_at: now,
+      escalated_by: params.byUserId,
+      escalated_by_name: params.byUserName ?? null,
+      escalated_from: current?.assignedTo ?? null,
+      escalated_reason: params.reason?.trim() ? params.reason.trim().slice(0, 2000) : null,
+      updated_by_name: params.byUserName ?? null,
+    },
     now,
   );
 }

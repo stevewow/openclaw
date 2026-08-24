@@ -97,19 +97,23 @@ import {
   PAST_DUE_CASE_STATUSES,
   setPastDueCaseDueAt,
   setPastDueCaseNextAction,
+  setPastDueCasePromise,
   setPastDueCaseReviewCleared,
   setPastDueCaseStatus,
 } from "./past-due-cases-store.js";
 import {
   CONTACT_CHANNELS,
+  contactChannelLabel,
   deleteContact,
   getContact,
   isContactChannel,
   listContacts,
   logContact,
 } from "./past-due-contacts-store.js";
+import { escalatePastDueCase, resolveEscalationOwner } from "./past-due-escalation.js";
+import { buildTimeline, listPastDueEvents, recordPastDueEvent } from "./past-due-events-store.js";
 import { linkFollowUpTask } from "./past-due-followups-store.js";
-import { isPastDueActionKey, PAST_DUE_ACTIONS } from "./past-due-policy.js";
+import { actionForKey, isPastDueActionKey, PAST_DUE_ACTIONS } from "./past-due-policy.js";
 import {
   type CleanupImportItem,
   decideCleanupItem,
@@ -645,6 +649,11 @@ export async function handleAdminHttpRequest(
       (p) => p.permissionType === "report" && p.value === reportKey,
     );
   }
+  // Collections trails name people, not logins: "Jessie Mallari escalated this"
+  // reads as a handoff, "billing escalated this" reads as a system message.
+  const viewerName =
+    [sessionUser.firstName, sessionUser.lastName].filter(Boolean).join(" ").trim() ||
+    sessionUser.username;
   // Past Due is a worklist, so a granted non-admin acts on their own queue only:
   // the report permission opens the page, the assignment opens the account. An
   // unassigned account is nobody's to work but an admin's.
@@ -3235,22 +3244,30 @@ export async function handleAdminHttpRequest(
     }
     const full = await getPastDueBreakdown();
     const breakdown = isAdmin ? full : scopeBreakdownToAssignee(full, sessionUser.id);
+    const users = await listUsers();
     const assignees = isAdmin
-      ? (await listUsers()).map((u) => ({
+      ? users.map((u) => ({
           id: u.id,
           username: u.username,
           name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username,
           role: u.role,
         }))
       : [];
+    // Named so the escalate button can say who the account is about to go to
+    // rather than "an admin" — a collector handing over a debt should be able
+    // to see whose desk it lands on.
+    const owner = resolveEscalationOwner(users);
     sendJson(res, 200, {
       breakdown,
       statuses: PAST_DUE_CASE_STATUSES,
       // The collections sequence, in order. Shipped like the board columns so
       // the picker never hardcodes the policy or its ordering.
       actions: PAST_DUE_ACTIONS,
+      channels: CONTACT_CHANNELS,
       assignees,
       canAssign: isAdmin,
+      escalationOwner: owner ? { id: owner.id, name: owner.name } : null,
+      viewerId: sessionUser.id,
     });
     return true;
   }
@@ -3284,7 +3301,8 @@ export async function handleAdminHttpRequest(
       sendBadRequest(res, body.error);
       return true;
     }
-    const status = (body.value as Record<string, unknown>).status;
+    const data = body.value as Record<string, unknown>;
+    const status = data.status;
     if (!isPastDueCaseStatus(status)) {
       sendBadRequest(
         res,
@@ -3292,12 +3310,59 @@ export async function handleAdminHttpRequest(
       );
       return true;
     }
+    const accountName = await getAccountName(accountKey);
+    const before = await getPastDueCase(accountKey);
+    const wasEscalated = before?.status === "escalated";
+
+    // Escalating is a handoff, not a label: ownership moves to whoever owns the
+    // final letter, the letter step is pinned, and that person is told. Only on
+    // the way in — re-saving an already-escalated case must not re-notify.
+    if (status === "escalated" && !wasEscalated) {
+      const account = (await getPastDueBreakdown()).accounts.find(
+        (a) => a.accountKey === accountKey,
+      );
+      const result = await escalatePastDueCase({
+        accountKey,
+        accountName,
+        reason: normalizeString(data.reason),
+        actor: { id: sessionUser.id, name: viewerName },
+        facts: account
+          ? {
+              balance: account.balance,
+              invoiceCount: account.invoiceCount,
+              oldestDaysPastDue: account.oldestDaysPastDue,
+              lastContactAt: account.lastContact?.at ?? null,
+            }
+          : null,
+        hasPinnedAction: before?.nextAction != null,
+      });
+      sendJson(res, 200, {
+        case: result.case,
+        escalation: {
+          owner: result.owner ? { id: result.owner.id, name: result.owner.name } : null,
+          notified: result.notified?.ok ?? false,
+          action: actionForKey("letter_120"),
+        },
+      });
+      return true;
+    }
+
     const updated = await setPastDueCaseStatus({
       accountKey,
-      accountName: await getAccountName(accountKey),
+      accountName,
       status,
-      byUserName: sessionUser.username,
+      byUserName: viewerName,
     });
+    if (before?.status !== status) {
+      const label = (k: string) => PAST_DUE_CASE_STATUSES.find((x) => x.key === k)?.label ?? k;
+      await recordPastDueEvent({
+        accountKey,
+        kind: "stage",
+        summary: `Stage moved from ${label(before?.status ?? "new")} to ${label(status)}`,
+        actorId: sessionUser.id,
+        actorName: viewerName,
+      });
+    }
     sendJson(res, 200, { case: updated });
     return true;
   }
@@ -3331,7 +3396,16 @@ export async function handleAdminHttpRequest(
       accountKey,
       accountName: await getAccountName(accountKey),
       nextAction: raw,
-      byUserName: sessionUser.username,
+      byUserName: viewerName,
+    });
+    await recordPastDueEvent({
+      accountKey,
+      kind: "next_action",
+      summary: raw
+        ? `Next step pinned to ${actionForKey(raw).step}. ${actionForKey(raw).label}`
+        : "Next step handed back to the aging policy",
+      actorId: sessionUser.id,
+      actorName: viewerName,
     });
     sendJson(res, 200, { case: updated });
     return true;
@@ -3364,7 +3438,16 @@ export async function handleAdminHttpRequest(
       assignedTo,
       dueAt: typeof data.dueAt === "number" ? data.dueAt : data.dueAt === null ? null : undefined,
       byUserId: sessionUser.id,
-      byUserName: sessionUser.username,
+      byUserName: viewerName,
+    });
+    await recordPastDueEvent({
+      accountKey,
+      kind: "assignment",
+      summary: updated.assignedToName
+        ? `Assigned to ${updated.assignedToName}`
+        : "Released back to unassigned",
+      actorId: sessionUser.id,
+      actorName: viewerName,
     });
     // Assigning to someone who was never granted the report leaves the work
     // invisible to them, so say so rather than letting it sit unseen.
@@ -3404,7 +3487,16 @@ export async function handleAdminHttpRequest(
       accountKey,
       accountName: await getAccountName(accountKey),
       dueAt: raw,
-      byUserName: sessionUser.username,
+      byUserName: viewerName,
+    });
+    await recordPastDueEvent({
+      accountKey,
+      kind: "due",
+      summary: raw
+        ? `Next action due ${new Date(raw).toLocaleDateString("en-US")}`
+        : "Next-action date cleared",
+      actorId: sessionUser.id,
+      actorName: viewerName,
     });
     sendJson(res, 200, { case: updated });
     return true;
@@ -3424,14 +3516,97 @@ export async function handleAdminHttpRequest(
       sendBadRequest(res, body.error);
       return true;
     }
+    const cleared = (body.value as Record<string, unknown>).cleared !== false;
     const updated = await setPastDueCaseReviewCleared({
       accountKey,
       accountName: await getAccountName(accountKey),
-      cleared: (body.value as Record<string, unknown>).cleared !== false,
+      cleared,
       byUserId: sessionUser.id,
-      byUserName: sessionUser.username,
+      byUserName: viewerName,
+    });
+    await recordPastDueEvent({
+      accountKey,
+      kind: "review",
+      summary: cleared ? "Partial-payment review signed off" : "Partial-payment review reopened",
+      actorId: sessionUser.id,
+      actorName: viewerName,
     });
     sendJson(res, 200, { case: updated });
+    return true;
+  }
+
+  // PUT /api/admin/financials/accounts/:accountKey/promise — what the client
+  // committed to pay and by when, or `promisedDate: null` to drop the promise.
+  const acctPromiseMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/promise$/);
+  if (acctPromiseMatch && req.method === "PUT") {
+    const accountKey = decodeURIComponent(acctPromiseMatch[1]);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const promisedDate = data.promisedDate;
+    if (promisedDate !== null && typeof promisedDate !== "number") {
+      sendBadRequest(res, "promisedDate must be a timestamp or null");
+      return true;
+    }
+    const rawAmount = data.promisedAmount;
+    if (rawAmount !== null && rawAmount !== undefined && typeof rawAmount !== "number") {
+      sendBadRequest(res, "promisedAmount must be a number or null");
+      return true;
+    }
+    // A promise with no date is not a promise, so clearing the date clears the
+    // amount with it rather than leaving a figure nothing is owed against.
+    const promisedAmount =
+      promisedDate === null ? null : typeof rawAmount === "number" ? rawAmount : null;
+    const updated = await setPastDueCasePromise({
+      accountKey,
+      accountName: await getAccountName(accountKey),
+      promisedAmount,
+      promisedDate,
+      byUserName: viewerName,
+    });
+    await recordPastDueEvent({
+      accountKey,
+      kind: "promise",
+      summary:
+        promisedDate === null
+          ? "Promise to pay cleared"
+          : `Promised ${
+              promisedAmount === null
+                ? "payment"
+                : promisedAmount.toLocaleString("en-US", { style: "currency", currency: "USD" })
+            } by ${new Date(promisedDate).toLocaleDateString("en-US")}`,
+      actorId: sessionUser.id,
+      actorName: viewerName,
+    });
+    sendJson(res, 200, { case: updated });
+    return true;
+  }
+
+  // GET /api/admin/financials/accounts/:accountKey/timeline — everything that
+  // has happened on this account: state changes, logged contacts and notes,
+  // merged into one descending history. Same access as working the account.
+  const acctTimelineMatch = subPath.match(/^\/financials\/accounts\/([^/]+)\/timeline$/);
+  if (acctTimelineMatch && req.method === "GET") {
+    const accountKey = decodeURIComponent(acctTimelineMatch[1]);
+    if (!(await canWorkPastDueAccount(accountKey))) {
+      sendForbidden(res);
+      return true;
+    }
+    const [events, contacts, notes] = await Promise.all([
+      listPastDueEvents(accountKey),
+      listContacts(accountKey),
+      listNotes(accountKey),
+    ]);
+    sendJson(res, 200, {
+      timeline: buildTimeline({ events, contacts, notes, channelLabel: contactChannelLabel }),
+    });
     return true;
   }
 
@@ -3500,8 +3675,19 @@ export async function handleAdminHttpRequest(
       channel: data.channel,
       note: typeof data.note === "string" ? data.note : null,
       userId: sessionUser.id,
-      userName: sessionUser.username,
+      userName: viewerName,
     });
+    // Logging a contact is the moment a `new` account starts being worked. The
+    // collector should not have to remember to move the stage as well.
+    const existing = await getPastDueCase(accountKey);
+    if (!existing || existing.status === "new") {
+      await setPastDueCaseStatus({
+        accountKey,
+        accountName: await getAccountName(accountKey),
+        status: "working",
+        byUserName: viewerName,
+      });
+    }
     sendJson(res, 201, { contact });
     return true;
   }
@@ -3807,7 +3993,9 @@ export async function handleAdminHttpRequest(
       accountKey,
       body: noteBody,
       createdBy: sessionUser.id,
-      createdByName: sessionUser.username,
+      // The thread reads as people talking, so it names people — and an
+      // escalation writes its reason here under the same name.
+      createdByName: viewerName,
     });
     sendJson(res, 201, { note });
     return true;
@@ -3872,6 +4060,16 @@ export async function handleAdminHttpRequest(
     // lets the report show its due date as the account's Next Contact.
     if (accountKey) {
       await linkFollowUpTask({ taskId: task.id, accountKey });
+      await recordPastDueEvent({
+        accountKey,
+        kind: "followup",
+        summary: task.dueDate
+          ? `Follow-up scheduled for ${new Date(task.dueDate).toLocaleDateString("en-US")}`
+          : "Follow-up task raised (no date)",
+        detail: task.title,
+        actorId: sessionUser.id,
+        actorName: viewerName,
+      });
     }
     sendJson(res, 201, { task, projectId });
     return true;

@@ -430,4 +430,73 @@ describe("refreshInvoices", () => {
       expect(invoices[0]?.partiallyPaid).toBe(false);
     });
   });
+  describe("what needs someone today", () => {
+    it("flags a promise whose date has gone by, and counts it on the board", async () => {
+      const cases = await import("./past-due-cases-store.js");
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(
+        page(
+          [invoice("BROKEN", { agentId: "broken" }), invoice("KEPT", { agentId: "kept" })],
+          false,
+        ),
+      );
+      await refreshInvoices({ manual: true });
+
+      await cases.setPastDueCasePromise({
+        accountKey: "agent:broken",
+        accountName: "Agent broken",
+        promisedAmount: 100,
+        promisedDate: Date.now() - 2 * DAY,
+      });
+      await cases.setPastDueCasePromise({
+        accountKey: "agent:kept",
+        accountName: "Agent kept",
+        promisedAmount: 100,
+        promisedDate: Date.now() + 2 * DAY,
+      });
+
+      const breakdown = await getPastDueBreakdown();
+      const broken = breakdown.accounts.find((a) => a.accountKey === "agent:broken");
+      const kept = breakdown.accounts.find((a) => a.accountKey === "agent:kept");
+      expect(broken?.promiseBroken).toBe(true);
+      expect(broken?.needsAttention).toBe(true);
+      // A promise still in the future is not yet anyone's problem.
+      expect(kept?.promiseBroken).toBe(false);
+      expect(kept?.needsAttention).toBe(false);
+      expect(breakdown.promiseBrokenCount).toBe(1);
+      expect(breakdown.attentionCount).toBe(1);
+    });
+
+    it("flags an account whose next action is already due", async () => {
+      const cases = await import("./past-due-cases-store.js");
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(page([invoice("DUE", { agentId: "overdue" })], false));
+      await refreshInvoices({ manual: true });
+
+      await cases.setPastDueCaseDueAt({
+        accountKey: "agent:overdue",
+        accountName: "Agent overdue",
+        dueAt: Date.now() - DAY,
+      });
+      const breakdown = await getPastDueBreakdown();
+      expect(breakdown.accounts.find((a) => a.accountKey === "agent:overdue")?.needsAttention).toBe(
+        true,
+      );
+    });
+
+    it("counts the accounts sitting with the escalation owner", async () => {
+      const cases = await import("./past-due-cases-store.js");
+      callTool.mockReset();
+      callTool.mockResolvedValueOnce(page([invoice("ESC", { agentId: "esc" })], false));
+      await refreshInvoices({ manual: true });
+
+      expect((await getPastDueBreakdown()).escalatedCount).toBe(0);
+      await cases.setPastDueCaseStatus({
+        accountKey: "agent:esc",
+        accountName: "Agent esc",
+        status: "escalated",
+      });
+      expect((await getPastDueBreakdown()).escalatedCount).toBe(1);
+    });
+  });
 });

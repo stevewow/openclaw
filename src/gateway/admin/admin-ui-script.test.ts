@@ -60,6 +60,23 @@ describe("admin dashboard inline script", () => {
     expect(churnTop).toContain("js-spiro-msg");
   });
 
+  it("keeps the Past Due collections controls wired to markup that exists", () => {
+    // Promise-to-pay, the escalation handoff and the account history are all
+    // reached for by id from the inline script; a missing element is a silent
+    // no-op in the browser rather than an error anyone would see.
+    for (const id of [
+      "fin-filter-attention",
+      "fin-promise-date",
+      "fin-promise-amount",
+      "fin-promise-note",
+      "fin-escalation-banner",
+      "fin-escalate-btn",
+      "fin-timeline",
+    ]) {
+      expect(ADMIN_UI_HTML).toContain(`id="${id}"`);
+    }
+  });
+
   it("keeps the how-to-read explainer collapsed by default", () => {
     // <details> without `open`: expandable, but closed on arrival.
     expect(ADMIN_UI_HTML).toContain('<details class="card churn-howto"');

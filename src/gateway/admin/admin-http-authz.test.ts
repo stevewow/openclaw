@@ -624,7 +624,8 @@ describe("past due accounts — assigned worklist", () => {
       body: { accountKey: ACCOUNT, body: "Client says Friday." },
     });
     expect(note.status).toBe(201);
-    expect((note.json?.note as { createdByName: string }).createdByName).toBe("other");
+    // The thread names people, not logins: this user has a first name on file.
+    expect((note.json?.note as { createdByName: string }).createdByName).toBe("Renamed");
 
     // …but only this account. A different one is still closed to them.
     await call("PUT", `/financials/accounts/${OTHER}/status`, {
@@ -659,6 +660,7 @@ describe("past due accounts — assigned worklist", () => {
 
   it("lets the assignee sign off the partial-payment review", async () => {
     const token = await grantPastDue();
+    await userStore.updateUser(plainId, { firstName: "Jessie", lastName: "Mallari" });
     await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
       token: adminToken,
       body: { assignedTo: plainId },
@@ -668,7 +670,10 @@ describe("past due accounts — assigned worklist", () => {
       body: { cleared: true },
     });
     expect(res.status).toBe(200);
-    expect((res.json?.case as { reviewClearedByName: string }).reviewClearedByName).toBe("other");
+    // Signed off by a person, so the case names the person.
+    expect((res.json?.case as { reviewClearedByName: string }).reviewClearedByName).toBe(
+      "Jessie Mallari",
+    );
   });
 
   it("scopes the breakdown to the assignee's own accounts", async () => {
@@ -1786,5 +1791,198 @@ describe("the resource upload grant", () => {
       body: { name: "My own filing" },
     });
     expect(r.status).toBe(403);
+  });
+});
+
+describe("past due — promise, escalation and the account timeline", () => {
+  const DAY = 86_400_000;
+
+  async function grant(): Promise<string> {
+    const token = await tokenFor(plainId);
+    await userStore.setUserPermissions(plainId, [{ permissionType: "report", value: "past-due" }]);
+    return token;
+  }
+
+  it("records a promise to pay and moves the case with it", async () => {
+    const account = "agent:promise-http";
+    const date = Date.now() + 7 * DAY;
+    const res = await call("PUT", `/financials/accounts/${account}/promise`, {
+      token: adminToken,
+      body: { promisedAmount: 750, promisedDate: date },
+    });
+    expect(res.status).toBe(200);
+    const c = res.json?.case as { promisedAmount: number; promisedDate: number; status: string };
+    expect(c.promisedAmount).toBe(750);
+    expect(c.promisedDate).toBe(date);
+    expect(c.status).toBe("promised");
+  });
+
+  it("clears the amount along with the date — a promise with no date is not one", async () => {
+    const account = "agent:promise-clear";
+    await call("PUT", `/financials/accounts/${account}/promise`, {
+      token: adminToken,
+      body: { promisedAmount: 750, promisedDate: Date.now() + DAY },
+    });
+    const res = await call("PUT", `/financials/accounts/${account}/promise`, {
+      token: adminToken,
+      body: { promisedAmount: 750, promisedDate: null },
+    });
+    const c = res.json?.case as { promisedAmount: number | null; promisedDate: number | null };
+    expect(c.promisedDate).toBeNull();
+    expect(c.promisedAmount).toBeNull();
+  });
+
+  it("refuses a promise that is not a date", async () => {
+    const bad = await call("PUT", "/financials/accounts/agent:promise-bad/promise", {
+      token: adminToken,
+      body: { promisedDate: "next friday" },
+    });
+    expect(bad.status).toBe(400);
+    const badAmount = await call("PUT", "/financials/accounts/agent:promise-bad/promise", {
+      token: adminToken,
+      body: { promisedDate: Date.now(), promisedAmount: "a lot" },
+    });
+    expect(badAmount.status).toBe(400);
+  });
+
+  it("keeps promise and timeline on the same footing as working the account", async () => {
+    const token = await grant();
+    const account = "agent:promise-authz";
+    expect(
+      (
+        await call("PUT", `/financials/accounts/${account}/promise`, {
+          token,
+          body: { promisedDate: Date.now() },
+        })
+      ).status,
+    ).toBe(403);
+    expect((await call("GET", `/financials/accounts/${account}/timeline`, { token })).status).toBe(
+      403,
+    );
+
+    await call("PUT", `/financials/accounts/${account}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    expect(
+      (
+        await call("PUT", `/financials/accounts/${account}/promise`, {
+          token,
+          body: { promisedDate: Date.now() },
+        })
+      ).status,
+    ).toBe(200);
+    expect((await call("GET", `/financials/accounts/${account}/timeline`, { token })).status).toBe(
+      200,
+    );
+  });
+
+  it("hands an escalated account to whoever owns the final letter", async () => {
+    const account = "agent:escalate-http";
+    await call("PUT", `/financials/accounts/${account}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    const res = await call("PUT", `/financials/accounts/${account}/status`, {
+      token: adminToken,
+      body: { status: "escalated", reason: "Four calls, no answer." },
+    });
+    expect(res.status).toBe(200);
+    const c = res.json?.case as {
+      status: string;
+      assignedTo: string;
+      nextAction: string;
+      escalatedReason: string;
+    };
+    expect(c.status).toBe("escalated");
+    // The superadmin owns collections escalations, so it lands on their desk.
+    expect(c.assignedTo).toBe(superId);
+    expect(c.nextAction).toBe("letter_120");
+    expect(c.escalatedReason).toBe("Four calls, no answer.");
+    const escalation = res.json?.escalation as { owner: { id: string } | null; notified: boolean };
+    expect(escalation.owner?.id).toBe(superId);
+    // No mail configured in tests, so nothing was sent — the case moved anyway.
+    expect(escalation.notified).toBe(false);
+  });
+
+  it("does not re-run the handoff when an escalated case is saved again", async () => {
+    const account = "agent:escalate-twice";
+    await call("PUT", `/financials/accounts/${account}/status`, {
+      token: adminToken,
+      body: { status: "escalated", reason: "first" },
+    });
+    const again = await call("PUT", `/financials/accounts/${account}/status`, {
+      token: adminToken,
+      body: { status: "escalated", reason: "second" },
+    });
+    expect(again.json?.escalation).toBeUndefined();
+    expect((again.json?.case as { escalatedReason: string }).escalatedReason).toBe("first");
+  });
+
+  it("tells the collector who the account is about to go to", async () => {
+    const board = await call("GET", "/financials/past-due", { token: adminToken });
+    expect(board.status).toBe(200);
+    expect((board.json?.escalationOwner as { id: string }).id).toBe(superId);
+    expect(board.json?.viewerId).toBe(adminId);
+    expect(Array.isArray(board.json?.channels)).toBe(true);
+  });
+
+  it("builds one history out of stage changes, contacts and notes", async () => {
+    const account = "agent:timeline-http";
+    await call("PUT", `/financials/accounts/${account}/status`, {
+      token: adminToken,
+      body: { status: "working" },
+    });
+    await call("POST", `/financials/accounts/${account}/contacts`, {
+      token: adminToken,
+      body: { channel: "call", note: "Left a voicemail." },
+    });
+    await call("POST", "/financials/notes", {
+      token: adminToken,
+      body: { accountKey: account, body: "Client says Friday." },
+    });
+    const res = await call("GET", `/financials/accounts/${account}/timeline`, {
+      token: adminToken,
+    });
+    expect(res.status).toBe(200);
+    const timeline = res.json?.timeline as Array<{
+      id: string;
+      kind: string;
+      summary: string;
+      at: number;
+    }>;
+    const kinds = timeline.map((t) => t.kind);
+    expect(kinds).toContain("stage");
+    expect(kinds).toContain("contact");
+    expect(kinds).toContain("note");
+    // Newest first.
+    expect(timeline.toSorted((a, b) => b.at - a.at).map((t) => t.id)).toEqual(
+      timeline.map((t) => t.id),
+    );
+    expect(timeline.find((t) => t.kind === "contact")?.summary).toContain("logged");
+  });
+
+  it("starts a new account working the moment a contact is logged", async () => {
+    const account = "agent:contact-starts-work";
+    await call("POST", `/financials/accounts/${account}/contacts`, {
+      token: adminToken,
+      body: { channel: "email" },
+    });
+    const detail = await call("GET", `/financials/accounts/${account}`, { token: adminToken });
+    expect((detail.json?.case as { status: string }).status).toBe("working");
+  });
+
+  it("does not drag a later stage back to working on a logged contact", async () => {
+    const account = "agent:contact-keeps-stage";
+    await call("PUT", `/financials/accounts/${account}/status`, {
+      token: adminToken,
+      body: { status: "plan" },
+    });
+    await call("POST", `/financials/accounts/${account}/contacts`, {
+      token: adminToken,
+      body: { channel: "call" },
+    });
+    const detail = await call("GET", `/financials/accounts/${account}`, { token: adminToken });
+    expect((detail.json?.case as { status: string }).status).toBe("plan");
   });
 });

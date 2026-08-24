@@ -164,6 +164,8 @@ describe("scopeBreakdownToAssignee", () => {
       daysSinceContact: null,
       nextContact: null,
       daysUntilContact: null,
+      promiseBroken: false,
+      needsAttention: false,
     };
   }
 
@@ -175,6 +177,9 @@ describe("scopeBreakdownToAssignee", () => {
       accountCount: 3,
       invoiceCount: 3,
       manualReviewCount: 2,
+      attentionCount: 0,
+      promiseBrokenCount: 0,
+      escalatedCount: 0,
       byBucket: [],
       byStatus: [],
       accounts: [account("a", 100, "u1", 1), account("b", 200, "u2", 1), account("c", 300, null)],
@@ -254,5 +259,147 @@ describe("pinned next action", () => {
       .where("account_key", "=", "acct-bad")
       .execute();
     expect((await store.getPastDueCase("acct-bad"))?.nextAction).toBeNull();
+  });
+});
+
+describe("promise to pay", () => {
+  const DAY = 86_400_000;
+
+  it("records the amount and date, and moves the case to promised", async () => {
+    const c = await store.setPastDueCasePromise({
+      accountKey: "acct-promise",
+      accountName: "Promise Co",
+      promisedAmount: 500,
+      promisedDate: 10 * DAY,
+      byUserName: "Casey Ruiz",
+    });
+    expect(c.promisedAmount).toBe(500);
+    expect(c.promisedDate).toBe(10 * DAY);
+    expect(c.status).toBe("promised");
+  });
+
+  it("advances a case that was still only being worked", async () => {
+    await store.setPastDueCaseStatus({
+      accountKey: "acct-working",
+      accountName: "Working Co",
+      status: "working",
+    });
+    const c = await store.setPastDueCasePromise({
+      accountKey: "acct-working",
+      accountName: "Working Co",
+      promisedAmount: null,
+      promisedDate: 10 * DAY,
+    });
+    expect(c.status).toBe("promised");
+  });
+
+  it("leaves a later stage where it is — a promise there is a detail, not a step back", async () => {
+    for (const status of ["plan", "escalated", "resolved"] as const) {
+      const key = `acct-late-${status}`;
+      await store.setPastDueCaseStatus({ accountKey: key, accountName: "Late Co", status });
+      const c = await store.setPastDueCasePromise({
+        accountKey: key,
+        accountName: "Late Co",
+        promisedAmount: 100,
+        promisedDate: 10 * DAY,
+      });
+      expect(c.status).toBe(status);
+      expect(c.promisedDate).toBe(10 * DAY);
+    }
+  });
+
+  it("drops the promise without dropping the stage", async () => {
+    await store.setPastDueCasePromise({
+      accountKey: "acct-drop",
+      accountName: "Drop Co",
+      promisedAmount: 500,
+      promisedDate: 10 * DAY,
+    });
+    const c = await store.setPastDueCasePromise({
+      accountKey: "acct-drop",
+      accountName: "Drop Co",
+      promisedAmount: null,
+      promisedDate: null,
+    });
+    expect(c.promisedAmount).toBeNull();
+    expect(c.promisedDate).toBeNull();
+    expect(c.status).toBe("promised");
+  });
+
+  it("counts a promise as broken only once its date has gone by", () => {
+    const base = store.defaultCase("acct-x", "X Co", 0);
+    const promised = { ...base, status: "promised" as const, promisedDate: 10 * DAY };
+    expect(store.isPromiseBroken(promised, 9 * DAY)).toBe(false);
+    expect(store.isPromiseBroken(promised, 11 * DAY)).toBe(true);
+  });
+
+  it("is not broken once the money arrives, whatever the date says", () => {
+    const base = store.defaultCase("acct-y", "Y Co", 0);
+    const paid = { ...base, status: "resolved" as const, promisedDate: 10 * DAY };
+    expect(store.isPromiseBroken(paid, 11 * DAY)).toBe(false);
+  });
+
+  it("is not broken when nothing was ever promised", () => {
+    const base = store.defaultCase("acct-z", "Z Co", 0);
+    expect(store.isPromiseBroken({ ...base, status: "promised" }, 11 * DAY)).toBe(false);
+  });
+});
+
+describe("escalation handoff", () => {
+  it("moves the stage and the owner in one write", async () => {
+    await store.assignPastDueCase({
+      accountKey: "acct-esc",
+      accountName: "Esc Co",
+      assignedTo: vaId,
+      byUserId: managerId,
+      byUserName: "manager",
+    });
+    const c = await store.markPastDueCaseEscalated({
+      accountKey: "acct-esc",
+      accountName: "Esc Co",
+      ownerId: managerId,
+      reason: "  No response to four calls.  ",
+      byUserId: vaId,
+      byUserName: "Casey Ruiz",
+      now: 5_000,
+    });
+    expect(c.status).toBe("escalated");
+    expect(c.assignedTo).toBe(managerId);
+    expect(c.escalatedAt).toBe(5_000);
+    expect(c.escalatedBy).toBe(vaId);
+    expect(c.escalatedByName).toBe("Casey Ruiz");
+    expect(c.escalatedFrom).toBe(vaId);
+    expect(c.escalatedReason).toBe("No response to four calls.");
+  });
+
+  it("escalates with no owner configured, leaving the case where it sits", async () => {
+    await store.assignPastDueCase({
+      accountKey: "acct-esc-noowner",
+      accountName: "Esc Co",
+      assignedTo: vaId,
+      byUserId: managerId,
+      byUserName: "manager",
+    });
+    const c = await store.markPastDueCaseEscalated({
+      accountKey: "acct-esc-noowner",
+      accountName: "Esc Co",
+      ownerId: null,
+      reason: null,
+      byUserId: vaId,
+    });
+    expect(c.status).toBe("escalated");
+    expect(c.assignedTo).toBe(vaId);
+    expect(c.escalatedReason).toBeNull();
+  });
+
+  it("caps a long reason rather than storing it whole", async () => {
+    const c = await store.markPastDueCaseEscalated({
+      accountKey: "acct-esc-long",
+      accountName: "Esc Co",
+      ownerId: managerId,
+      reason: "x".repeat(3000),
+      byUserId: vaId,
+    });
+    expect(c.escalatedReason).toHaveLength(2000);
   });
 });

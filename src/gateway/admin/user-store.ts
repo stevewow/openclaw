@@ -398,6 +398,16 @@ type PastDueCasesTable = {
   review_cleared_by: string | null;
   review_cleared_by_name: string | null;
   review_cleared_at: number | null;
+  /** What the client committed to pay, and by when. Null until they promise. */
+  promised_amount: number | null;
+  promised_date: number | null;
+  /** Set when the case was handed to the escalation owner for the final letter. */
+  escalated_at: number | null;
+  escalated_by: string | null;
+  escalated_by_name: string | null;
+  /** Who owned it before the handoff, so the trail names both people. */
+  escalated_from: string | null;
+  escalated_reason: string | null;
   created_at: number;
   updated_at: number;
   updated_by_name: string | null;
@@ -406,6 +416,17 @@ type PastDueCasesTable = {
 type PastDueFollowupsTable = {
   task_id: string;
   account_key: string;
+  created_at: number;
+};
+
+type PastDueEventsTable = {
+  id: string;
+  account_key: string;
+  kind: string;
+  summary: string;
+  detail: string | null;
+  actor_id: string | null;
+  actor_name: string | null;
   created_at: number;
 };
 
@@ -785,6 +806,7 @@ export type AdminDb = {
   admin_financial_notes: FinancialNotesTable;
   admin_past_due_cases: PastDueCasesTable;
   admin_past_due_followups: PastDueFollowupsTable;
+  admin_past_due_events: PastDueEventsTable;
   admin_cleveland_orders: ClevelandOrdersTable;
   admin_cleveland_refresh_log: ClevelandRefreshLogTable;
   admin_tickets: TicketsTable;
@@ -1280,6 +1302,17 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       review_cleared_by TEXT,
       review_cleared_by_name TEXT,
       review_cleared_at INTEGER,
+      -- What the client committed to, so a promise can be checked against the
+      -- date it was made for instead of living in a note nobody re-reads.
+      promised_amount REAL,
+      promised_date INTEGER,
+      -- The handoff for the final letter. Recorded on the case so the admin
+      -- inbox can be built from the cases themselves, with no second table.
+      escalated_at INTEGER,
+      escalated_by TEXT,
+      escalated_by_name TEXT,
+      escalated_from TEXT,
+      escalated_reason TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       updated_by_name TEXT
@@ -1296,6 +1329,22 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_past_due_followups_account
       ON admin_past_due_followups(account_key);
+    -- Everything that happened to a case, in the order it happened. Contacts
+    -- and notes keep their own tables — they are things a person wrote — while
+    -- this records the state changes nobody would otherwise be able to see:
+    -- who moved the stage, who was handed the account, what was promised.
+    CREATE TABLE IF NOT EXISTS admin_past_due_events (
+      id TEXT PRIMARY KEY,
+      account_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      detail TEXT,
+      actor_id TEXT,
+      actor_name TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_past_due_events_account
+      ON admin_past_due_events(account_key, created_at DESC);
     CREATE TABLE IF NOT EXISTS admin_cleveland_orders (
       order_id TEXT PRIMARY KEY,
       photographer TEXT NOT NULL,
@@ -1708,6 +1757,21 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (!pastDueCaseColumns.some((c) => c.name === "next_action")) {
     db.exec("ALTER TABLE admin_past_due_cases ADD COLUMN next_action TEXT");
+  }
+  // Promise-to-pay and the escalation handoff came later. All nullable, so an
+  // existing case reads as "nothing promised, never escalated" until it is.
+  for (const [col, type] of [
+    ["promised_amount", "REAL"],
+    ["promised_date", "INTEGER"],
+    ["escalated_at", "INTEGER"],
+    ["escalated_by", "TEXT"],
+    ["escalated_by_name", "TEXT"],
+    ["escalated_from", "TEXT"],
+    ["escalated_reason", "TEXT"],
+  ] as const) {
+    if (!pastDueCaseColumns.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE admin_past_due_cases ADD COLUMN ${col} ${type}`);
+    }
   }
   const financialNoteColumns = db
     .prepare("PRAGMA table_info(admin_financial_notes)")

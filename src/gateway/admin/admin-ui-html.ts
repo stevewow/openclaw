@@ -298,6 +298,18 @@ ${BRAND_FAVICON_TAG}
   .fin-card-amount { font-weight: 700; color: var(--text); }
   .fin-col-empty { font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 0.25rem; }
   .fin-due-over { color: #b5473b; font-weight: 600; }
+  .fin-flag-attention { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .fin-card-attention { border-left: 3px solid #dc2626; }
+  /* Account history: state changes, logged contacts and notes on one trail. */
+  .fin-tl { border-left: 2px solid var(--border); margin-left: 0.35rem; padding-left: 0.85rem; }
+  .fin-tl-row { position: relative; padding: 0.45rem 0; font-size: 0.8rem; border-bottom: 1px solid var(--border); }
+  .fin-tl-row:last-child { border-bottom: none; }
+  .fin-tl-row:before { content: ''; position: absolute; left: -1.2rem; top: 0.75rem; width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+  .fin-tl-row.is-escalation:before { background: #dc2626; }
+  .fin-tl-row.is-promise:before { background: #b45309; }
+  .fin-tl-row.is-contact:before { background: var(--accent); }
+  .fin-tl-when { font-size: 0.72rem; color: var(--text-muted); }
+  .fin-tl-detail { color: var(--text-muted); margin-top: 0.15rem; white-space: pre-wrap; }
 
   /* Modal */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; overflow-y: auto; }
@@ -1320,7 +1332,9 @@ ${FEEDBACK_MARKUP}
                 Outstanding is what is still owed (invoice total less payments and credits). An account holding a
                 partially paid invoice is flagged <strong>Review</strong>: a plan, dispute or short payment sits behind
                 the balance, so read it before taking the next collections step. Assign an account to hand it to
-                someone — it then shows up in their queue to work.
+                someone — it then shows up in their queue to work. Record what a client promises and by when;
+                once that date passes with nothing resolved the account is flagged <strong>Promise broken</strong>.
+                Escalating hands the account to whoever owns the final letter and emails them.
               </div>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
@@ -1351,6 +1365,7 @@ ${FEEDBACK_MARKUP}
               <option value="unassigned">Unassigned</option>
             </select>
           </label>
+          <label title="A broken promise, a follow-up already due, or a partial payment nobody has signed off"><input type="checkbox" id="fin-filter-attention" /> Needs attention only</label>
           <label><input type="checkbox" id="fin-filter-review" /> Needs review only</label>
           <label><input type="checkbox" id="fin-filter-open" checked /> Hide resolved</label>
           <span class="text-muted" style="font-size:0.78rem;margin-left:auto" id="fin-visible-count"></span>
@@ -1889,10 +1904,19 @@ ${FEEDBACK_MODALS}
       <label style="font-size:0.78rem;color:var(--text-muted)">Next action due<br />
         <input type="date" id="fin-due-input" style="margin-top:0.2rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)" />
       </label>
+      <label style="font-size:0.78rem;color:var(--text-muted)">Promised by<br />
+        <input type="date" id="fin-promise-date" title="The date the client committed to pay" style="margin-top:0.2rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)" />
+      </label>
+      <label style="font-size:0.78rem;color:var(--text-muted)">Promised amount<br />
+        <input type="number" min="0" step="0.01" id="fin-promise-amount" placeholder="Optional" title="What they committed to pay — leave blank if they did not say" style="margin-top:0.2rem;width:8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)" />
+      </label>
       <span class="text-muted" id="fin-case-meta" style="font-size:0.72rem"></span>
     </div>
+    <div id="fin-promise-note" class="hidden" style="font-size:0.8rem;margin:-0.5rem 0 1rem"></div>
+    <div id="fin-escalation-banner" class="hidden" style="border-left:3px solid #dc2626;background:var(--surface2);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:1rem;font-size:0.82rem"></div>
     <div style="display:flex;gap:0.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
       <button class="btn btn-primary btn-sm" id="fin-followup-btn">+ Create follow-up task</button>
+      <button class="btn btn-ghost btn-sm" id="fin-escalate-btn" title="Hand this account over for the final letter">⚑ Escalate</button>
     </div>
     <div style="font-weight:700;margin-bottom:0.5rem">Past-due invoices</div>
     <div class="table-wrap" style="margin-bottom:1.25rem">
@@ -1929,6 +1953,10 @@ ${FEEDBACK_MODALS}
       <button type="submit" class="btn btn-primary btn-sm">Add</button>
     </form>
     <div id="fin-notes-list"></div>
+
+    <div style="font-weight:700;margin:1.25rem 0 0.5rem">History</div>
+    <div class="text-muted" style="font-size:0.78rem;margin-bottom:0.5rem">Everything that has happened on this account, newest first.</div>
+    <div id="fin-timeline"></div>
   </div>
 </div>
 
@@ -4550,9 +4578,10 @@ ${MARKET_COMPONENT_JS}
   let finActions = [];   // collections steps in policy order, server-owned
   let finAssignees = []; // assignable users (admins only)
   let finCanAssign = false;
+  let finEscalationOwner = null; // who the final letter goes to, named by the server
   let finView = 'board';
   try { finView = localStorage.getItem('oc_fin_view') === 'table' ? 'table' : 'board'; } catch (e) { /* private mode */ }
-  const finFilters = { owner: 'all', reviewOnly: false, hideResolved: true };
+  const finFilters = { owner: 'all', attentionOnly: false, reviewOnly: false, hideResolved: true };
 
   function finStatusLabel(key) {
     const s = finStatuses.find(x => x.key === key);
@@ -4566,6 +4595,17 @@ ${MARKET_COMPONENT_JS}
   // "read and understood", and it holds until someone reopens it.
   function finReviewOpen(a) {
     return a.needsManualReview && !(a.case && a.case.reviewClearedAt);
+  }
+  /**
+   * Something on this account is waiting on whoever owns it today. The server
+   * already worked this out over the same facts; trusting its answer keeps the
+   * badge, the tile and the filter from ever disagreeing with each other.
+   */
+  function finNeedsAttention(a) {
+    return a.needsAttention === true;
+  }
+  function finPromiseBroken(a) {
+    return a.promiseBroken === true;
   }
   function finDueLabel(c) {
     if (!c || !c.dueAt) return '';
@@ -4633,6 +4673,7 @@ ${MARKET_COMPONENT_JS}
     finActions = r.data.actions || [];
     finAssignees = r.data.assignees || [];
     finCanAssign = r.data.canAssign === true;
+    finEscalationOwner = r.data.escalationOwner || null;
     refEl.textContent = finBreakdown.refreshedAt
       ? 'Last refreshed: ' + new Date(finBreakdown.refreshedAt).toLocaleString()
       : 'Never refreshed — click Refresh now';
@@ -4644,6 +4685,7 @@ ${MARKET_COMPONENT_JS}
       tile('Outstanding', money(finBreakdown.totalPastDue)) +
       tile('Accounts', finBreakdown.accountCount) +
       tile('90+ Days', money((bucketAmt['90-119'] ? bucketAmt['90-119'].amount : 0) + (bucketAmt['120+'] ? bucketAmt['120+'].amount : 0))) +
+      tile('Needs attention', finBreakdown.attentionCount || 0) +
       tile('Needs review', finBreakdown.manualReviewCount || 0);
 
     renderFinViews();
@@ -4658,6 +4700,7 @@ ${MARKET_COMPONENT_JS}
       const c = a.case || {};
       if (finFilters.owner === 'mine' && c.assignedTo !== me) return false;
       if (finFilters.owner === 'unassigned' && c.assignedTo) return false;
+      if (finFilters.attentionOnly && !finNeedsAttention(a)) return false;
       if (finFilters.reviewOnly && !finReviewOpen(a)) return false;
       if (finFilters.hideResolved && c.status === 'resolved') return false;
       return true;
@@ -4682,12 +4725,18 @@ ${MARKET_COMPONENT_JS}
     const flag = (finReviewOpen(a)
       ? '<span class="badge fin-flag" title="Partially paid invoice — read before the next collections step">Review</span>'
       : (a.needsManualReview ? '<span class="badge fin-flag-clear" title="Partial payment reviewed">Reviewed</span>' : ''));
-    return '<div class="fin-card" draggable="true" data-account="' + esc(a.accountKey) + '">' +
+    // A broken promise is the one thing worth naming on the card itself: it is
+    // why the account is back in play, and it dates the next conversation.
+    const broken = finPromiseBroken(a)
+      ? '<span class="badge fin-flag-attention" title="Promised ' + esc(finDate(c.promisedDate)) + ' — the date has passed">Promise broken</span>'
+      : '';
+    return '<div class="fin-card' + (finNeedsAttention(a) ? ' fin-card-attention' : '') +
+      '" draggable="true" data-account="' + esc(a.accountKey) + '">' +
       '<div class="fin-card-name">' + esc(a.accountName) + '</div>' +
       '<div class="fin-card-row">' +
         '<span class="fin-card-amount">' + money(a.balance) + '</span>' +
         '<span class="' + bucketClass(a.bucket) + '">' + esc(a.bucket) + '</span>' +
-        flag +
+        flag + broken +
       '</div>' +
       '<div class="fin-card-row" style="margin-top:0.25rem">' +
         '<span>' + esc(finOwnerLabel(c)) + '</span>' +
@@ -4743,11 +4792,36 @@ ${MARKET_COMPONENT_JS}
     });
   }
 
+  /**
+   * Move an account to a stage. Escalating is the one move that is a handoff
+   * rather than a label — ownership changes and someone else is emailed — so it
+   * asks for a reason first and says where the account landed. Everything else
+   * saves silently, which is what makes dragging a card usable.
+   */
   async function setFinStatus(accountKey, status) {
-    const r = await api('PUT', '/financials/accounts/' + encodeURIComponent(accountKey) + '/status', { status });
-    if (!r.ok) { alert((r.data && r.data.error) || 'Could not move this account.'); return false; }
     const acct = (finBreakdown.accounts || []).find(a => a.accountKey === accountKey);
+    const already = acct && acct.case && acct.case.status === 'escalated';
+    const body = { status };
+    if (status === 'escalated' && !already) {
+      const to = finEscalationOwner ? finEscalationOwner.name : 'whoever owns collections escalations';
+      const reason = prompt(
+        'Escalating hands this account to ' + to + ' for the final letter and the referral to collections.\\n\\n' +
+        'Why is it being escalated? (optional)');
+      // Cancel means cancel: null comes back from dismissing the box, whereas
+      // an empty string is someone saying "no reason worth writing".
+      if (reason === null) return false;
+      body.reason = reason.trim() ? reason.trim() : null;
+    }
+    const r = await api('PUT', '/financials/accounts/' + encodeURIComponent(accountKey) + '/status', body);
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not move this account.'); return false; }
     if (acct) acct.case = r.data.case;
+    const esc_ = r.data.escalation;
+    if (esc_) {
+      alert(esc_.owner
+        ? 'Escalated to ' + esc_.owner.name + '. It is now assigned to them for ' + esc_.action.label.toLowerCase() + '.' +
+          (esc_.notified ? '' : '\\n\\nThey were not emailed — tell them directly.')
+        : 'Escalated, but nobody is set up to own escalations, so it stays with its current owner.');
+    }
     renderFinViews();
     return true;
   }
@@ -4882,7 +4956,8 @@ ${MARKET_COMPONENT_JS}
     }
     tbody.innerHTML = finSortAccounts(accounts).map(a => {
       const c = a.case || {};
-      const flag = (finReviewOpen(a) ? ' <span class="badge fin-flag">Review</span>' : '');
+      const flag = (finReviewOpen(a) ? ' <span class="badge fin-flag">Review</span>' : '') +
+        (finPromiseBroken(a) ? ' <span class="badge fin-flag-attention" title="Promised ' + esc(finDate(c.promisedDate)) + ' — the date has passed">Promise broken</span>' : '');
       return \`
       <tr class="fin-row-click" data-account="\${esc(a.accountKey)}">
         <td>\${esc(a.accountName)}<span class="fin-owner"> · \${esc(a.accountType)}</span>\${flag}</td>
@@ -4958,6 +5033,10 @@ ${MARKET_COMPONENT_JS}
   });
   document.getElementById('fin-filter-owner').addEventListener('change', e => {
     finFilters.owner = e.target.value;
+    renderFinViews();
+  });
+  document.getElementById('fin-filter-attention').addEventListener('change', e => {
+    finFilters.attentionOnly = e.target.checked;
     renderFinViews();
   });
   document.getElementById('fin-filter-review').addEventListener('change', e => {
@@ -5041,7 +5120,10 @@ ${MARKET_COMPONENT_JS}
     const followBtn = document.getElementById('fin-followup-btn');
     followBtn.disabled = false;
     followBtn.textContent = '+ Create follow-up task';
+    document.getElementById('fin-timeline').innerHTML =
+      '<div class="text-muted" style="font-size:0.8rem">Loading history…</div>';
     document.getElementById('fin-modal').classList.remove('hidden');
+    loadFinTimeline(accountKey);
   }
 
   // Partial payments are the one thing the policy ladder must not be applied to
@@ -5107,6 +5189,60 @@ ${MARKET_COMPONENT_JS}
     dueInput.value = c.dueAt ? new Date(c.dueAt).toISOString().slice(0, 10) : '';
     document.getElementById('fin-case-meta').textContent = c.updatedAt && c.updatedByName
       ? 'Last updated by ' + c.updatedByName + ' on ' + finDate(c.updatedAt) : '';
+    renderFinPromise();
+    renderFinEscalation();
+  }
+
+  /** A promise is broken once its date has passed and the money never arrived. */
+  function finCasePromiseBroken(c) {
+    return !!c && c.status === 'promised' && c.promisedDate && c.promisedDate < Date.now();
+  }
+
+  // The promise fields and the line under them. The line is the point: a date
+  // in an input is easy to skim past, "promised $500 by Aug 12 — 4 days ago"
+  // is the sentence that starts the next phone call.
+  function renderFinPromise() {
+    const c = (finAccount && finAccount.case) || {};
+    document.getElementById('fin-promise-date').value =
+      c.promisedDate ? new Date(c.promisedDate).toISOString().slice(0, 10) : '';
+    document.getElementById('fin-promise-amount').value =
+      c.promisedAmount == null ? '' : c.promisedAmount;
+    const note = document.getElementById('fin-promise-note');
+    if (!c.promisedDate) { note.classList.add('hidden'); note.innerHTML = ''; return; }
+    const broken = finCasePromiseBroken(c);
+    const days = Math.round((Date.now() - c.promisedDate) / 86400000);
+    const when = broken
+      ? (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago')
+      : finDate(c.promisedDate);
+    note.classList.remove('hidden');
+    note.innerHTML = broken
+      ? '<span class="badge fin-flag-attention">Promise broken</span> ' +
+        '<span class="text-muted">Promised ' + esc(c.promisedAmount == null ? 'payment' : money(c.promisedAmount)) +
+        ' by ' + esc(finDate(c.promisedDate)) + ' — ' + esc(when) + '. Nothing has been marked resolved.</span>'
+      : '<span class="text-muted">Promised ' + esc(c.promisedAmount == null ? 'payment' : money(c.promisedAmount)) +
+        ' by ' + esc(when) + '.</span>';
+  }
+
+  // Where an escalated account went, and who to chase about the letter. The
+  // button is hidden once it has gone, because escalating twice is not a thing.
+  function renderFinEscalation() {
+    const c = (finAccount && finAccount.case) || {};
+    const banner = document.getElementById('fin-escalation-banner');
+    const btn = document.getElementById('fin-escalate-btn');
+    const gone = c.status === 'escalated';
+    btn.classList.toggle('hidden', gone);
+    if (!gone) { banner.classList.add('hidden'); banner.innerHTML = ''; return; }
+    banner.classList.remove('hidden');
+    banner.innerHTML =
+      '<div style="font-weight:700;margin-bottom:0.2rem">⚑ Escalated for the final letter</div>' +
+      '<div class="text-muted">' +
+        (c.escalatedByName ? esc(c.escalatedByName) + ' escalated this' : 'Escalated') +
+        (c.escalatedAt ? ' on ' + esc(finDate(c.escalatedAt)) : '') +
+        (c.assignedToName ? '. It sits with ' + esc(c.assignedToName) + ' now.' : '.') +
+      '</div>' +
+      (c.escalatedReason
+        ? '<div style="margin-top:0.35rem;white-space:pre-wrap">' + esc(c.escalatedReason) + '</div>'
+        : '');
   }
 
   // Keep the open modal and the board behind it on the same case record.
@@ -5118,6 +5254,8 @@ ${MARKET_COMPONENT_JS}
     renderFinReviewBanner();
     renderFinCaseControls();
     renderFinViews();
+    // The change just made is itself a line in the history, so re-read it.
+    loadFinTimeline(finAccount.accountKey);
   }
 
   document.getElementById('fin-status-select').addEventListener('change', async e => {
@@ -5137,6 +5275,72 @@ ${MARKET_COMPONENT_JS}
     if (!r.ok) { alert((r.data && r.data.error) || 'Could not set the next action date.'); return; }
     applyFinCase(r.data.case);
   });
+
+  /**
+   * Saving the promise. Both inputs write the same record, so either one moves
+   * the case to Promised — and clearing the date drops the amount with it,
+   * because a figure with no date is not something anyone can chase.
+   */
+  async function saveFinPromise() {
+    if (!finAccount) return;
+    const raw = document.getElementById('fin-promise-date').value;
+    const amountRaw = document.getElementById('fin-promise-amount').value;
+    // A date input yields a bare YYYY-MM-DD; read it as local noon so the day
+    // shown back is the day that was picked in every timezone.
+    const promisedDate = raw ? new Date(raw + 'T12:00:00').getTime() : null;
+    const amount = amountRaw === '' ? null : Number(amountRaw);
+    if (amount !== null && !isFinite(amount)) { alert('That promised amount is not a number.'); return; }
+    const r = await api('PUT', '/financials/accounts/' + encodeURIComponent(finAccount.accountKey) + '/promise',
+      { promisedDate, promisedAmount: amount });
+    if (!r.ok) { alert((r.data && r.data.error) || 'Could not save the promise.'); return; }
+    applyFinCase(r.data.case);
+  }
+
+  document.getElementById('fin-promise-date').addEventListener('change', saveFinPromise);
+  document.getElementById('fin-promise-amount').addEventListener('change', saveFinPromise);
+
+  document.getElementById('fin-escalate-btn').addEventListener('click', async () => {
+    if (!finAccount) return;
+    const ok = await setFinStatus(finAccount.accountKey, 'escalated');
+    if (!ok) return;
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === finAccount.accountKey);
+    if (acct) applyFinCase(acct.case);
+  });
+
+  // ── Account history ────────────────────────────────────────────────────────
+  // Stage moves, handoffs, promises, logged contacts and notes are separate
+  // records with separate lifetimes; the server merges them on read so the
+  // browser never has to keep three lists in step.
+  const FIN_TL_LABELS = {
+    stage: 'Stage', assignment: 'Owner', next_action: 'Next step', due: 'Due date',
+    promise: 'Promise', review: 'Review', followup: 'Follow-up', escalation: 'Escalation',
+    contact: 'Contact', note: 'Note',
+  };
+
+  function finTimelineRow(t) {
+    const kind = FIN_TL_LABELS[t.kind] || t.kind;
+    const when = new Date(t.at).toLocaleString();
+    return '<div class="fin-tl-row is-' + esc(t.kind) + '">' +
+      '<div><strong>' + esc(t.summary) + '</strong></div>' +
+      (t.detail ? '<div class="fin-tl-detail">' + esc(t.detail) + '</div>' : '') +
+      '<div class="fin-tl-when">' + esc(kind) + ' · ' + esc(when) +
+        (t.actorName ? ' · ' + esc(t.actorName) : '') + '</div>' +
+    '</div>';
+  }
+
+  async function loadFinTimeline(accountKey) {
+    const el = document.getElementById('fin-timeline');
+    if (!el) return;
+    const r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey) + '/timeline');
+    // A different account may have been opened while this was in flight; the
+    // history belongs to the one on screen, not to whichever request landed last.
+    if (!finAccount || finAccount.accountKey !== accountKey) return;
+    if (!r.ok) { el.innerHTML = '<div class="text-muted" style="font-size:0.8rem">Could not load this account\\'s history.</div>'; return; }
+    const timeline = r.data.timeline || [];
+    el.innerHTML = timeline.length
+      ? '<div class="fin-tl">' + timeline.map(finTimelineRow).join('') + '</div>'
+      : '<div class="text-muted" style="font-size:0.8rem">Nothing has happened on this account yet.</div>';
+  }
 
   // ── Outreach scripts ───────────────────────────────────────────────────────
   // Scripts are written once by a manager and picked per account, so the wording
@@ -5350,6 +5554,16 @@ ${MARKET_COMPONENT_JS}
     renderFinContacts(r.data.contacts || []);
     // The table reads from the breakdown, so refresh it after a log or removal.
     await loadFinancials();
+    if (!finAccount) return;
+    // Logging the first contact is what starts an account being worked, and the
+    // server moves the stage for it — so bring the open modal back onto the
+    // case the server now holds rather than the one it was opened with.
+    const acct = (finBreakdown.accounts || []).find(a => a.accountKey === finAccount.accountKey);
+    if (acct && acct.case) {
+      finAccount.case = acct.case;
+      renderFinCaseControls();
+    }
+    await loadFinTimeline(finAccount.accountKey);
   }
 
   document.getElementById('fin-contact-form').addEventListener('submit', async e => {
@@ -5417,6 +5631,7 @@ ${MARKET_COMPONENT_JS}
     input.value = '';
     const nr = await api('GET', '/financials/notes?accountKey=' + encodeURIComponent(finAccount.accountKey));
     if (nr.ok) renderFinNotes(nr.data.notes || []);
+    await loadFinTimeline(finAccount.accountKey);
   });
 
   document.getElementById('fin-followup-btn').addEventListener('click', async () => {
@@ -5444,6 +5659,7 @@ ${MARKET_COMPONENT_JS}
     });
     if (!r.ok) { btn.disabled = false; btn.textContent = '+ Create follow-up task'; alert(r.data.error || 'Failed to create task.'); return; }
     btn.textContent = '✓ Added to Collections';
+    await loadFinTimeline(finAccount.accountKey);
   });
 
   async function refreshFinancials() {

@@ -15,12 +15,23 @@ type CaseLike = {
   assignedToName?: string | null;
   reviewClearedAt?: number | null;
 };
-type AccountLike = { accountKey: string; needsManualReview: boolean; case: CaseLike };
+type AccountLike = {
+  accountKey: string;
+  needsManualReview: boolean;
+  needsAttention?: boolean;
+  promiseBroken?: boolean;
+  case: CaseLike;
+};
 
 function loadPastDueModel(opts: {
   accounts: AccountLike[];
   viewerId: string;
-  filters?: { owner?: string; reviewOnly?: boolean; hideResolved?: boolean };
+  filters?: {
+    owner?: string;
+    attentionOnly?: boolean;
+    reviewOnly?: boolean;
+    hideResolved?: boolean;
+  };
 }) {
   const script = Array.from(ADMIN_UI_HTML.matchAll(/<script>([\s\S]*?)<\/script>/g)).map(
     (m) => m[1],
@@ -37,6 +48,7 @@ function loadPastDueModel(opts: {
 
   const filters = {
     owner: opts.filters?.owner ?? "all",
+    attentionOnly: opts.filters?.attentionOnly ?? false,
     reviewOnly: opts.filters?.reviewOnly ?? false,
     hideResolved: opts.filters?.hideResolved ?? true,
   };
@@ -53,13 +65,15 @@ function loadPastDueModel(opts: {
   // own source file, not user data.
   // oxlint-disable-next-line no-implied-eval
   const factory = new Function(
-    `${preamble}\n${block}\nreturn { finVisibleAccounts, finReviewOpen, finOwnerLabel, finStatusLabel };`,
+    `${preamble}\n${block}\nreturn { finVisibleAccounts, finReviewOpen, finOwnerLabel, finStatusLabel, finNeedsAttention, finPromiseBroken };`,
   );
   return factory() as {
     finVisibleAccounts: () => AccountLike[];
     finReviewOpen: (a: AccountLike) => boolean;
     finOwnerLabel: (c: CaseLike) => string;
     finStatusLabel: (key: string) => string;
+    finNeedsAttention: (a: AccountLike) => boolean;
+    finPromiseBroken: (a: AccountLike) => boolean;
   };
 }
 
@@ -321,5 +335,54 @@ describe("inline stage and next-action pickers", () => {
     const m = loadPastDueCells({});
     expect(m.finSortValue({ action: { step: 4 } }, "action")).toBe(4);
     expect(m.finSortValue({ action: { step: 1 } }, "action")).toBe(1);
+  });
+});
+
+describe("what needs someone today", () => {
+  const ATTENTION: AccountLike[] = [
+    {
+      ...account("broken", { assignedTo: "me", status: "promised" }),
+      needsAttention: true,
+      promiseBroken: true,
+    },
+    { ...account("due", { assignedTo: "me", status: "working" }), needsAttention: true },
+    { ...account("quiet", { assignedTo: "me", status: "working" }) },
+  ];
+
+  it("narrows the board to the accounts waiting on someone", () => {
+    const m = loadPastDueModel({
+      accounts: ATTENTION,
+      viewerId: "me",
+      filters: { attentionOnly: true },
+    });
+    expect(m.finVisibleAccounts().map((a) => a.accountKey)).toEqual(["broken", "due"]);
+  });
+
+  it("leaves the board alone until the filter is asked for", () => {
+    const m = loadPastDueModel({ accounts: ATTENTION, viewerId: "me" });
+    expect(m.finVisibleAccounts()).toHaveLength(3);
+  });
+
+  it("reads both flags off the server's answer rather than recomputing them", () => {
+    const m = loadPastDueModel({ accounts: ATTENTION, viewerId: "me" });
+    expect(m.finNeedsAttention(ATTENTION[0])).toBe(true);
+    expect(m.finPromiseBroken(ATTENTION[0])).toBe(true);
+    // A due follow-up needs attention without any promise being involved.
+    expect(m.finNeedsAttention(ATTENTION[1])).toBe(true);
+    expect(m.finPromiseBroken(ATTENTION[1])).toBe(false);
+    expect(m.finNeedsAttention(ATTENTION[2])).toBe(false);
+  });
+
+  it("stacks with the owner filter rather than replacing it", () => {
+    const mixed = [
+      ...ATTENTION,
+      { ...account("theirs", { assignedTo: "someone-else" }), needsAttention: true },
+    ];
+    const m = loadPastDueModel({
+      accounts: mixed,
+      viewerId: "me",
+      filters: { owner: "mine", attentionOnly: true },
+    });
+    expect(m.finVisibleAccounts().map((a) => a.accountKey)).toEqual(["broken", "due"]);
   });
 });

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { callTool, listTools } from "../../../extensions/spiro/api.js";
 import {
   defaultCase,
+  isPromiseBroken,
   listPastDueCases,
   PAST_DUE_CASE_STATUSES,
   type PastDueCase,
@@ -110,6 +111,18 @@ export type PastDueAccount = {
   nextContact: NextContact | null;
   /** Whole days until that contact; negative once it has slipped. */
   daysUntilContact: number | null;
+  /**
+   * The client promised to pay by a date that has now passed and the case is
+   * still sitting at `promised`. Derived rather than stored: the answer changes
+   * with the clock, and a stored flag would need a sweep to stay true.
+   */
+  promiseBroken: boolean;
+  /**
+   * Something on this account is waiting on whoever owns it: a follow-up whose
+   * date has gone by, a broken promise, or a partial payment nobody has signed
+   * off. One flag so a queue can be sorted by "what needs me today".
+   */
+  needsAttention: boolean;
 };
 
 export type PastDueBreakdown = {
@@ -119,6 +132,12 @@ export type PastDueBreakdown = {
   accountCount: number;
   invoiceCount: number;
   manualReviewCount: number;
+  /** Accounts with something waiting on their owner today. */
+  attentionCount: number;
+  /** Accounts that promised by a date now gone by. */
+  promiseBrokenCount: number;
+  /** Accounts sitting with the escalation owner for the final letter. */
+  escalatedCount: number;
   byBucket: Array<{ bucket: PastDueBucket; accounts: number; amount: number }>;
   byStatus: Array<{ status: PastDueCaseStatus; accounts: number; amount: number }>;
   accounts: PastDueAccount[];
@@ -604,6 +623,12 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
           daysSinceContact: lastContact ? Math.max(0, daysBetween(lastContact.at, now)) : null,
           nextContact,
           daysUntilContact: nextContact ? daysBetween(now, nextContact.at) : null,
+          promiseBroken: isPromiseBroken(caseRow, now),
+          needsAttention:
+            isPromiseBroken(caseRow, now) ||
+            (v.partial > 0 && caseRow.reviewClearedAt === null) ||
+            (nextContact !== null && nextContact.at <= now) ||
+            (caseRow.dueAt !== null && caseRow.dueAt <= now),
         },
       ];
     })
@@ -636,6 +661,9 @@ export async function getPastDueBreakdown(now = Date.now()): Promise<PastDueBrea
     accountCount: accounts.length,
     invoiceCount: accounts.reduce((s, a) => s + a.invoiceCount, 0),
     manualReviewCount: accounts.filter((a) => a.needsManualReview).length,
+    attentionCount: accounts.filter((a) => a.needsAttention).length,
+    promiseBrokenCount: accounts.filter((a) => a.promiseBroken).length,
+    escalatedCount: accounts.filter((a) => a.case.status === "escalated").length,
     byBucket,
     byStatus,
     accounts,
@@ -662,6 +690,9 @@ export function scopeBreakdownToAssignee(
     accountCount: accounts.length,
     invoiceCount: accounts.reduce((s, a) => s + a.invoiceCount, 0),
     manualReviewCount: accounts.filter((a) => a.needsManualReview).length,
+    attentionCount: accounts.filter((a) => a.needsAttention).length,
+    promiseBrokenCount: accounts.filter((a) => a.promiseBroken).length,
+    escalatedCount: accounts.filter((a) => a.case.status === "escalated").length,
     byBucket: PAST_DUE_BUCKETS.map((bucket) => {
       const inBucket = accounts.filter((a) => a.bucket === bucket);
       return { bucket, accounts: inBucket.length, amount: sum(inBucket) };
