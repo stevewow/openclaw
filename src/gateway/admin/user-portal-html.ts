@@ -256,6 +256,16 @@ ${MARKET_CSS}
   .member-row input { width: auto; margin: 0; }
   .member-sub { color: var(--text-muted); font-size: 0.75rem; }
   .member-empty { color: var(--text-muted); font-size: 0.8rem; padding: 0.4rem; }
+  .prt-flag { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 0.4rem; }
+  .prt-tl { border-left: 2px solid var(--border); margin-left: 0.35rem; padding-left: 0.85rem; }
+  .prt-tl-row { position: relative; padding: 0.45rem 0; font-size: 0.8rem; border-bottom: 1px solid var(--border); }
+  .prt-tl-row:last-child { border-bottom: none; }
+  .prt-tl-row:before { content: ''; position: absolute; left: -1.2rem; top: 0.75rem; width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+  .prt-tl-row.is-escalation:before { background: #b5473b; }
+  .prt-tl-row.is-promise:before { background: #b7791f; }
+  .prt-tl-row.is-contact:before { background: var(--accent); }
+  .prt-tl-when { font-size: 0.72rem; color: var(--text-muted); }
+  .prt-tl-detail { color: var(--text-muted); margin-top: 0.15rem; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -904,6 +914,8 @@ ${MARKET_COMPONENT_JS}
   // The server only returns accounts assigned to the viewer, so this page is
   // their queue by construction — no client-side filtering to get wrong.
   var portalPastDueOpen = {}; // accountKey -> detail expanded
+  var portalPastDueAccounts = []; // the queue as last loaded, so a stage change can see the case it is moving
+  var portalEscalationOwner = null; // whose desk an escalation lands on, named before the handoff is made
   function pdMoney(n){ return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
   function pdDate(ms){ return ms ? new Date(ms).toLocaleDateString() : '—'; }
   async function renderPortalPastDue(){
@@ -913,15 +925,21 @@ ${MARKET_COMPONENT_JS}
     if (!r.ok){ host.innerHTML = '<div class="empty-state"><p>Could not load your collections queue.</p></div>'; return; }
     var accounts = (r.data.breakdown && r.data.breakdown.accounts) || [];
     var statuses = r.data.statuses || [];
+    portalPastDueAccounts = accounts;
+    portalEscalationOwner = r.data.escalationOwner || null;
     if (!accounts.length){
       host.innerHTML = '<div class="empty-state"><p>Nothing assigned to you yet — accounts show up here once someone assigns them.</p></div>';
       return;
     }
     var review = accounts.filter(function(a){ return a.needsManualReview && !(a.case && a.case.reviewClearedAt); }).length;
+    // One number for "what needs me today" — a slipped follow-up, a broken
+    // promise or a partial payment nobody has signed off all count.
+    var attention = accounts.filter(function(a){ return a.needsAttention; }).length;
     var head = '<div class="card" style="margin-bottom:0.75rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">' +
       '<div style="font-weight:700">Your collections queue</div>' +
       '<div class="text-muted" style="font-size:0.85rem">' + accounts.length + ' account' + (accounts.length === 1 ? '' : 's') +
       ' · ' + pdMoney(r.data.breakdown.totalPastDue) + ' outstanding' +
+      (attention ? ' · ' + attention + ' needing attention' : '') +
       (review ? ' · ' + review + ' needing review' : '') + '</div></div>';
     host.innerHTML = head + accounts.map(function(a){ return portalPastDueCard(a, statuses); }).join('');
     bindPortalPastDue();
@@ -953,10 +971,19 @@ ${MARKET_COMPONENT_JS}
     var flag = flagOpen
       ? '<span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#fbf1dd;color:#b7791f;margin-left:0.4rem">⚠ Manual review</span>'
       : (a.needsManualReview ? '<span class="text-muted" style="font-size:0.72rem;margin-left:0.4rem">Reviewed</span>' : '');
+    // A promise that has come and gone, and an account already handed over,
+    // both change what the next call is — so they belong on the card, not
+    // three clicks down in the detail panel.
+    var promise = a.promiseBroken
+      ? '<span class="prt-flag" style="background:#fbe9e7;color:#b5473b" title="Promised ' + esc(pdDate(c.promisedDate)) + ' — the date has passed">Promise broken</span>'
+      : '';
+    var escalated = c.status === 'escalated'
+      ? '<span class="prt-flag" style="background:#ede9fe;color:#6d28d9">⚑ Escalated</span>'
+      : '';
     var due = c.dueAt ? '<span class="text-muted" style="font-size:0.78rem">Next action ' + esc(pdDate(c.dueAt)) + '</span>' : '';
     return '<div class="card" style="margin-bottom:0.5rem">' +
       '<div style="display:flex;gap:0.6rem;align-items:baseline;flex-wrap:wrap">' +
-        '<span style="font-weight:600">' + esc(a.accountName) + '</span>' + flag +
+        '<span style="font-weight:600">' + esc(a.accountName) + '</span>' + flag + promise + escalated +
         '<span style="margin-left:auto;font-weight:700">' + pdMoney(a.balance) + '</span>' +
       '</div>' +
       '<div class="text-muted" style="font-size:0.82rem;margin-top:0.2rem">' +
@@ -984,8 +1011,7 @@ ${MARKET_COMPONENT_JS}
     var host = document.getElementById('prt-pastdue');
     host.querySelectorAll('[data-pd-status]').forEach(function(sel){
       sel.addEventListener('change', async function(){
-        var res = await api('PUT', '/financials/accounts/' + encodeURIComponent(sel.dataset.pdStatus) + '/status', { status: sel.value });
-        if (!res.ok){ alert((res.data && res.data.error) || 'Could not update the stage.'); }
+        await portalSetPastDueStage(sel.dataset.pdStatus, sel.value);
         await renderPortalPastDue();
       });
     });
@@ -1014,10 +1040,140 @@ ${MARKET_COMPONENT_JS}
       if (panel) void renderPortalPastDueDetail(key, panel);
     });
   }
+  /**
+   * Move an account along the board. Escalating is a handoff rather than a
+   * label — ownership moves to whoever owns the final letter and that person is
+   * told — so it asks why first and says where the account landed. Every other
+   * stage saves silently. Returns false when the move did not happen.
+   */
+  async function portalSetPastDueStage(accountKey, status){
+    var acct = portalPastDueAccounts.filter(function(a){ return a.accountKey === accountKey; })[0];
+    var already = acct && acct.case && acct.case.status === 'escalated';
+    var body = { status: status };
+    if (status === 'escalated' && !already){
+      var to = portalEscalationOwner ? portalEscalationOwner.name : 'whoever owns collections escalations';
+      var reason = prompt(
+        'Escalating hands this account to ' + to + ' for the final letter and the referral to collections.\\n\\n' +
+        'Why is it being escalated? (optional)');
+      // Cancel means cancel: dismissing the box gives null, whereas an empty
+      // string is someone saying "no reason worth writing".
+      if (reason === null) return false;
+      body.reason = reason.trim() ? reason.trim() : null;
+    }
+    var res = await api('PUT', '/financials/accounts/' + encodeURIComponent(accountKey) + '/status', body);
+    if (!res.ok){ alert((res.data && res.data.error) || 'Could not update the stage.'); return false; }
+    var handoff = res.data.escalation;
+    if (handoff){
+      alert(handoff.owner
+        ? 'Escalated to ' + handoff.owner.name + '. It is now assigned to them for ' + handoff.action.label.toLowerCase() + '.' +
+          (handoff.notified ? '' : '\\n\\nThey were not emailed — tell them directly.')
+        : 'Escalated, but nobody is set up to own escalations, so it stays with you.');
+    }
+    return true;
+  }
+
+  /** A promise is broken once its date has passed and the money never arrived. */
+  function portalPromiseBroken(c){
+    return !!c && c.status === 'promised' && !!c.promisedDate && c.promisedDate < Date.now();
+  }
+
+  // The line under the promise fields is the point of them: a date in an input
+  // is easy to skim past, "promised $500 by Aug 12 — 4 days ago" is the
+  // sentence that starts the next phone call.
+  function portalPromiseNote(c){
+    if (!c.promisedDate) return '';
+    var broken = portalPromiseBroken(c);
+    var days = Math.round((Date.now() - c.promisedDate) / 86400000);
+    var when = broken
+      ? (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago')
+      : pdDate(c.promisedDate);
+    var amount = c.promisedAmount == null ? 'payment' : pdMoney(c.promisedAmount);
+    return '<div style="font-size:0.8rem;margin-top:0.4rem">' + (broken
+      ? '<span class="prt-flag" style="background:#fbe9e7;color:#b5473b;margin-left:0">Promise broken</span> ' +
+        '<span class="text-muted">Promised ' + esc(amount) + ' by ' + esc(pdDate(c.promisedDate)) + ' — ' + esc(when) +
+        '. Nothing has been marked resolved.</span>'
+      : '<span class="text-muted">Promised ' + esc(amount) + ' by ' + esc(when) + '.</span>') + '</div>';
+  }
+
+  /** What the client committed to, and by when. Clearing the date drops both. */
+  function portalPromiseBlock(c){
+    var inputStyle = 'margin-top:0.2rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)';
+    return '<div style="margin-top:0.6rem;font-weight:700;font-size:0.85rem">Promise to pay</div>' +
+      '<div style="display:flex;gap:0.75rem;align-items:flex-start;flex-wrap:wrap;margin-top:0.25rem">' +
+        '<label class="text-muted" style="font-size:0.78rem">By when<br />' +
+          '<input type="date" data-pd-promise-date value="' +
+          esc(c.promisedDate ? new Date(c.promisedDate).toISOString().slice(0, 10) : '') +
+          '" title="The date the client committed to pay" style="' + inputStyle + '" /></label>' +
+        '<label class="text-muted" style="font-size:0.78rem">Amount<br />' +
+          '<input type="number" min="0" step="0.01" data-pd-promise-amount placeholder="Optional" value="' +
+          esc(c.promisedAmount == null ? '' : c.promisedAmount) +
+          '" title="What they committed to pay — leave blank if they did not say" style="' + inputStyle + ';width:8rem" /></label>' +
+      '</div>' + portalPromiseNote(c);
+  }
+
+  // Where an escalated account went and who to chase about the letter. The
+  // button disappears once it has gone, because escalating twice is not a thing.
+  function portalEscalationBlock(c){
+    if (c.status === 'escalated'){
+      return '<div style="border-left:3px solid #b5473b;background:var(--surface2);border-radius:8px;padding:0.6rem 0.75rem;margin-top:0.7rem;font-size:0.82rem">' +
+        '<div style="font-weight:700;margin-bottom:0.2rem">⚑ Escalated for the final letter</div>' +
+        '<div class="text-muted">' +
+          (c.escalatedByName ? esc(c.escalatedByName) + ' escalated this' : 'Escalated') +
+          (c.escalatedAt ? ' on ' + esc(pdDate(c.escalatedAt)) : '') +
+          (c.assignedToName ? '. It sits with ' + esc(c.assignedToName) + ' now.' : '.') +
+        '</div>' +
+        (c.escalatedReason ? '<div style="margin-top:0.35rem;white-space:pre-wrap">' + esc(c.escalatedReason) + '</div>' : '') +
+      '</div>';
+    }
+    return '<div style="margin-top:0.7rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">' +
+      '<button class="btn btn-sm" data-pd-escalate title="Hand this account over for the final letter">⚑ Escalate</button>' +
+      '<span class="text-muted" style="font-size:0.78rem">' +
+        (portalEscalationOwner
+          ? 'Hands the account to ' + esc(portalEscalationOwner.name) + '.'
+          : 'Nobody is set up to own escalations yet.') +
+      '</span></div>';
+  }
+
+  // ── Account history ────────────────────────────────────────────────────────
+  // Stage moves, handoffs, promises, logged contacts and notes are separate
+  // records with separate lifetimes; the server merges them on read so the
+  // browser never has to keep three lists in step.
+  var PORTAL_TL_LABELS = {
+    stage: 'Stage', assignment: 'Owner', next_action: 'Next step', due: 'Due date',
+    promise: 'Promise', review: 'Review', followup: 'Follow-up', escalation: 'Escalation',
+    contact: 'Contact', note: 'Note'
+  };
+
+  function portalTimelineRow(t){
+    var kind = PORTAL_TL_LABELS[t.kind] || t.kind;
+    return '<div class="prt-tl-row is-' + esc(t.kind) + '">' +
+      '<div><strong>' + esc(t.summary) + '</strong></div>' +
+      (t.detail ? '<div class="prt-tl-detail">' + esc(t.detail) + '</div>' : '') +
+      '<div class="prt-tl-when">' + esc(kind) + ' · ' + esc(new Date(t.at).toLocaleString()) +
+        (t.actorName ? ' · ' + esc(t.actorName) : '') + '</div>' +
+    '</div>';
+  }
+
+  async function renderPortalPastDueHistory(accountKey, host){
+    var r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey) + '/timeline');
+    // The panel may have been closed, or another account opened, while this was
+    // in flight; the history belongs to the panel that asked for it.
+    if (!host.isConnected) return;
+    if (!r.ok){
+      host.innerHTML = '<div class="text-muted" style="font-size:0.8rem">Could not load this account\\'s history.</div>';
+      return;
+    }
+    var timeline = r.data.timeline || [];
+    host.innerHTML = timeline.length
+      ? '<div class="prt-tl">' + timeline.map(portalTimelineRow).join('') + '</div>'
+      : '<div class="text-muted" style="font-size:0.8rem">Nothing has happened on this account yet.</div>';
+  }
+
   async function renderPortalPastDueDetail(accountKey, panel){
     panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem;padding:0.5rem 0">Loading…</div>';
     var r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey));
     if (!r.ok){ panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem">Could not load this account.</div>'; return; }
+    var c = r.data.case || {};
     var invoices = (r.data.invoices || []).map(function(i){
       var ref = esc(i.referenceNumber || i.invoiceId);
       // Opens the invoice in Spiro when the id is linkable; plain text if not.
@@ -1035,14 +1191,23 @@ ${MARKET_COMPONENT_JS}
       '</div>';
     }).join('') || '<div class="text-muted" style="font-size:0.8rem">No notes yet.</div>';
     panel.innerHTML =
-      '<div style="margin-top:0.6rem;font-weight:700;font-size:0.85rem">Past-due invoices</div>' +
+      portalPromiseBlock(c) +
+      portalEscalationBlock(c) +
+      '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Past-due invoices</div>' +
       '<div class="table-wrap"><table style="font-size:0.8rem"><thead><tr><th>Reference</th><th>Invoiced</th><th>Paid</th><th>Outstanding</th><th>Due</th><th>Days</th></tr></thead><tbody>' +
       (invoices || '<tr><td colspan="6" class="empty-state">No past-due invoices.</td></tr>') + '</tbody></table></div>' +
       '<div style="margin-top:0.6rem;font-weight:700;font-size:0.85rem">Notes</div>' +
       '<form data-pd-note-form="' + esc(accountKey) + '" style="display:flex;gap:0.4rem;margin:0.35rem 0 0.5rem">' +
         '<input type="text" placeholder="Add a note…" autocomplete="off" style="flex:1;font-size:0.82rem;padding:0.3rem 0.5rem" />' +
         '<button type="submit" class="btn btn-sm">Add</button></form>' +
-      notes;
+      notes +
+      '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Account history</div>' +
+      '<div data-pd-history style="margin-top:0.35rem"><div class="text-muted" style="font-size:0.8rem">Loading…</div></div>';
+    bindPortalPastDueDetail(accountKey, panel);
+    void renderPortalPastDueHistory(accountKey, panel.querySelector('[data-pd-history]'));
+  }
+
+  function bindPortalPastDueDetail(accountKey, panel){
     var form = panel.querySelector('[data-pd-note-form]');
     form.addEventListener('submit', async function(e){
       e.preventDefault();
@@ -1054,6 +1219,37 @@ ${MARKET_COMPONENT_JS}
       input.value = '';
       await renderPortalPastDueDetail(accountKey, panel);
     });
+
+    // Both fields write the same record, so either one moves the case to
+    // Promised — and clearing the date drops the amount with it, because a
+    // figure with no date is not something anyone can chase.
+    var dateInput = panel.querySelector('[data-pd-promise-date]');
+    var amountInput = panel.querySelector('[data-pd-promise-amount]');
+    async function savePromise(){
+      var raw = dateInput.value;
+      // A date input yields a bare YYYY-MM-DD; read it as local noon so the day
+      // shown back is the day that was picked in every timezone.
+      var promisedDate = raw ? new Date(raw + 'T12:00:00').getTime() : null;
+      var amountRaw = amountInput.value;
+      var amount = amountRaw === '' ? null : Number(amountRaw);
+      if (amount !== null && !isFinite(amount)){ alert('That promised amount is not a number.'); return; }
+      var res = await api('PUT', '/financials/accounts/' + encodeURIComponent(accountKey) + '/promise',
+        { promisedDate: promisedDate, promisedAmount: amount });
+      if (!res.ok){ alert((res.data && res.data.error) || 'Could not save the promise.'); return; }
+      // The stage and the queue badges both move with the promise, so re-read
+      // the queue rather than patching two places by hand.
+      await renderPortalPastDue();
+    }
+    dateInput.addEventListener('change', savePromise);
+    amountInput.addEventListener('change', savePromise);
+
+    var escalateBtn = panel.querySelector('[data-pd-escalate]');
+    if (escalateBtn){
+      escalateBtn.addEventListener('click', async function(){
+        var moved = await portalSetPastDueStage(accountKey, 'escalated');
+        if (moved) await renderPortalPastDue();
+      });
+    }
   }
 
   // ── Pipedrive Cleanup worklist (the one writable report) ────────────────────
