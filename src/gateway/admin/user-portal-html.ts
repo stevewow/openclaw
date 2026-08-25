@@ -266,6 +266,16 @@ ${MARKET_CSS}
   .prt-tl-row.is-contact:before { background: var(--accent); }
   .prt-tl-when { font-size: 0.72rem; color: var(--text-muted); }
   .prt-tl-detail { color: var(--text-muted); margin-top: 0.15rem; white-space: pre-wrap; }
+  /* Contact log: what someone did to chase the money, newest first. */
+  .prt-contact-form { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin: 0.35rem 0 0.5rem; }
+  .prt-contact-form select, .prt-contact-form input { font-size: 0.82rem; padding: 0.3rem 0.5rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+  .prt-contact-form input[type=text] { flex: 1 1 10rem; min-width: 7rem; }
+  .prt-contact-row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+  .prt-contact-row:last-child { border-bottom: none; }
+  .prt-contact-when { font-weight: 600; white-space: nowrap; }
+  .prt-contact-who { color: var(--text-muted); }
+  .prt-contact-del { margin-left: auto; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; font-family: inherit; }
+  .prt-contact-del:hover { color: #b5473b; }
 </style>
 </head>
 <body>
@@ -1002,7 +1012,7 @@ ${MARKET_COMPONENT_JS}
           statuses.map(function(s){ return '<option value="' + esc(s.key) + '"' + (s.key === c.status ? ' selected' : '') + '>' + esc(s.label) + '</option>'; }).join('') +
           '</select></label>' + due +
         '<button class="btn btn-sm" data-pd-toggle="' + esc(a.accountKey) + '" style="margin-left:auto">' +
-          (portalPastDueOpen[a.accountKey] ? 'Hide notes' : 'Notes &amp; invoices') + '</button>' +
+          (portalPastDueOpen[a.accountKey] ? 'Hide details' : 'Contacts &amp; notes') + '</button>' +
       '</div>' +
       '<div data-pd-detail="' + esc(a.accountKey) + '"' + (portalPastDueOpen[a.accountKey] ? '' : ' style="display:none"') + '></div>' +
     '</div>';
@@ -1027,9 +1037,9 @@ ${MARKET_COMPONENT_JS}
         var key = btn.dataset.pdToggle;
         portalPastDueOpen[key] = !portalPastDueOpen[key];
         var panel = host.querySelector('[data-pd-detail="' + CSS.escape(key) + '"]');
-        if (!portalPastDueOpen[key]){ panel.style.display = 'none'; btn.innerHTML = 'Notes &amp; invoices'; return; }
+        if (!portalPastDueOpen[key]){ panel.style.display = 'none'; btn.innerHTML = 'Contacts &amp; notes'; return; }
         panel.style.display = '';
-        btn.textContent = 'Hide notes';
+        btn.textContent = 'Hide details';
         await renderPortalPastDueDetail(key, panel);
       });
     });
@@ -1134,6 +1144,83 @@ ${MARKET_COMPONENT_JS}
       '</span></div>';
   }
 
+  // ── Contact log ────────────────────────────────────────────────────────────
+  // A note records what someone thought; a contact records that the money was
+  // chased — on what channel, on what day, with what result. The queue's
+  // contact date prefers a logged contact over a Pipedrive touch, so logging
+  // here is what keeps that date about collections rather than about anything
+  // anyone happened to do with the client.
+  var portalContactChannels = []; // {key,label}, exactly as the server defines them
+
+  function portalChannelLabel(key){
+    for (var i = 0; i < portalContactChannels.length; i++){
+      if (portalContactChannels[i].key === key) return portalContactChannels[i].label;
+    }
+    return key;
+  }
+
+  /** One logged contact. Remove shows for its author, or for an admin. */
+  function portalContactRow(c, canDelete){
+    return '<div class="prt-contact-row">' +
+      '<span class="prt-contact-when">' + esc(pdDate(c.contactedAt)) + '</span>' +
+      '<span>' + esc(portalChannelLabel(c.channel)) + '</span>' +
+      (c.note ? '<span class="text-muted">' + esc(c.note) + '</span>' : '') +
+      '<span class="prt-contact-who">' + esc(c.createdByName || 'Unknown') + '</span>' +
+      (canDelete ? '<button type="button" class="prt-contact-del" data-pd-contact-del="' + esc(c.id) + '">Remove</button>' : '') +
+    '</div>';
+  }
+
+  function portalContactList(contacts, viewer){
+    if (!contacts.length) return '<div class="text-muted" style="font-size:0.8rem">No contact logged yet.</div>';
+    return contacts.map(function(c){
+      // A shared log: nobody rewrites someone else's record of a call.
+      var mine = !!c.createdBy && !!viewer.id && c.createdBy === viewer.id;
+      return portalContactRow(c, !!viewer.isAdmin || mine);
+    }).join('');
+  }
+
+  /**
+   * Where the account's contact date came from, said plainly, so a Pipedrive
+   * touch is never read as "we chased them about this bill".
+   */
+  function portalContactHint(lastContact){
+    if (!lastContact) return 'Nobody has contacted this account yet.';
+    if (lastContact.source === 'logged'){
+      return 'Last logged contact ' + pdDate(lastContact.at) + ' by ' + (lastContact.byName || 'someone') + '.';
+    }
+    return 'No contact logged here. Pipedrive last shows activity on ' + pdDate(lastContact.at) +
+      (lastContact.matchedName ? ' for "' + lastContact.matchedName + '".' : '.');
+  }
+
+  /** Who is looking — decides which log lines offer a Remove. */
+  function portalPastDueViewer(){
+    var role = currentUser ? currentUser.role : null;
+    return { id: currentUser ? currentUser.id : null, isAdmin: role === 'admin' || role === 'superadmin' };
+  }
+
+  function portalContactBlock(accountKey, contacts, viewer, lastContact){
+    var channels = portalContactChannels.map(function(ch){
+      return '<option value="' + esc(ch.key) + '">' + esc(ch.label) + '</option>';
+    }).join('');
+    var head = '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Contact log</div>' +
+      '<div class="text-muted" style="font-size:0.76rem;margin-top:0.15rem">' + esc(portalContactHint(lastContact)) + '</div>';
+    // The channels come from the server with the log. Without them there is no
+    // honest choice to offer, so say the log is unavailable rather than ship a
+    // form whose every submission would be rejected.
+    if (!channels){
+      return head + '<div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">' +
+        'Could not load the contact log — reopen this account to try again.</div>';
+    }
+    return head +
+      '<form data-pd-contact-form="' + esc(accountKey) + '" class="prt-contact-form">' +
+        '<select data-pd-contact-channel title="How you reached them">' + channels + '</select>' +
+        '<input type="date" data-pd-contact-date title="When (defaults to today)" />' +
+        '<input type="text" data-pd-contact-note placeholder="What came of it (optional)" autocomplete="off" />' +
+        '<button type="submit" class="btn btn-sm">Log contact</button>' +
+      '</form>' +
+      '<div data-pd-contact-list>' + portalContactList(contacts, viewer) + '</div>';
+  }
+
   // ── Account history ────────────────────────────────────────────────────────
   // Stage moves, handoffs, promises, logged contacts and notes are separate
   // records with separate lifetimes; the server merges them on read so the
@@ -1171,9 +1258,20 @@ ${MARKET_COMPONENT_JS}
 
   async function renderPortalPastDueDetail(accountKey, panel){
     panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem;padding:0.5rem 0">Loading…</div>';
-    var r = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey));
+    // The account and its contact log are independent reads; asking for both at
+    // once keeps opening a card one round trip rather than two.
+    var both = await Promise.all([
+      api('GET', '/financials/accounts/' + encodeURIComponent(accountKey)),
+      api('GET', '/financials/accounts/' + encodeURIComponent(accountKey) + '/contacts')
+    ]);
+    var r = both[0];
+    var rc = both[1];
     if (!r.ok){ panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem">Could not load this account.</div>'; return; }
     var c = r.data.case || {};
+    if (rc.ok && rc.data.channels) portalContactChannels = rc.data.channels;
+    // The queue row already carries where the contact date came from, so the
+    // hint costs no extra call.
+    var queued = portalPastDueAccounts.filter(function(a){ return a.accountKey === accountKey; })[0];
     var invoices = (r.data.invoices || []).map(function(i){
       var ref = esc(i.referenceNumber || i.invoiceId);
       // Opens the invoice in Spiro when the id is linkable; plain text if not.
@@ -1196,7 +1294,9 @@ ${MARKET_COMPONENT_JS}
       '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Past-due invoices</div>' +
       '<div class="table-wrap"><table style="font-size:0.8rem"><thead><tr><th>Reference</th><th>Invoiced</th><th>Paid</th><th>Outstanding</th><th>Due</th><th>Days</th></tr></thead><tbody>' +
       (invoices || '<tr><td colspan="6" class="empty-state">No past-due invoices.</td></tr>') + '</tbody></table></div>' +
-      '<div style="margin-top:0.6rem;font-weight:700;font-size:0.85rem">Notes</div>' +
+      portalContactBlock(accountKey, (rc.ok && rc.data.contacts) || [], portalPastDueViewer(),
+        queued ? queued.lastContact : null) +
+      '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Notes</div>' +
       '<form data-pd-note-form="' + esc(accountKey) + '" style="display:flex;gap:0.4rem;margin:0.35rem 0 0.5rem">' +
         '<input type="text" placeholder="Add a note…" autocomplete="off" style="flex:1;font-size:0.82rem;padding:0.3rem 0.5rem" />' +
         '<button type="submit" class="btn btn-sm">Add</button></form>' +
@@ -1208,6 +1308,35 @@ ${MARKET_COMPONENT_JS}
   }
 
   function bindPortalPastDueDetail(accountKey, panel){
+    var contactForm = panel.querySelector('[data-pd-contact-form]');
+    if (contactForm) contactForm.addEventListener('submit', async function(e){
+      e.preventDefault();
+      var noteEl = contactForm.querySelector('[data-pd-contact-note]');
+      var dateVal = contactForm.querySelector('[data-pd-contact-date]').value;
+      // A bare YYYY-MM-DD read at local noon lands on the day that was picked
+      // in every timezone.
+      var contactedAt = dateVal ? new Date(dateVal + 'T12:00:00').getTime() : undefined;
+      var res = await api('POST', '/financials/accounts/' + encodeURIComponent(accountKey) + '/contacts', {
+        channel: contactForm.querySelector('[data-pd-contact-channel]').value,
+        contactedAt: contactedAt,
+        note: noteEl.value.trim() || null
+      });
+      if (!res.ok){ alert((res.data && res.data.error) || 'Could not log that contact.'); return; }
+      // Logging the first contact is what starts an account being worked, so
+      // the stage and the queue's contact date both move with it — re-read the
+      // queue rather than patching the card by hand.
+      await renderPortalPastDue();
+    });
+
+    panel.querySelectorAll('[data-pd-contact-del]').forEach(function(btn){
+      btn.addEventListener('click', async function(){
+        if (!confirm('Remove this contact from the log?')) return;
+        var res = await api('DELETE', '/financials/contacts/' + encodeURIComponent(btn.dataset.pdContactDel));
+        if (!res.ok){ alert((res.data && res.data.error) || 'Could not remove that contact.'); return; }
+        await renderPortalPastDue();
+      });
+    });
+
     var form = panel.querySelector('[data-pd-note-form]');
     form.addEventListener('submit', async function(e){
       e.preventDefault();

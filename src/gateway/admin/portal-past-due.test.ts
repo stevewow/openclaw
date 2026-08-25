@@ -38,6 +38,15 @@ type AccountLike = {
   case: CaseLike;
 };
 
+type ContactLike = {
+  id: string;
+  contactedAt: number;
+  channel: string;
+  note?: string | null;
+  createdBy?: string | null;
+  createdByName?: string | null;
+};
+
 type ApiCall = { method: string; path: string; body: unknown };
 
 type Deps = {
@@ -96,7 +105,9 @@ function loadPortalPastDue(deps: Partial<Deps> & { apiResult?: unknown } = {}) {
     `${preamble}\n${block}\nreturn {
       portalPastDueCard, portalSetPastDueStage, portalPromiseBroken, portalPromiseNote,
       portalPromiseBlock, portalEscalationBlock, portalTimelineRow,
+      portalContactRow, portalContactList, portalContactHint, portalContactBlock,
       seed: (accounts, owner) => { portalPastDueAccounts = accounts; portalEscalationOwner = owner; },
+      seedChannels: (channels) => { portalContactChannels = channels; },
     };`,
   );
   const model = factory(runtime) as {
@@ -113,7 +124,27 @@ function loadPortalPastDue(deps: Partial<Deps> & { apiResult?: unknown } = {}) {
       detail?: string | null;
       actorName?: string | null;
     }) => string;
+    portalContactRow: (c: ContactLike, canDelete: boolean) => string;
+    portalContactList: (
+      contacts: ContactLike[],
+      viewer: { id: string | null; isAdmin?: boolean },
+    ) => string;
+    portalContactHint: (
+      last: {
+        at: number;
+        source: string;
+        byName?: string | null;
+        matchedName?: string | null;
+      } | null,
+    ) => string;
+    portalContactBlock: (
+      accountKey: string,
+      contacts: ContactLike[],
+      viewer: { id: string | null; isAdmin?: boolean },
+      last: { at: number; source: string; byName?: string | null } | null,
+    ) => string;
     seed: (accounts: AccountLike[], owner: { id: string; name: string } | null) => void;
+    seedChannels: (channels: Array<{ key: string; label: string }>) => void;
   };
   return { model, calls, alerts, prompts };
 }
@@ -325,5 +356,107 @@ describe("portal collections queue — card and history", () => {
     expect(row).toContain("Escalation ·");
     expect(row).toContain("Casey Ruiz");
     expect(row).toContain("Ignored two calls");
+  });
+});
+
+describe("portal collections queue — contact log", () => {
+  const CHANNELS = [
+    { key: "call", label: "Call" },
+    { key: "voicemail", label: "Voicemail" },
+  ];
+
+  function contact(over: Partial<ContactLike> = {}): ContactLike {
+    return {
+      id: "c-1",
+      contactedAt: Date.parse("2026-08-20T17:00:00Z"),
+      channel: "call",
+      note: "Asked for a payment date.",
+      createdBy: "u-1",
+      createdByName: "Dana",
+      ...over,
+    };
+  }
+
+  it("names the channel by its label and says who logged it", () => {
+    const { model } = loadPortalPastDue();
+    model.seedChannels(CHANNELS);
+    const html = model.portalContactRow(contact({ channel: "voicemail" }), false);
+    expect(html).toContain("Voicemail");
+    expect(html).toContain("Asked for a payment date.");
+    expect(html).toContain("Dana");
+  });
+
+  it("falls back to the raw channel when the server sends one the page does not know", () => {
+    const { model } = loadPortalPastDue();
+    model.seedChannels(CHANNELS);
+    expect(model.portalContactRow(contact({ channel: "carrier_pigeon" }), false)).toContain(
+      "carrier_pigeon",
+    );
+  });
+
+  it("offers Remove on your own contact, and on nobody else's", () => {
+    const { model } = loadPortalPastDue();
+    model.seedChannels(CHANNELS);
+    const mine = model.portalContactList([contact({ createdBy: "u-1" })], { id: "u-1" });
+    const theirs = model.portalContactList([contact({ createdBy: "u-2" })], { id: "u-1" });
+    expect(mine).toContain("data-pd-contact-del");
+    expect(theirs).not.toContain("data-pd-contact-del");
+  });
+
+  it("lets an admin remove a contact somebody else logged", () => {
+    const { model } = loadPortalPastDue();
+    model.seedChannels(CHANNELS);
+    expect(
+      model.portalContactList([contact({ createdBy: "u-2" })], { id: "u-1", isAdmin: true }),
+    ).toContain("data-pd-contact-del");
+  });
+
+  it("never offers Remove on a contact with no author, even to its viewer", () => {
+    const { model } = loadPortalPastDue();
+    model.seedChannels(CHANNELS);
+    expect(model.portalContactList([contact({ createdBy: null })], { id: null })).not.toContain(
+      "data-pd-contact-del",
+    );
+  });
+
+  it("says so plainly when nothing has been logged", () => {
+    const { model } = loadPortalPastDue();
+    expect(model.portalContactList([], { id: "u-1" })).toContain("No contact logged yet.");
+  });
+
+  it("distinguishes a logged contact from a Pipedrive touch in the hint", () => {
+    const { model } = loadPortalPastDue();
+    const at = Date.parse("2026-08-20T17:00:00Z");
+    expect(model.portalContactHint(null)).toBe("Nobody has contacted this account yet.");
+    expect(model.portalContactHint({ at, source: "logged", byName: "Dana" })).toContain(
+      "Last logged contact",
+    );
+    expect(model.portalContactHint({ at, source: "logged", byName: "Dana" })).toContain("Dana");
+    const fallback = model.portalContactHint({
+      at,
+      source: "pipedrive",
+      matchedName: "Blue Door Realty",
+    });
+    expect(fallback).toContain("No contact logged here");
+    expect(fallback).toContain("Blue Door Realty");
+  });
+
+  it("offers no form when the server's channels never arrived", () => {
+    const { model } = loadPortalPastDue();
+    model.seedChannels([]);
+    const html = model.portalContactBlock("acct-1", [], { id: "u-1" }, null);
+    expect(html).not.toContain("data-pd-contact-form");
+    expect(html).toContain("Could not load the contact log");
+  });
+
+  it("builds the form against the account, with the server's channels as the choices", () => {
+    const { model } = loadPortalPastDue();
+    model.seedChannels(CHANNELS);
+    const html = model.portalContactBlock("acct-1", [contact()], { id: "u-1" }, null);
+    expect(html).toContain('data-pd-contact-form="acct-1"');
+    expect(html).toContain('<option value="call">Call</option>');
+    expect(html).toContain('<option value="voicemail">Voicemail</option>');
+    expect(html).toContain("Log contact");
+    expect(html).toContain("Nobody has contacted this account yet.");
   });
 });
