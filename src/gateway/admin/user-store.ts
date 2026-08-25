@@ -768,6 +768,15 @@ type FeedbackAttachmentsTable = {
   created_at: number;
 };
 
+/** One saved sidebar layout. `config` is the JSON `nav-config-store.ts` owns. */
+type NavConfigTable = {
+  surface: string;
+  config: string;
+  updated_at: number;
+  /** User id of whoever last saved it, for the "last edited by" line. */
+  updated_by: string | null;
+};
+
 export type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -825,6 +834,7 @@ export type AdminDb = {
   admin_kb_asks: KbAsksTable;
   admin_kb_article_stats: KbArticleStatsTable;
   admin_kb_article_notes: KbArticleNotesTable;
+  admin_nav_config: NavConfigTable;
   // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
   // no stable column types for the query builder, and kb-store.ts reaches it
   // through a raw `sql` MATCH query instead.
@@ -1594,6 +1604,16 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_feedback_attachments_parent ON admin_feedback_attachments(feedback_id);
+    -- One row per signed-in surface, holding that sidebar's whole arrangement as
+    -- JSON. Read and written as a unit and never queried across, so a pair of
+    -- item/group tables would add joins and migrations for nothing. Absent row
+    -- means nobody has rearranged that sidebar: the shipped order stands.
+    CREATE TABLE IF NOT EXISTS admin_nav_config (
+      surface TEXT PRIMARY KEY,
+      config TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      updated_by TEXT
+    );
   `);
   initKbSearch(db);
   migrateTicketCategoryCheck(db);
@@ -2447,6 +2467,24 @@ export async function getUserPermissions(userId: string): Promise<UserPermission
     .selectAll()
     .where("user_id", "=", userId)
     .execute();
+  return rows.map((r) => ({
+    userId: r.user_id,
+    permissionType: r.permission_type as UserPermission["permissionType"],
+    value: r.value,
+  }));
+}
+
+/**
+ * Every grant in the system, for screens that show access across the whole user
+ * list.
+ *
+ * One query rather than one per user: the Users page draws an access summary
+ * for each row, and a per-row fetch turns a page load into N round trips as
+ * soon as the team is more than a handful of people.
+ */
+export async function listAllUserPermissions(): Promise<UserPermission[]> {
+  const db = getAdminDb();
+  const rows = await db.selectFrom("admin_user_permissions").selectAll().execute();
   return rows.map((r) => ({
     userId: r.user_id,
     permissionType: r.permission_type as UserPermission["permissionType"],
