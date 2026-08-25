@@ -130,6 +130,113 @@ describe("superadmin accounts are protected from admins", () => {
   });
 });
 
+describe("the sidebar arrangement", () => {
+  it("is readable by anyone signed in, because every account draws its own menu", async () => {
+    for (const token of [superToken, adminToken, userToken]) {
+      const res = await call("GET", "/nav-config?surface=admin", { token });
+      expect(res.status).toBe(200);
+      const config = res.json?.config as { items: Array<{ id: string }> };
+      expect(config.items.some((i) => i.id === "dashboard")).toBe(true);
+    }
+  });
+
+  it("refuses an unknown surface rather than guessing one", async () => {
+    const res = await call("GET", "/nav-config?surface=kiosk", { token: superToken });
+    expect(res.status).toBe(400);
+  });
+
+  it("is writable by a superadmin only — it changes everyone's menu", async () => {
+    const config = {
+      groups: [{ id: "main", label: "Main", collapsible: true }],
+      items: [{ id: "users", label: "People", icon: "🧑", group: "main", hidden: false }],
+    };
+    expect((await call("PUT", "/nav-config", { token: userToken, body: { config } })).status).toBe(
+      403,
+    );
+    expect((await call("PUT", "/nav-config", { token: adminToken, body: { config } })).status).toBe(
+      403,
+    );
+
+    const saved = await call("PUT", "/nav-config", { token: superToken, body: { config } });
+    expect(saved.status).toBe(200);
+    const savedConfig = saved.json?.config as {
+      groups: Array<{ collapsible: boolean }>;
+      items: Array<{ id: string; label: string }>;
+    };
+    expect(savedConfig.items[0]?.label).toBe("People");
+    expect(savedConfig.groups[0]?.collapsible).toBe(true);
+
+    // A plain user reads back what the superadmin saved.
+    const read = await call("GET", "/nav-config?surface=admin", { token: userToken });
+    const readConfig = read.json?.config as { items: Array<{ id: string; label: string }> };
+    expect(readConfig.items[0]?.label).toBe("People");
+  });
+
+  it("rejects a body that is not a layout", async () => {
+    const res = await call("PUT", "/nav-config", {
+      token: superToken,
+      body: { config: { groups: "everything", items: [] } },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("resets back to the shipped order", async () => {
+    const res = await call("PUT", "/nav-config", {
+      token: superToken,
+      body: { surface: "admin", reset: true },
+    });
+    expect(res.status).toBe(200);
+    const config = res.json?.config as { items: Array<{ id: string; label: string }> };
+    expect(config.items[0]?.id).toBe("dashboard");
+    expect(config.items.find((i) => i.id === "users")?.label).toBe("Users");
+  });
+
+  it("cannot hand anyone a section they were not granted", async () => {
+    // Arrangement is not access: naming the Users page in the layout leaves the
+    // route just as shut for a non-admin as it was before.
+    await call("PUT", "/nav-config", {
+      token: superToken,
+      body: {
+        surface: "admin",
+        config: {
+          groups: [{ id: "main", label: "", collapsible: false }],
+          items: [{ id: "users", label: "", icon: "", group: "main", hidden: false }],
+        },
+      },
+    });
+    expect((await call("GET", "/users", { token: userToken })).status).toBe(403);
+    await call("PUT", "/nav-config", {
+      token: superToken,
+      body: { surface: "admin", reset: true },
+    });
+  });
+});
+
+describe("the user list carries each person's grants", () => {
+  it("returns permissions inline so the Users page needs one request", async () => {
+    await call("PUT", `/users/${plainId}/permissions`, {
+      token: superToken,
+      body: { permissions: [{ permissionType: "feature", value: "tickets" }] },
+    });
+    const res = await call("GET", "/users", { token: adminToken });
+    expect(res.status).toBe(200);
+    const users = res.json?.users as Array<{
+      id: string;
+      permissions: Array<{ permissionType: string; value: string }>;
+    }>;
+    const target = users.find((u) => u.id === plainId);
+    expect(target?.permissions).toEqual([
+      { userId: plainId, permissionType: "feature", value: "tickets" },
+    ]);
+    // Somebody with no grants gets an empty list, not a missing field.
+    expect(users.find((u) => u.id === superId)?.permissions).toEqual([]);
+  });
+
+  it("stays shut for a non-admin", async () => {
+    expect((await call("GET", "/users", { token: userToken })).status).toBe(403);
+  });
+});
+
 describe("/portal/config is gated on chat access", () => {
   it("refuses a user with no chat permission", async () => {
     await userStore.setUserPermissions(userId, []);

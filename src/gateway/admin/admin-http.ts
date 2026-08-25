@@ -217,7 +217,7 @@ import {
   type TicketStatus,
   type UpdateTicketParams,
 } from "./ticket-store.js";
-import type { AdminUserRole, PortalFeature } from "./types.js";
+import type { AdminUserRole, PortalFeature, UserPermission } from "./types.js";
 import {
   createSession,
   createUser,
@@ -227,6 +227,7 @@ import {
   getUserById,
   getUserByUsername,
   getUserPermissions,
+  listAllUserPermissions,
   listUsers,
   resolveSessionUser,
   setUserPermissions,
@@ -248,6 +249,8 @@ import {
 } from "./feedback-store.js";
 export { handleFeedbackIntakeRequest } from "./feedback-http.js";
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
+import { isNavSurface } from "./nav-catalog.js";
+import { getNavConfig, parseNavConfig, resetNavConfig, setNavConfig } from "./nav-config-store.js";
 import {
   CATEGORY_EXTRA_FIELDS,
   type CategoryExtraField,
@@ -738,14 +741,25 @@ export async function handleAdminHttpRequest(
     return true;
   }
 
-  // GET /api/admin/users — admin only
+  // GET /api/admin/users — admin only.
+  //
+  // Each user carries their grants, so the Users list can show what someone can
+  // actually reach without a permissions fetch per row.
   if (subPath === "/users" && req.method === "GET") {
     if (!isAdmin) {
       sendForbidden(res);
       return true;
     }
     const users = await listUsers();
-    sendJson(res, 200, { users });
+    const byUser = new Map<string, UserPermission[]>();
+    for (const perm of await listAllUserPermissions()) {
+      const list = byUser.get(perm.userId);
+      if (list) list.push(perm);
+      else byUser.set(perm.userId, [perm]);
+    }
+    sendJson(res, 200, {
+      users: users.map((u) => ({ ...u, permissions: byUser.get(u.id) ?? [] })),
+    });
     return true;
   }
 
@@ -935,6 +949,57 @@ export async function handleAdminHttpRequest(
       : [];
     await setUserPermissions(targetId, perms);
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // GET /api/admin/nav-config?surface=admin — the sidebar arrangement.
+  //
+  // Readable by any signed-in account because every account has to draw its own
+  // sidebar from it. It is arrangement only, never access: each surface still
+  // runs every item past its own gate before rendering it, so a layout that
+  // names a section its viewer cannot open just drops that section.
+  if (subPath === "/nav-config" && req.method === "GET") {
+    const surface = url.searchParams.get("surface") ?? "admin";
+    if (!isNavSurface(surface)) {
+      sendBadRequest(res, "unknown surface");
+      return true;
+    }
+    sendJson(res, 200, { surface, config: await getNavConfig(surface) });
+    return true;
+  }
+
+  // PUT /api/admin/nav-config — save one surface's arrangement (superadmin only).
+  //
+  // Superadmin rather than admin: the sidebar is shared by everyone on the
+  // surface, so this is a change to other people's screens, not to the editor's
+  // own. `?reset=1` puts it back to the shipped order.
+  if (subPath === "/nav-config" && req.method === "PUT") {
+    if (!isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) {
+      sendBadRequest(res, body.error);
+      return true;
+    }
+    const data = body.value as Record<string, unknown>;
+    const surface = typeof data.surface === "string" ? data.surface : "admin";
+    if (!isNavSurface(surface)) {
+      sendBadRequest(res, "unknown surface");
+      return true;
+    }
+    if (data.reset === true) {
+      sendJson(res, 200, { surface, config: await resetNavConfig(surface) });
+      return true;
+    }
+    const parsed = parseNavConfig(data.config);
+    if (!parsed) {
+      sendBadRequest(res, "invalid nav config");
+      return true;
+    }
+    const saved = await setNavConfig(surface, parsed, sessionUser.id);
+    sendJson(res, 200, { surface, config: saved });
     return true;
   }
 
