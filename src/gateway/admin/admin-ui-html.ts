@@ -5,6 +5,7 @@ import {
   FEEDBACK_MARKUP,
   FEEDBACK_MODALS,
 } from "./feedback-ui.js";
+import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import { KB_SEARCHES_COMPONENT_JS, KB_SEARCHES_CSS, KB_SEARCHES_MARKUP } from "./kb-searches-ui.js";
 import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
@@ -40,31 +41,12 @@ export const ADMIN_UI_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${brandTitle("Admin")}</title>
 ${BRAND_FAVICON_TAG}
+${HUB_FONT_TAGS}
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #f4f4f5;
-    --surface: #ffffff;
-    --surface2: #f4f4f5;
-    --border: #e4e4e7;
-    --accent: #c0000a;
-    --accent-hover: #950008;
-    --danger: #c0000a;
-    --success: #166534;
-    --text: #111111;
-    --text-muted: #71717a;
-    --sidebar-bg: #111111;
-    --sidebar-text: rgba(255,255,255,0.65);
-    --sidebar-text-active: #ffffff;
-    --sidebar-active-bg: rgba(192,0,10,0.18);
-    --sidebar-border: rgba(255,255,255,0.08);
-    --radius: 10px;
-    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-    --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --banner-h: 0px;
-  }
+${HUB_TOKENS_CSS}
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; min-height: 100vh; -webkit-font-smoothing: antialiased; }
-  a { color: var(--accent); text-decoration: none; }
+  a { color: var(--accent-ink); text-decoration: none; }
 
   /* Login */
   .login-wrap { display: flex; min-height: 100vh; }
@@ -86,8 +68,8 @@ ${BRAND_FAVICON_TAG}
 
   /* Impersonation banner */
   .impersonation-banner { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 0.5rem 1rem; background: #f59e0b; color: #111; font-size: 0.8rem; font-weight: 600; text-align: center; }
-  .impersonation-banner .btn { padding: 0.3rem 0.75rem; font-size: 0.75rem; background: #111; color: #fff; border: none; }
-  .impersonation-banner .btn:hover { background: #292929; }
+  .impersonation-banner .btn { padding: 0.3rem 0.75rem; font-size: 0.75rem; background: var(--sidebar-bg); color: #fff; border: none; }
+  .impersonation-banner .btn:hover { background: #444; }
 
   /* Layout */
   .app { display: flex; min-height: calc(100vh - var(--banner-h)); }
@@ -99,11 +81,11 @@ ${BRAND_FAVICON_TAG}
   .sidebar-user .name { color: var(--sidebar-text-active); font-weight: 600; font-size: 0.875rem; }
   .sidebar-user .role { color: var(--sidebar-text); font-size: 0.75rem; margin-top: 0.1rem; text-transform: capitalize; }
   nav { flex: 1; padding: 0.625rem 0.75rem; overflow-y: auto; }
-  nav a { display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0.625rem; color: var(--sidebar-text); border-radius: 7px; transition: background 0.12s, color 0.12s; margin-bottom: 1px; font-size: 0.875rem; }
+  nav a { display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0.7rem; color: var(--sidebar-text); border-radius: 9px; transition: background 0.12s, color 0.12s; margin-bottom: 1px; font-size: 0.875rem; }
   nav a:hover { background: rgba(255,255,255,0.07); color: var(--sidebar-text-active); }
   nav a.active { background: var(--sidebar-active-bg); color: var(--sidebar-text-active); border-left: 2.5px solid var(--accent); }
   nav a .icon { width: 20px; text-align: center; font-size: 0.95rem; }
-  .nav-section { padding: 0.625rem 0.625rem 0.25rem; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.3); margin-top: 0.375rem; }
+  .nav-section { padding: 0.7rem 0.7rem 0.3rem; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.11em; color: rgba(255,255,255,0.34); margin-top: 0.375rem; }
   .sidebar-footer { padding: 0.875rem 0.75rem; border-top: 1px solid var(--sidebar-border); }
   .main { flex: 1; overflow-x: hidden; min-width: 0; display: flex; flex-direction: column; }
   .topbar { padding: 1rem 1.75rem; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: var(--banner-h); z-index: 10; }
@@ -128,8 +110,8 @@ ${BRAND_FAVICON_TAG}
   }
 
   /* Cards */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
-  .card-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 0.75rem; letter-spacing: -0.01em; }
+  .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius); padding: 1.4rem 1.5rem; margin-bottom: 1.15rem; box-shadow: var(--shadow); }
+  .card-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.9rem; letter-spacing: -0.01em; }
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
   .reports-home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
   .report-card { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); cursor: pointer; font: inherit; color: inherit; transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s; }
@@ -138,14 +120,14 @@ ${BRAND_FAVICON_TAG}
   .report-card-title { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
   .report-card-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
   .report-back { font-size: 0.82rem; color: var(--text-muted); text-decoration: none; font-weight: 600; }
-  .report-back:hover { color: var(--accent); }
+  .report-back:hover { color: var(--accent-ink); }
   /* Churn report: plain-English explainer with an expandable technical version */
   .churn-explain { font-size: 0.88rem; line-height: 1.6; }
   .churn-explain p { margin-bottom: 0.6rem; }
   .churn-explain p:last-child { margin-bottom: 0; }
   .churn-explain .churn-q { font-weight: 700; }
   .churn-tech { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
-  .churn-tech > summary { cursor: pointer; font-size: 0.82rem; font-weight: 700; color: var(--accent); list-style: none; }
+  .churn-tech > summary { cursor: pointer; font-size: 0.82rem; font-weight: 700; color: var(--accent-ink); list-style: none; }
   .churn-tech > summary::-webkit-details-marker { display: none; }
   .churn-tech > summary::before { content: '\\25b8  '; }
   .churn-tech[open] > summary::before { content: '\\25be  '; }
@@ -156,7 +138,7 @@ ${BRAND_FAVICON_TAG}
   .churn-tech-body code { background: var(--surface2); border-radius: 4px; padding: 0.05rem 0.3rem; font-size: 0.78rem; }
   .churn-howto > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0; }
   .churn-howto > summary::-webkit-details-marker { display: none; }
-  .churn-howto > summary::before { content: '\\25b8'; font-size: 0.8em; color: var(--accent); }
+  .churn-howto > summary::before { content: '\\25b8'; font-size: 0.8em; color: var(--accent-ink); }
   .churn-howto[open] > summary::before { content: '\\25be'; }
   /* Territory filter row. The SPA styles every select 100% wide, so a select in
      a flex row has to opt out or it swallows the line. */
@@ -168,7 +150,7 @@ ${BRAND_FAVICON_TAG}
   .churn-refresh-row select { padding: 0.3rem 0.5rem; }
   .churn-checkbox { display: flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; }
   .churn-refresh-log { margin-top: 0.6rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.7rem; font-size: 0.76rem; font-family: ui-monospace, monospace; white-space: pre-wrap; max-height: 9rem; overflow-y: auto; color: var(--text-muted); }
-  .churn-note-btn { background: none; border: 0; padding: 0; cursor: pointer; font-size: 0.78rem; color: var(--accent); font-weight: 600; }
+  .churn-note-btn { background: none; border: 0; padding: 0; cursor: pointer; font-size: 0.78rem; color: var(--accent-ink); font-weight: 600; }
   .churn-note-item { border-top: 1px solid var(--border); padding: 0.55rem 0; font-size: 0.85rem; }
   .churn-note-item:first-child { border-top: 0; }
   .churn-note-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; display: flex; gap: 0.4rem; align-items: center; }
@@ -186,8 +168,10 @@ ${BRAND_FAVICON_TAG}
   .rt-th-label { font-weight: 700; }
   table.rt-table td.rt-frozen, table.rt-table th.rt-frozen { position: sticky; left: 0; background: var(--surface); z-index: 1; }
   table.rt-table th.rt-frozen { z-index: 3; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); border-top: 3px solid var(--accent); }
-  .stat-label { color: var(--text-muted); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+  /* The accent bar is an inset shadow rather than a border-top: at this corner
+     radius a real border curves down both upper corners and reads as brackets. */
+  .stat-card { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius); padding: 1.35rem 1.5rem; box-shadow: var(--shadow), inset 0 3px 0 var(--accent); }
+  .stat-label { color: var(--text-muted); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 0.5rem; }
   .stat-value { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em; color: var(--text); }
   .cle-chart-wrap { position: relative; }
   .cle-chart-wrap svg { display: block; width: 100%; height: auto; }
@@ -202,39 +186,39 @@ ${BRAND_FAVICON_TAG}
   /* Forms */
   .form-group { margin-bottom: 1.125rem; }
   label { display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-  input, select, textarea { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 14px; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
+  input, select, textarea { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
   input[type="checkbox"] { width: auto; accent-color: var(--accent); }
 
   /* Buttons */
-  .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.125rem; border-radius: 7px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 600; transition: background 0.12s, box-shadow 0.12s, opacity 0.12s; letter-spacing: 0.01em; }
-  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(192,0,10,0.25); }
-  .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 2px 6px rgba(192,0,10,0.35); }
+  .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.125rem; border-radius: var(--radius-pill); border: 1px solid transparent; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 600; transition: background 0.12s, box-shadow 0.12s, opacity 0.12s; letter-spacing: 0.015em; }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(255,0,0,0.22); }
+  .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 2px 8px rgba(255,0,0,0.28); }
   .btn-danger { background: var(--danger); color: #fff; }
-  .btn-danger:hover { background: var(--accent-hover); }
+  .btn-danger:hover { background: var(--danger-hover); }
   .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-muted); }
-  .btn-ghost:hover { background: var(--surface2); color: var(--text); border-color: #d1d1d6; }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); border-color: #c4c4c4; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn-sm { padding: 0.35rem 0.75rem; font-size: 12px; }
 
   /* Table */
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 0.7rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
-  th { color: var(--text-muted); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; background: var(--surface2); }
+  th, td { padding: 0.72rem 1rem; text-align: left; border-bottom: 1px solid var(--hairline); }
+  th { color: var(--text-muted); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; background: var(--surface2); }
   tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #fafafa; }
+  tr:hover td { background: var(--surface2); }
 
   /* Badge */
   .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
   .badge-superadmin { background: var(--accent); color: #ffffff; }
-  .badge-admin { background: #fee2e2; color: var(--accent); }
-  .badge-user { background: #f4f4f5; color: #52525b; }
+  .badge-admin { background: var(--accent-tint); color: var(--accent-ink); }
+  .badge-user { background: var(--surface2); color: var(--text-muted); }
   .bucket-45-59 { background: #d97706; color: #fff; }
   .bucket-60-89 { background: #ea580c; color: #fff; }
   .bucket-90-119 { background: #dc2626; color: #fff; }
   .bucket-120plus { background: #7f1d1d; color: #fff; }
-  .fin-inv-link { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .fin-inv-link { color: var(--accent-ink); font-weight: 600; text-decoration: none; }
   .fin-inv-link:hover { text-decoration: underline; }
   .fin-note { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; background: var(--surface2); }
   .fin-note-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; justify-content: space-between; gap: 0.5rem; }
@@ -259,7 +243,7 @@ ${BRAND_FAVICON_TAG}
   .fin-cell-select:hover { border-color: var(--border); background: var(--surface); }
   .fin-cell-select:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px rgba(192,0,10,0.09); }
   /* A pinned step disagrees with the account's age on purpose — say so. */
-  .fin-cell-pinned { color: var(--accent); font-weight: 600; }
+  .fin-cell-pinned { color: var(--accent-ink); font-weight: 600; }
   /* Growth is the column the Focus report exists for, so it carries colour. */
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
@@ -313,12 +297,12 @@ ${BRAND_FAVICON_TAG}
 
   /* Modal */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; overflow-y: auto; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); max-height: calc(100dvh - 2rem); overflow-y: auto; margin: auto; }
+  .modal { background: var(--surface); border: 1px solid var(--hairline); border-radius: 18px; padding: 1.85rem; width: 100%; max-width: 420px; box-shadow: 0 24px 64px rgba(0,0,0,0.16); max-height: calc(100dvh - 2rem); overflow-y: auto; margin: auto; }
   .modal-title { font-weight: 700; font-size: 1.05rem; margin-bottom: 1.25rem; letter-spacing: -0.01em; }
   .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 
   /* Alert */
-  .alert { padding: 0.7rem 1rem; border-radius: 7px; margin-bottom: 1rem; font-size: 0.875rem; font-weight: 500; }
+  .alert { padding: 0.7rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem; font-size: 0.875rem; font-weight: 500; }
   .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
   .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: var(--success); }
 
@@ -326,7 +310,7 @@ ${BRAND_FAVICON_TAG}
   .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.25rem; }
   .tab { padding: 0.6rem 1rem; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.12s; font-size: 0.875rem; font-weight: 500; }
   .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab.active { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
 
   .hidden { display: none !important; }
   .text-muted { color: var(--text-muted); }
@@ -348,11 +332,11 @@ ${BRAND_FAVICON_TAG}
   .search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
   .tag-filters { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
   .tag-filter-chip { padding: 0.25rem 0.65rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); transition: all 0.12s; }
-  .tag-filter-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .tag-filter-chip:hover { border-color: var(--accent); color: var(--accent-ink); }
   .tag-filter-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
   .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
   .resources-breadcrumb { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.85rem; font-size: 0.85rem; }
-  .resources-breadcrumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .resources-breadcrumb a { color: var(--accent-ink); cursor: pointer; text-decoration: none; }
   .resources-breadcrumb a:hover { text-decoration: underline; }
   .resources-breadcrumb .crumb-sep { color: var(--text-muted); }
   .resources-breadcrumb .crumb-current { font-weight: 700; }
@@ -372,7 +356,7 @@ ${BRAND_FAVICON_TAG}
   .resource-title-text { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; line-height: 1.3; }
   .resource-desc { font-size: 0.825rem; color: var(--text-muted); }
   .resource-desc-collapsed { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .resource-desc-toggle { background: none; border: none; padding: 0 0 0.5rem 0; font-size: 0.75rem; color: var(--accent); cursor: pointer; font-family: inherit; display: none; margin-top: 0.15rem; }
+  .resource-desc-toggle { background: none; border: none; padding: 0 0 0.5rem 0; font-size: 0.75rem; color: var(--accent-ink); cursor: pointer; font-family: inherit; display: none; margin-top: 0.15rem; }
   .resource-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.75rem; }
   .resource-tag { padding: 0.15rem 0.5rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); }
   .resource-access { display: flex; gap: 0.4rem; flex-wrap: wrap; }
@@ -432,7 +416,7 @@ ${BRAND_FAVICON_TAG}
   .session-time { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.1rem; }
   .info-box { background: #fef9ec; border: 1px solid #fde68a; border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1.25rem; font-size: 0.875rem; }
   .info-box strong { color: #92400e; display: block; margin-bottom: 0.35rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  .info-box a { color: var(--accent); font-weight: 600; }
+  .info-box a { color: var(--accent-ink); font-weight: 600; }
 
   /* Projects & Tasks */
   .projects-toolbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
@@ -458,7 +442,7 @@ ${BRAND_FAVICON_TAG}
   .board-col-count { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.08rem 0.45rem; min-width: 22px; text-align: center; }
   .board-col-body { flex: 1; padding: 0 0.5rem; min-height: 120px; }
   .board-add-btn { width: 100%; padding: 0.5rem; margin: 0.15rem 0 0; background: transparent; border: none; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; transition: color 0.12s, background 0.12s; font-family: inherit; }
-  .board-add-btn:hover { background: var(--surface); color: var(--accent); }
+  .board-add-btn:hover { background: var(--surface); color: var(--accent-ink); }
   .board-empty { font-size: 0.78rem; color: var(--text-muted); text-align: center; padding: 1.25rem 0.5rem; }
   .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; cursor: grab; overflow: hidden; transition: box-shadow 0.12s, border-color 0.12s; display: flex; }
   .task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); border-color: var(--text-muted); }
@@ -532,7 +516,7 @@ ${MARKET_CSS}
   .tool-menu { position: relative; flex-shrink: 0; }
   #tool-menu-btn { font-size: 1rem; line-height: 1; padding: 0.4rem 0.7rem; }
   /* Lit while a view that lives in this menu is the one on screen. */
-  #tool-menu-btn.tool-menu-btn-on { color: var(--accent); border-color: var(--accent); background: rgba(192,0,10,0.05); }
+  #tool-menu-btn.tool-menu-btn-on { color: var(--accent-ink); border-color: var(--accent); background: rgba(192,0,10,0.05); }
   .tool-menu-pop { position: absolute; left: 0; top: calc(100% + 0.3rem); z-index: 30; min-width: 13.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 0.3rem; display: flex; flex-direction: column; gap: 0.05rem; }
   .tool-menu-label { padding: 0.35rem 0.5rem 0.2rem; font-size: 0.63rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); }
   .tool-menu-sep { height: 1px; background: var(--border); margin: 0.25rem 0.15rem; }
@@ -540,8 +524,8 @@ ${MARKET_CSS}
   .tool-menu-item:hover:not(:disabled) { background: var(--surface2); }
   .tool-menu-item:disabled { opacity: 0.4; cursor: default; }
   /* Fixed-width gutter so labels line up whether or not a ✓ is showing. */
-  .tool-menu-tick { display: inline-block; width: 0.85rem; flex-shrink: 0; color: var(--accent); font-weight: 800; }
-  .tool-menu-item.active { color: var(--accent); }
+  .tool-menu-tick { display: inline-block; width: 0.85rem; flex-shrink: 0; color: var(--accent-ink); font-weight: 800; }
+  .tool-menu-item.active { color: var(--accent-ink); }
   @media (max-width: 720px) { .board-tools { flex-wrap: wrap; } }
   .color-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
   .color-swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; transition: transform 0.1s; border: 3px solid transparent; box-sizing: border-box; }
@@ -618,6 +602,101 @@ ${MARKET_CSS}
   }
   .icon-picker button:hover { border-color: var(--text-muted); }
   .icon-picker button.picked { border-color: var(--accent, #c0000a); background: var(--accent, #c0000a); color: #fff; }
+  /* ── Users ──────────────────────────────────────────────────────────────
+     A list of people rather than a table of fields: the identity reads first,
+     the role and what they can reach sit beside it, and the actions stay out
+     of the way until the row is hovered. */
+  .users-toolbar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .users-filters { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+  .users-count { font-size: 0.78rem; margin-bottom: 0.6rem; }
+  .users-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .user-row {
+    display: grid; align-items: center; gap: 0.9rem;
+    grid-template-columns: 40px minmax(11rem, 1.4fr) 7.5rem minmax(10rem, 1.6fr) 5.5rem auto;
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 0.75rem 1rem;
+  }
+  .user-row:hover { border-color: var(--border); }
+  .user-avatar {
+    width: 40px; height: 40px; border-radius: var(--radius-pill); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent-tint); color: var(--accent-ink);
+    font-weight: 700; font-size: 0.82rem; letter-spacing: 0.02em;
+  }
+  .user-ident { min-width: 0; }
+  .user-name { font-weight: 700; font-size: 0.92rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: 0.4rem; }
+  .user-you { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 0.05rem 0.4rem; }
+  .user-sub { font-size: 0.78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-access { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .uacc { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); background: var(--surface2); border: 1px solid var(--hairline); border-radius: var(--radius-pill); padding: 0.1rem 0.5rem; white-space: nowrap; }
+  .uacc-all { color: var(--accent-ink); background: var(--accent-tint); border-color: transparent; }
+  .uacc-none { color: var(--warning); background: #fffbeb; border-color: #fde68a; }
+  .uacc-more { background: transparent; border-style: dashed; }
+  .user-seen { font-size: 0.76rem; color: var(--text-muted); white-space: nowrap; }
+  .user-actions { display: flex; gap: 0.3rem; justify-content: flex-end; }
+  .user-actions .udanger:hover { color: var(--danger); border-color: var(--danger); }
+  @media (max-width: 1100px) {
+    .user-row { grid-template-columns: 40px 1fr auto; grid-template-areas: "avatar ident role" "access access access" "seen actions actions"; }
+    .user-avatar { grid-area: avatar; }
+    .user-ident { grid-area: ident; }
+    .user-role { grid-area: role; }
+    .user-access { grid-area: access; }
+    .user-seen { grid-area: seen; align-self: center; }
+    .user-actions { grid-area: actions; }
+  }
+
+  /* Access switches inside the user dialog. */
+  .perms-copy { background: var(--surface2); border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 0.7rem 0.85rem; margin-bottom: 1rem; }
+  .perms-copy label { display: block; font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-muted); margin-bottom: 0.4rem; }
+  .perm-group { border-top: 1px solid var(--hairline); padding-top: 0.85rem; margin-top: 0.85rem; }
+  .perm-group:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .perm-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+  .perm-group-title { font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.09em; }
+  .perm-group-count { font-size: 0.72rem; color: var(--text-muted); margin-left: 0.5rem; }
+  .perm-group-bulk { display: flex; gap: 0.4rem; flex-shrink: 0; }
+  .perm-bulk { background: none; border: none; padding: 0; font: inherit; font-size: 0.74rem; font-weight: 700; color: var(--accent-ink); cursor: pointer; }
+  .perm-group-hint { font-size: 0.76rem; color: var(--text-muted); margin: 0.15rem 0 0.5rem; }
+  .perm-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.1rem 1rem; }
+  /* Opts out of the page's uppercase form-label treatment: these are the names
+     of sections and reports, read as prose, not field captions. */
+  .perm-row { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.3rem 0; font-size: 0.85rem; cursor: pointer; margin: 0; font-weight: 400; text-transform: none; letter-spacing: normal; color: var(--text); }
+  .perm-row input { margin-top: 0.2rem; flex-shrink: 0; }
+  .perm-label { min-width: 0; }
+  .perm-note { display: block; font-size: 0.72rem; color: var(--text-muted); text-transform: none; letter-spacing: normal; }
+
+  /* ── Navigation editor ─────────────────────────────────────────────────── */
+  .nav-editor-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .nav-surface-tabs { display: flex; gap: 0.35rem; }
+  .nav-editor-actions { display: flex; gap: 0.4rem; }
+  .nav-editor-status { font-size: 0.78rem; min-height: 1.2rem; margin-bottom: 0.4rem; }
+  .nav-editor-status.is-error { color: var(--danger); font-weight: 600; }
+  .nav-editor-status.is-ok { color: var(--success); font-weight: 600; }
+  .nav-editor { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: 0.9rem; align-items: start; }
+  .nav-edit-group { border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--surface2); overflow: hidden; }
+  .nav-edit-group-head { display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--hairline); background: var(--surface); flex-wrap: wrap; }
+  .nav-edit-group-label { flex: 1 1 7rem; min-width: 5rem; font-weight: 700; font-size: 0.82rem; padding: 0.3rem 0.45rem; }
+  .nav-edit-submenu { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; margin: 0; letter-spacing: 0.08em; }
+  .nav-edit-list { list-style: none; margin: 0; padding: 0.4rem; min-height: 3rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .nav-edit-item { display: flex; align-items: center; gap: 0.35rem; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 0.3rem 0.4rem; cursor: grab; }
+  .nav-edit-item.dragging { opacity: 0.45; }
+  .nav-edit-item.is-hidden { opacity: 0.55; }
+  .nav-edit-item.is-hidden .nav-edit-label { text-decoration: line-through; }
+  .nav-edit-grip { color: var(--text-muted); font-size: 0.85rem; cursor: grab; flex-shrink: 0; }
+  .nav-edit-icon { width: 2.4rem; flex-shrink: 0; text-align: center; padding: 0.25rem 0.2rem; font-size: 0.9rem; }
+  .nav-edit-label { flex: 1 1 auto; min-width: 0; padding: 0.25rem 0.4rem; font-size: 0.82rem; }
+  .nav-edit-item-actions { display: flex; gap: 0.15rem; flex-shrink: 0; }
+  .nav-edit-btn { background: none; border: none; cursor: pointer; font: inherit; font-size: 0.72rem; color: var(--text-muted); padding: 0.2rem 0.25rem; border-radius: 6px; line-height: 1; }
+  .nav-edit-btn:hover:not(:disabled) { background: var(--surface2); color: var(--text); }
+  .nav-edit-btn:disabled { opacity: 0.3; cursor: default; }
+  .nav-edit-empty { font-size: 0.76rem; color: var(--text-muted); text-align: center; padding: 0.6rem; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+
+  /* Collapsible sidebar headings. */
+  .nav-section-toggle { display: flex; align-items: center; gap: 0.35rem; width: 100%; background: none; border: none; font: inherit; cursor: pointer; text-align: left; color: rgba(255,255,255,0.5); }
+  .nav-section-toggle:hover { color: rgba(255,255,255,0.78); }
+  .nav-caret { display: inline-block; font-size: 0.7em; transition: transform 0.15s; }
+  .nav-section-toggle.open .nav-caret { transform: rotate(90deg); }
+
+${HUB_BASE_CSS}
 </style>
 </head>
 <body>
@@ -670,31 +749,9 @@ ${MARKET_CSS}
       <div class="name" id="sidebar-username"></div>
       <div class="role" id="sidebar-role"></div>
     </div>
-    <nav id="sidebar-nav">
-      <div class="nav-section">Main</div>
-      <a href="#dashboard" class="nav-link" data-page="dashboard"><span class="icon">⊞</span> Dashboard</a>
-      <a href="#users" class="nav-link admin-only" data-page="users"><span class="icon">👥</span> Users</a>
-      <a href="#agents" class="nav-link superadmin-only" data-page="agents"><span class="icon">🤖</span> Agents</a>
-      <a href="#chat" class="nav-link" data-page="chat"><span class="icon">💬</span> Chat</a>
-      <div class="nav-section">Workspace</div>
-      <a href="#projects" class="nav-link" data-page="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
-      <a href="#reports" class="nav-link admin-only" data-page="reports"><span class="icon">📊</span> Reports</a>
-      <div class="nav-section">Support</div>
-      <a href="#tickets" class="nav-link admin-only" data-page="tickets"><span class="icon">🎫</span> Tickets</a>
-      <a href="#departments" class="nav-link admin-only" data-page="departments"><span class="icon">🏷️</span> Departments</a>
-      <a href="#categories" class="nav-link admin-only" data-page="categories"><span class="icon">🗂️</span> Request Types</a>
-      <a href="#form-preview" class="nav-link admin-only" data-page="form-preview"><span class="icon">👁️</span> Intake Form</a>
-      <a href="#kb" class="nav-link admin-only" data-page="kb"><span class="icon">📖</span> Help Center</a>
-      <a href="#kb-searches" class="nav-link admin-only" data-page="kb-searches"><span class="icon">🔍</span> Help Insights</a>
-      <a href="#feedback" class="nav-link admin-only" data-page="feedback"><span class="icon">💬</span> Feedback</a>
-      <div class="nav-section">Financials</div>
-      <a href="#past-due" class="nav-link admin-only" data-page="financials"><span class="icon">💰</span> Past Due Accounts</a>
-      <a href="#cleveland" class="nav-link admin-only" data-page="cleveland"><span class="icon">📈</span> Cleveland Investment</a>
-      <div class="nav-section">Settings</div>
-      <a href="#resources" class="nav-link admin-only" data-page="resources"><span class="icon">📚</span> Resources</a>
-      <a href="#system" class="nav-link superadmin-only" data-page="system"><span class="icon">⚙</span> System</a>
-      <a href="#account" class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
-    </nav>
+    <!-- Built by renderSidebar() from the saved arrangement (Settings ->
+         Navigation), filtered by what this account may actually open. -->
+    <nav id="sidebar-nav"></nav>
     <div class="sidebar-footer">
       <button class="btn btn-ghost btn-sm" id="logout-btn" style="width:100%">Sign out</button>
     </div>
@@ -724,27 +781,50 @@ ${MARKET_CSS}
 
       <!-- Users page -->
       <div id="page-users" class="page hidden">
-        <div class="flex justify-between items-center mb-4">
-          <div></div>
+        <div class="users-toolbar">
+          <div class="search-input-wrap">
+            <span class="search-icon">🔍</span>
+            <input id="users-search" type="search" placeholder="Search name, username or email…" autocomplete="off">
+          </div>
+          <div class="users-filters" id="users-role-filters">
+            <button type="button" class="tag-filter-chip active" data-role="all">Everyone</button>
+            <button type="button" class="tag-filter-chip" data-role="superadmin">Superadmins</button>
+            <button type="button" class="tag-filter-chip" data-role="admin">Admins</button>
+            <button type="button" class="tag-filter-chip" data-role="user">Users</button>
+          </div>
           <button class="btn btn-primary" id="add-user-btn">+ Add User</button>
         </div>
-        <div class="card" style="padding:0">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Last Login</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="users-table-body">
-                <tr><td colspan="6" class="empty-state">Loading...</td></tr>
-              </tbody>
-            </table>
+        <div class="users-count text-muted" id="users-count"></div>
+        <div id="users-list" class="users-list">
+          <div class="empty-state"><span class="spin">⟳</span> Loading…</div>
+        </div>
+      </div>
+
+      <!-- Navigation page — arrange the sidebar (superadmin) -->
+      <div id="page-navigation" class="page hidden">
+        <div class="card">
+          <div class="eyebrow">Sidebar</div>
+          <div class="card-title">Arrange the menu</div>
+          <p class="text-muted" style="margin-bottom:0.9rem">
+            Drag a section to reorder it or move it under another heading. A heading set to
+            <strong>submenu</strong> folds its sections away until it is clicked. Hiding a section
+            only takes it out of the menu — it does not change who is allowed to open it, and
+            people still only see the sections they have been granted.
+          </p>
+          <div class="nav-editor-toolbar">
+            <div class="nav-surface-tabs" id="nav-surface-tabs">
+              <button type="button" class="tag-filter-chip active" data-surface="admin">Admin dashboard</button>
+              <button type="button" class="tag-filter-chip" data-surface="portal">User portal</button>
+            </div>
+            <div class="nav-editor-actions">
+              <button class="btn btn-ghost btn-sm" id="nav-add-group">+ Heading</button>
+              <button class="btn btn-ghost btn-sm" id="nav-reset">Reset to default</button>
+              <button class="btn btn-primary btn-sm" id="nav-save">Save menu</button>
+            </div>
+          </div>
+          <div id="nav-editor-status" class="nav-editor-status text-muted"></div>
+          <div id="nav-editor" class="nav-editor">
+            <div class="empty-state"><span class="spin">⟳</span> Loading…</div>
           </div>
         </div>
       </div>
@@ -1467,41 +1547,65 @@ ${FEEDBACK_MARKUP}
 </div>
 
 <!-- Add/Edit User Modal -->
+<!-- One dialog for a person: who they are and what they can reach, saved together.
+     Editing those in two separate modals meant setting someone up was always two
+     round trips through the list. -->
 <div id="user-modal" class="modal-backdrop hidden">
-  <div class="modal">
+  <div class="modal" style="max-width:620px">
     <div class="modal-title" id="user-modal-title">Add User</div>
     <div id="user-modal-error" class="alert alert-error hidden"></div>
+    <div class="tabs" id="user-modal-tabs">
+      <div class="tab active" data-utab="user-tab-profile">Profile</div>
+      <div class="tab" data-utab="user-tab-access">Access</div>
+    </div>
     <form id="user-modal-form">
-      <input type="hidden" id="modal-user-id">
-      <div class="form-group">
-        <label>Username</label>
-        <input id="modal-username" required>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-        <div class="form-group" style="margin-bottom:1.125rem">
-          <label>First Name</label>
-          <input id="modal-first-name" placeholder="Jane">
+      <div id="user-tab-profile" class="utab-content">
+        <input type="hidden" id="modal-user-id">
+        <div class="form-group">
+          <label>Username</label>
+          <input id="modal-username" required>
         </div>
-        <div class="form-group" style="margin-bottom:1.125rem">
-          <label>Last Name</label>
-          <input id="modal-last-name" placeholder="Doe">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+          <div class="form-group" style="margin-bottom:1.125rem">
+            <label>First Name</label>
+            <input id="modal-first-name" placeholder="Jane">
+          </div>
+          <div class="form-group" style="margin-bottom:1.125rem">
+            <label>Last Name</label>
+            <input id="modal-last-name" placeholder="Doe">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input id="modal-email" type="email" placeholder="jane@example.com">
+        </div>
+        <div class="form-group" id="modal-pw-group">
+          <label id="modal-pw-label">Password</label>
+          <input id="modal-password" type="password">
+        </div>
+        <div class="form-group" id="modal-role-group">
+          <label>Role</label>
+          <select id="modal-role">
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+            <option value="superadmin">Super Admin</option>
+          </select>
         </div>
       </div>
-      <div class="form-group">
-        <label>Email</label>
-        <input id="modal-email" type="email" placeholder="jane@example.com">
-      </div>
-      <div class="form-group" id="modal-pw-group">
-        <label id="modal-pw-label">Password</label>
-        <input id="modal-password" type="password">
-      </div>
-      <div class="form-group" id="modal-role-group">
-        <label>Role</label>
-        <select id="modal-role">
-          <option value="user">User</option>
-          <option value="admin">Admin</option>
-          <option value="superadmin">Super Admin</option>
-        </select>
+      <div id="user-tab-access" class="utab-content hidden">
+        <div id="perms-admin-note" class="info-box hidden">
+          <strong>Admins already reach everything.</strong>
+          Role decides this account's access, so the switches below only take effect if
+          the role is later changed back to User. They are safe to set now.
+        </div>
+        <div class="perms-copy">
+          <label for="perms-copy-from">Start from someone else's access</label>
+          <div class="flex gap-2">
+            <select id="perms-copy-from"><option value="">Choose a person…</option></select>
+            <button type="button" class="btn btn-ghost btn-sm" id="perms-copy-apply">Copy</button>
+          </div>
+        </div>
+        <div id="perms-groups"></div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="user-modal-cancel">Cancel</button>
@@ -1854,38 +1958,6 @@ ${FEEDBACK_MODALS}
 </div>
 
 <!-- User Permissions Modal -->
-<div id="perms-modal" class="modal-backdrop hidden">
-  <div class="modal" style="max-width:500px">
-    <div class="modal-title">Manage Permissions: <span id="perms-modal-username"></span></div>
-    <div class="tabs">
-      <div class="tab active" data-tab="access-tab">Access</div>
-      <div class="tab" data-tab="agents-tab">Agents</div>
-      <div class="tab" data-tab="skills-tab">Skills</div>
-      <div class="tab" data-tab="channels-tab">Channels</div>
-    </div>
-    <div id="access-tab" class="tab-content">
-      <p class="text-muted" style="font-size:0.82rem;margin:0 0 0.75rem">Switch on exactly what this person can see in their portal. Everything is off until you grant it.</p>
-      <div style="font-weight:700;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin:0.5rem 0 0.25rem">Sections</div>
-      <div id="perms-features-list"></div>
-      <div style="font-weight:700;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin:1rem 0 0.25rem">Reports</div>
-      <div id="perms-reports-list"></div>
-    </div>
-    <div id="agents-tab" class="tab-content hidden">
-      <div id="perms-agents-list"></div>
-    </div>
-    <div id="skills-tab" class="tab-content hidden">
-      <div id="perms-skills-list"></div>
-    </div>
-    <div id="channels-tab" class="tab-content hidden">
-      <div id="perms-channels-list"></div>
-    </div>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-ghost" id="perms-modal-cancel">Cancel</button>
-      <button type="button" class="btn btn-primary" id="perms-modal-save">Save Permissions</button>
-    </div>
-  </div>
-</div>
-
 <div id="fin-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:660px;overflow-y:auto;max-height:calc(100dvh - 48px)">
     <div class="flex items-center" style="justify-content:space-between;gap:1rem">
@@ -2144,7 +2216,6 @@ ${FEEDBACK_MODALS}
   let token = localStorage.getItem('oc_admin_token');
   let currentUser = null;
   let allAgents = [];
-  let permsModalUserId = null;
   let gatewayConfig = null;
   let chatFrameMounted = false;
   let impersonatedBy = null;
@@ -2235,6 +2306,7 @@ ${FEEDBACK_MODALS}
     financials: { el: 'page-financials', title: 'Past Due Accounts', adminOnly: false, superAdminOnly: false, report: 'past-due' },
     'past-due': { el: 'page-financials', title: 'Past Due Accounts', adminOnly: false, superAdminOnly: false, report: 'past-due' },
     cleveland: { el: 'page-cleveland', title: 'Cleveland Investment', adminOnly: true, superAdminOnly: false },
+    navigation: { el: 'page-navigation', title: 'Navigation', adminOnly: true, superAdminOnly: true },
   };
 
   // Sections only the admin SPA can serve. A non-admin holding one of these is
@@ -2312,10 +2384,9 @@ ${FEEDBACK_MODALS}
     // Past Due keeps its own Financials nav entry highlighted even when it was
     // opened from the Reports landing under its report key.
     if (page === 'past-due') navKey = 'financials';
-    document.querySelectorAll('.nav-link').forEach(a => {
-      a.classList.toggle('active', a.dataset.page === navKey);
-    });
+    markActiveNav(navKey);
     if (page === 'users') loadUsers();
+    if (page === 'navigation') loadNavEditor();
     if (page === 'agents') loadAgents();
     if (page === 'resources') loadResources();
     if (page === 'system') loadSystem();
@@ -2442,22 +2513,18 @@ ${FEEDBACK_MODALS}
     document.getElementById('sidebar-username').textContent = currentUser.username;
     document.getElementById('sidebar-role').textContent = currentUser.role;
     updateImpersonationBanner();
-    // Hide admin-only nav for non-admins
+    // Hide admin-only controls for non-admins
     document.querySelectorAll('.admin-only').forEach(el => {
       el.classList.toggle('hidden', !isAdmin());
     });
-    // Hide superadmin-only nav (Agents, System) for admins and below
+    // Hide superadmin-only controls for admins and below
     document.querySelectorAll('.superadmin-only').forEach(el => {
       el.classList.toggle('hidden', !isSuperAdmin());
     });
-    // For a granted non-admin the role classes above are too blunt: re-derive
-    // every nav item from the same predicate navigate() enforces, so what's
-    // visible and what's reachable can't drift apart.
-    if (!isAdmin()) {
-      document.querySelectorAll('.nav-link[data-page]').forEach(el => {
-        el.classList.toggle('hidden', !canAccessPage(el.dataset.page));
-      });
-    }
+    // The sidebar is built from the saved arrangement and filtered by the same
+    // predicate navigate() enforces, so what is visible and what is reachable
+    // cannot drift apart.
+    await loadSidebar();
     // Fetch gateway config for the chat iframe (chat-gated server-side; a user
     // without chat access simply gets no frame).
     const cfgRes = await api('GET', '/portal/config');
@@ -2539,7 +2606,15 @@ ${FEEDBACK_MODALS}
   }
 
   // ── Users ────────────────────────────────────────────────────────────────
+  // The Users page is a list of people, not a grid of columns: one row per
+  // account carrying the identity, the role, and a plain-English summary of what
+  // that person can actually open. The old table put four buttons on every row
+  // and hid access behind a second dialog, so answering "what can Dana see?"
+  // meant opening a modal per person.
   let adminUsers = [];
+  let userSearchTerm = '';
+  let userRoleFilter = 'all';
+
   function fullName(u) {
     return [u && u.firstName, u && u.lastName].filter(Boolean).join(' ');
   }
@@ -2549,32 +2624,121 @@ ${FEEDBACK_MODALS}
     if (!u) return id;
     return fullName(u) || u.username;
   }
+  // Up to two letters for the avatar disc. Falls back to the username when
+  // nobody has filled in a real name yet.
+  function userInitials(u) {
+    const name = fullName(u);
+    if (name) return name.split(/\\s+/).slice(0, 2).map(function(p){ return p[0]; }).join('').toUpperCase();
+    return (u.username || '?').slice(0, 2).toUpperCase();
+  }
+  const ROLE_LABEL = { superadmin: 'Super Admin', admin: 'Admin', user: 'User' };
+
+  /** "3 days ago" for anything recent, an absolute date once that stops helping. */
+  function relativeTime(ms) {
+    if (!ms) return 'Never';
+    const diff = Date.now() - ms;
+    const day = 86400000;
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return Math.round(diff / 60000) + 'm ago';
+    if (diff < day) return Math.round(diff / 3600000) + 'h ago';
+    if (diff < 30 * day) return Math.round(diff / day) + 'd ago';
+    return new Date(ms).toLocaleDateString();
+  }
+
+  /**
+   * What a person can reach, as chips.
+   *
+   * Role short-circuits the grant list because that is how the server reads it:
+   * an admin passes every feature gate regardless of what is ticked, so listing
+   * their individual grants would describe something that is not being enforced.
+   */
+  function accessSummaryHtml(u) {
+    if (u.role === 'superadmin') return '<span class="uacc uacc-all">Everything</span>';
+    if (u.role === 'admin') return '<span class="uacc uacc-all">Everything except system settings</span>';
+    const perms = u.permissions || [];
+    const feats = perms.filter(function(p){ return p.permissionType === 'feature'; });
+    const reports = perms.filter(function(p){ return p.permissionType === 'report'; });
+    const agents = perms.filter(function(p){ return p.permissionType === 'agent'; });
+    if (!feats.length && !reports.length && !agents.length) {
+      return '<span class="uacc uacc-none">No access yet</span>';
+    }
+    const featLabel = {};
+    FEATURES.forEach(function(f){ featLabel[f.value] = f.label; });
+    const chips = feats.slice(0, 4).map(function(p){
+      return '<span class="uacc">' + esc(featLabel[p.value] || p.value) + '</span>';
+    });
+    if (feats.length > 4) chips.push('<span class="uacc uacc-more">+' + (feats.length - 4) + ' more</span>');
+    if (reports.length) chips.push('<span class="uacc">' + reports.length + ' report' + (reports.length === 1 ? '' : 's') + '</span>');
+    if (agents.length) chips.push('<span class="uacc">' + agents.length + ' agent' + (agents.length === 1 ? '' : 's') + '</span>');
+    return chips.join('');
+  }
+
+  function visibleUsers() {
+    const q = userSearchTerm.trim().toLowerCase();
+    return adminUsers.filter(function(u) {
+      if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
+      if (!q) return true;
+      return [u.username, fullName(u), u.email].filter(Boolean).join(' ').toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  function renderUsers() {
+    const list = document.getElementById('users-list');
+    const count = document.getElementById('users-count');
+    const users = visibleUsers();
+    count.textContent = users.length === adminUsers.length
+      ? adminUsers.length + (adminUsers.length === 1 ? ' person' : ' people')
+      : users.length + ' of ' + adminUsers.length + ' shown';
+    if (!adminUsers.length) { list.innerHTML = '<div class="empty-state">No users yet.</div>'; return; }
+    if (!users.length) { list.innerHTML = '<div class="empty-state">Nobody matches that search.</div>'; return; }
+    list.innerHTML = users.map(function(u) {
+      const name = fullName(u) || u.username;
+      const isSelf = u.id === currentUser.id;
+      const actions = [
+        '<button class="btn btn-ghost btn-sm" onclick="openEditUser(\\'' + esc(u.id) + '\\')">Edit</button>',
+        isSuperAdmin() && !isSelf
+          ? '<button class="btn btn-ghost btn-sm" onclick="loginAsUser(\\'' + esc(u.id) + '\\',\\'' + esc(u.username) + '\\')" title="See the Hub as this person">View as</button>'
+          : '',
+        !isSelf
+          ? '<button class="btn btn-ghost btn-sm udanger" onclick="deleteUser(\\'' + esc(u.id) + '\\',\\'' + esc(u.username) + '\\')">Delete</button>'
+          : '',
+      ].filter(Boolean).join('');
+      return '<div class="user-row" data-user="' + esc(u.id) + '">' +
+        '<div class="user-avatar" aria-hidden="true">' + esc(userInitials(u)) + '</div>' +
+        '<div class="user-ident">' +
+          '<div class="user-name">' + esc(name) + (isSelf ? '<span class="user-you">you</span>' : '') + '</div>' +
+          '<div class="user-sub">@' + esc(u.username) + (u.email ? ' · ' + esc(u.email) : '') + '</div>' +
+        '</div>' +
+        '<div class="user-role"><span class="badge badge-' + esc(u.role) + '">' + esc(ROLE_LABEL[u.role] || u.role) + '</span></div>' +
+        '<div class="user-access">' + accessSummaryHtml(u) + '</div>' +
+        '<div class="user-seen" title="Last sign-in">' + esc(relativeTime(u.lastLoginAt)) + '</div>' +
+        '<div class="user-actions">' + actions + '</div>' +
+      '</div>';
+    }).join('');
+  }
 
   async function loadUsers() {
-    const body = document.getElementById('users-table-body');
-    body.innerHTML = '<tr><td colspan="6" class="empty-state"><span class="spin">⟳</span> Loading…</td></tr>';
+    const list = document.getElementById('users-list');
+    list.innerHTML = '<div class="empty-state"><span class="spin">⟳</span> Loading…</div>';
     const r = await api('GET', '/users');
-    if (!r.ok) { body.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load users.</td></tr>'; return; }
+    if (!r.ok) { list.innerHTML = '<div class="empty-state">Failed to load users.</div>'; return; }
     adminUsers = r.data.users;
-    const users = adminUsers;
-    if (!users.length) { body.innerHTML = '<tr><td colspan="6" class="empty-state">No users yet.</td></tr>'; return; }
-    body.innerHTML = users.map(u => \`
-      <tr>
-        <td><strong>\${esc(u.username)}</strong></td>
-        <td class="text-muted">\${esc(fullName(u)) || '—'}</td>
-        <td class="text-muted">\${u.email ? esc(u.email) : '—'}</td>
-        <td><span class="badge badge-\${u.role}">\${u.role}</span></td>
-        <td class="text-muted">\${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</td>
-        <td>
-          <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick="openEditUser('\${esc(u.id)}')">Edit</button>
-            <button class="btn btn-ghost btn-sm" onclick="openPermsModal('\${esc(u.id)}','\${esc(u.username)}')">Permissions</button>
-            \${isSuperAdmin() && u.id !== currentUser.id ? \`<button class="btn btn-ghost btn-sm" onclick="loginAsUser('\${esc(u.id)}','\${esc(u.username)}')">Login as</button>\` : ''}
-            \${u.id !== currentUser.id ? \`<button class="btn btn-danger btn-sm" onclick="deleteUser('\${esc(u.id)}','\${esc(u.username)}')">Delete</button>\` : ''}
-          </div>
-        </td>
-      </tr>\`).join('');
+    renderUsers();
   }
+
+  document.getElementById('users-search').addEventListener('input', function(e) {
+    userSearchTerm = e.target.value;
+    renderUsers();
+  });
+  document.getElementById('users-role-filters').addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-role]');
+    if (!btn) return;
+    userRoleFilter = btn.dataset.role;
+    document.querySelectorAll('#users-role-filters [data-role]').forEach(function(b) {
+      b.classList.toggle('active', b === btn);
+    });
+    renderUsers();
+  });
 
   // Ensure the directory cache is populated for member/assignee pickers.
   async function ensureUsersLoaded() {
@@ -2583,44 +2747,192 @@ ${FEEDBACK_MODALS}
     if (r.ok) adminUsers = r.data.users;
   }
 
+  // ── User editor (profile + access in one dialog) ─────────────────────────
+  // Everything about a person is edited and saved together. Setting somebody up
+  // used to be "create, find them in the list, open a second modal, tick boxes,
+  // save again"; now it is one form with two tabs and one Save.
+  var FEATURES = ${JSON.stringify(PORTAL_FEATURES)};
+  let userModalId = null;
+  // Grants staged in the dialog, applied on Save. Kept apart from the checkbox
+  // DOM so switching tabs, or the Copy button, cannot lose them.
+  let stagedPerms = { feature: new Set(), report: new Set(), agent: new Set(), skill: new Set(), channel: new Set() };
+  let permCatalog = { agent: [], skill: [], channel: [] };
+  let permCatalogLoaded = false;
+
+  /** The five grant kinds, in the order they are drawn. */
+  const PERM_GROUPS = [
+    { kind: 'feature', title: 'Sections', hint: 'Which parts of the Hub this person can open.' },
+    { kind: 'report', title: 'Reports', hint: 'Individual reports, granted one at a time.' },
+    { kind: 'agent', title: 'Agents', hint: 'Which agents they can chat with.' },
+    { kind: 'skill', title: 'Skills', hint: 'Skills their agents may use on their behalf.' },
+    { kind: 'channel', title: 'Channels', hint: 'Messaging channels they can reach.' },
+  ];
+
+  function permOptions(kind) {
+    if (kind === 'feature') return FEATURES.map(function(f){ return { value: f.value, label: f.label, note: '' }; });
+    if (kind === 'report') return REPORTS.map(function(r){ return { value: r.key, label: r.title, note: '' }; });
+    return permCatalog[kind] || [];
+  }
+
+  function renderPermGroups() {
+    const host = document.getElementById('perms-groups');
+    host.innerHTML = PERM_GROUPS.map(function(g) {
+      const opts = permOptions(g.kind);
+      const on = stagedPerms[g.kind];
+      const rows = opts.length === 0
+        ? '<p class="text-muted" style="font-size:0.82rem;margin:0.35rem 0 0">Nothing configured.</p>'
+        : opts.map(function(o) {
+            const id = 'perm-' + g.kind + '-' + o.value;
+            return '<label class="perm-row" for="' + esc(id) + '">' +
+              '<input type="checkbox" id="' + esc(id) + '" data-perm-kind="' + g.kind + '" value="' + esc(o.value) + '"' + (on.has(o.value) ? ' checked' : '') + '>' +
+              '<span class="perm-label">' + esc(o.label) +
+                (o.note ? '<span class="perm-note">' + esc(o.note) + '</span>' : '') +
+              '</span></label>';
+          }).join('');
+      const granted = opts.filter(function(o){ return on.has(o.value); }).length;
+      return '<section class="perm-group">' +
+        '<header class="perm-group-head">' +
+          '<div><span class="perm-group-title">' + esc(g.title) + '</span>' +
+          '<span class="perm-group-count">' + granted + ' of ' + opts.length + '</span></div>' +
+          (opts.length ? '<div class="perm-group-bulk">' +
+            '<button type="button" class="perm-bulk" data-bulk-kind="' + g.kind + '" data-bulk="all">All</button>' +
+            '<button type="button" class="perm-bulk" data-bulk-kind="' + g.kind + '" data-bulk="none">None</button>' +
+          '</div>' : '') +
+        '</header>' +
+        '<p class="perm-group-hint">' + esc(g.hint) + '</p>' +
+        '<div class="perm-rows">' + rows + '</div>' +
+      '</section>';
+    }).join('');
+  }
+
+  document.getElementById('perms-groups').addEventListener('change', function(e) {
+    const cb = e.target.closest('input[data-perm-kind]');
+    if (!cb) return;
+    const set = stagedPerms[cb.dataset.permKind];
+    if (cb.checked) set.add(cb.value); else set.delete(cb.value);
+    renderPermGroups();
+  });
+  document.getElementById('perms-groups').addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-bulk]');
+    if (!btn) return;
+    const kind = btn.dataset.bulkKind;
+    stagedPerms[kind] = btn.dataset.bulk === 'all'
+      ? new Set(permOptions(kind).map(function(o){ return o.value; }))
+      : new Set();
+    renderPermGroups();
+  });
+
+  /** Agents, skills and channels are server state; fetched once per session. */
+  async function ensurePermCatalog() {
+    if (permCatalogLoaded) return;
+    const [agentsR, skillsR, channelsR] = await Promise.all([
+      api('GET', '/agents'), api('GET', '/skills'), api('GET', '/channels'),
+    ]);
+    allAgents = agentsR.ok ? agentsR.data.agents : [];
+    permCatalog.agent = allAgents.map(function(a){ return { value: a.id, label: a.name || a.id, note: '' }; });
+    permCatalog.skill = (skillsR.ok ? skillsR.data.skills : []).map(function(s){
+      return { value: s.name, label: s.name, note: s.description || '' };
+    });
+    permCatalog.channel = (channelsR.ok ? channelsR.data.channels : []).map(function(c){
+      return { value: c.id, label: c.id, note: '' };
+    });
+    permCatalogLoaded = true;
+  }
+
+  function setStagedFromPerms(perms) {
+    stagedPerms = { feature: new Set(), report: new Set(), agent: new Set(), skill: new Set(), channel: new Set() };
+    (perms || []).forEach(function(p) {
+      const set = stagedPerms[p.permissionType];
+      if (set) set.add(p.value);
+    });
+  }
+
+  function showUserTab(id) {
+    document.querySelectorAll('#user-modal-tabs .tab').forEach(function(t) {
+      t.classList.toggle('active', t.dataset.utab === id);
+    });
+    document.querySelectorAll('#user-modal .utab-content').forEach(function(c) {
+      c.classList.toggle('hidden', c.id !== id);
+    });
+  }
+  document.getElementById('user-modal-tabs').addEventListener('click', function(e) {
+    const tab = e.target.closest('.tab');
+    if (tab) showUserTab(tab.dataset.utab);
+  });
+
+  /** Role decides access for admins, so say so instead of implying the boxes rule. */
+  function syncPermsRoleNote() {
+    const role = document.getElementById('modal-role').value;
+    document.getElementById('perms-admin-note').classList.toggle('hidden', role === 'user');
+  }
+  document.getElementById('modal-role').addEventListener('change', syncPermsRoleNote);
+
+  function fillCopyFrom(excludeId) {
+    const sel = document.getElementById('perms-copy-from');
+    const others = adminUsers.filter(function(u){ return u.id !== excludeId; });
+    sel.innerHTML = '<option value="">Choose a person…</option>' + others.map(function(u) {
+      return '<option value="' + esc(u.id) + '">' + esc(fullName(u) || u.username) + '</option>';
+    }).join('');
+  }
+  document.getElementById('perms-copy-apply').addEventListener('click', async function() {
+    const id = document.getElementById('perms-copy-from').value;
+    if (!id) return;
+    const from = adminUsers.find(function(u){ return u.id === id; });
+    // The list already carries everyone's grants; only fall back to a fetch if
+    // this dialog was opened before the list loaded.
+    const perms = from && from.permissions ? from.permissions : ((await api('GET', '/users/' + id + '/permissions')).data || {}).permissions;
+    setStagedFromPerms(perms);
+    renderPermGroups();
+  });
+
+  async function openUserModal(user) {
+    userModalId = user.id || null;
+    document.getElementById('user-modal-title').textContent =
+      user.id ? ('Edit ' + (fullName(user) || user.username)) : 'Add User';
+    document.getElementById('modal-user-id').value = user.id || '';
+    document.getElementById('modal-username').value = user.username || '';
+    document.getElementById('modal-first-name').value = user.firstName || '';
+    document.getElementById('modal-last-name').value = user.lastName || '';
+    document.getElementById('modal-email').value = user.email || '';
+    document.getElementById('modal-password').value = '';
+    document.getElementById('modal-pw-label').textContent = user.id ? 'New Password (leave blank to keep)' : 'Password';
+    document.getElementById('modal-password').required = !user.id;
+    document.getElementById('modal-role').value = user.role || 'user';
+    document.getElementById('user-modal-submit').textContent = user.id ? 'Save Changes' : 'Create User';
+    document.getElementById('modal-role-group').classList.toggle('hidden', !isSuperAdmin());
+    document.getElementById('user-modal-error').classList.add('hidden');
+    showUserTab('user-tab-profile');
+    syncPermsRoleNote();
+    fillCopyFrom(user.id || '');
+    setStagedFromPerms(user.permissions);
+    renderPermGroups();
+    document.getElementById('user-modal').classList.remove('hidden');
+    // The catalog fetch is slow and the Profile tab is what opens first, so it
+    // lands behind the dialog rather than delaying it.
+    await ensurePermCatalog();
+    renderPermGroups();
+  }
+
   window.openEditUser = function(id) {
     const u = adminUsers.find(function(x) { return x.id === id; }) || { id: id, username: '', role: 'user' };
-    document.getElementById('user-modal-title').textContent = 'Edit User';
-    document.getElementById('modal-user-id').value = u.id;
-    document.getElementById('modal-username').value = u.username;
-    document.getElementById('modal-first-name').value = u.firstName || '';
-    document.getElementById('modal-last-name').value = u.lastName || '';
-    document.getElementById('modal-email').value = u.email || '';
-    document.getElementById('modal-password').value = '';
-    document.getElementById('modal-pw-label').textContent = 'New Password (leave blank to keep)';
-    document.getElementById('modal-password').required = false;
-    document.getElementById('modal-role').value = u.role;
-    document.getElementById('user-modal-submit').textContent = 'Save Changes';
-    document.getElementById('modal-role-group').classList.toggle('hidden', !isSuperAdmin());
-    document.getElementById('user-modal-error').classList.add('hidden');
-    document.getElementById('user-modal').classList.remove('hidden');
+    openUserModal(u);
   };
 
-  document.getElementById('add-user-btn').addEventListener('click', () => {
-    document.getElementById('user-modal-title').textContent = 'Add User';
-    document.getElementById('modal-user-id').value = '';
-    document.getElementById('modal-username').value = '';
-    document.getElementById('modal-first-name').value = '';
-    document.getElementById('modal-last-name').value = '';
-    document.getElementById('modal-email').value = '';
-    document.getElementById('modal-password').value = '';
-    document.getElementById('modal-pw-label').textContent = 'Password';
-    document.getElementById('modal-password').required = true;
-    document.getElementById('modal-role').value = 'user';
-    document.getElementById('user-modal-submit').textContent = 'Create User';
-    document.getElementById('modal-role-group').classList.toggle('hidden', !isSuperAdmin());
-    document.getElementById('user-modal-error').classList.add('hidden');
-    document.getElementById('user-modal').classList.remove('hidden');
+  document.getElementById('add-user-btn').addEventListener('click', function() {
+    openUserModal({ role: 'user' });
   });
 
   document.getElementById('user-modal-cancel').addEventListener('click', () => {
     document.getElementById('user-modal').classList.add('hidden');
   });
+
+  function stagedPermsList() {
+    const out = [];
+    Object.keys(stagedPerms).forEach(function(kind) {
+      stagedPerms[kind].forEach(function(value) { out.push({ permissionType: kind, value: value }); });
+    });
+    return out;
+  }
 
   document.getElementById('user-modal-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -2632,7 +2944,9 @@ ${FEEDBACK_MODALS}
     const lastName = document.getElementById('modal-last-name').value.trim();
     const email = document.getElementById('modal-email').value.trim();
     const errEl = document.getElementById('user-modal-error');
+    const submitBtn = document.getElementById('user-modal-submit');
     errEl.classList.add('hidden');
+    submitBtn.disabled = true;
     let r;
     if (id) {
       const body = { username, role, firstName, lastName, email };
@@ -2642,10 +2956,27 @@ ${FEEDBACK_MODALS}
       r = await api('POST', '/users', { username, password, role, firstName, lastName, email });
     }
     if (!r.ok) {
+      submitBtn.disabled = false;
       errEl.textContent = r.data.error || 'An error occurred.';
       errEl.classList.remove('hidden');
+      showUserTab('user-tab-profile');
       return;
     }
+    // A new account has no id until it exists, so its access is written on the
+    // second call rather than being lost.
+    const targetId = id || (r.data.user && r.data.user.id);
+    if (targetId) {
+      const permsR = await api('PUT', '/users/' + targetId + '/permissions', { permissions: stagedPermsList() });
+      if (!permsR.ok) {
+        submitBtn.disabled = false;
+        errEl.textContent = 'Saved the profile, but access could not be updated.';
+        errEl.classList.remove('hidden');
+        showUserTab('user-tab-access');
+        await loadUsers();
+        return;
+      }
+    }
+    submitBtn.disabled = false;
     document.getElementById('user-modal').classList.add('hidden');
     loadUsers();
   });
@@ -2655,116 +2986,6 @@ ${FEEDBACK_MODALS}
     await api('DELETE', '/users/' + id);
     loadUsers();
   };
-
-  // ── Permissions Modal ─────────────────────────────────────────────────────
-  // Sections a portal user can be granted. Reports are sourced from the REPORTS
-  // catalog so a new report is toggleable the moment it's added.
-  // Sourced from PORTAL_FEATURES so a new grantable section shows up here the
-  // moment the server learns to gate it.
-  var FEATURES = ${JSON.stringify(PORTAL_FEATURES)};
-  function renderPermCheckbox(kind, value, label, checked) {
-    return '<div class="flex items-center gap-2 mb-4" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">'+
-      '<input type="checkbox" id="'+kind+'-perm-'+esc(value)+'" data-perm-kind="'+kind+'" value="'+esc(value)+'"'+(checked?' checked':'')+'>'+
-      '<label for="'+kind+'-perm-'+esc(value)+'" style="margin:0;font-weight:normal">'+esc(label)+'</label>'+
-      '</div>';
-  }
-  window.openPermsModal = async function(userId, username) {
-    permsModalUserId = userId;
-    document.getElementById('perms-modal-username').textContent = username;
-    document.getElementById('perms-modal').classList.remove('hidden');
-    // Reset to Access tab
-    document.querySelectorAll('#perms-modal .tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('#perms-modal .tab-content').forEach(c => c.classList.add('hidden'));
-    document.querySelector('#perms-modal .tab[data-tab="access-tab"]').classList.add('active');
-    document.getElementById('access-tab').classList.remove('hidden');
-    // Load agents, skills, channels, and current permissions in parallel
-    const [agentsR, skillsR, channelsR, permsR] = await Promise.all([
-      api('GET', '/agents'),
-      api('GET', '/skills'),
-      api('GET', '/channels'),
-      api('GET', '/users/' + userId + '/permissions'),
-    ]);
-    allAgents = agentsR.ok ? agentsR.data.agents : [];
-    const perms = permsR.ok ? permsR.data.permissions : [];
-    const grantedAgents = new Set(perms.filter(p => p.permissionType === 'agent').map(p => p.value));
-    const grantedSkills = new Set(perms.filter(p => p.permissionType === 'skill').map(p => p.value));
-    const grantedChannels = new Set(perms.filter(p => p.permissionType === 'channel').map(p => p.value));
-    const grantedFeatures = new Set(perms.filter(p => p.permissionType === 'feature').map(p => p.value));
-    const grantedReports = new Set(perms.filter(p => p.permissionType === 'report').map(p => p.value));
-
-    document.getElementById('perms-features-list').innerHTML =
-      FEATURES.map(f => renderPermCheckbox('feature', f.value, f.label, grantedFeatures.has(f.value))).join('');
-    document.getElementById('perms-reports-list').innerHTML =
-      REPORTS.map(r => renderPermCheckbox('report', r.key, r.title, grantedReports.has(r.key))).join('');
-
-    // Agents list
-    const agentsList = document.getElementById('perms-agents-list');
-    agentsList.innerHTML = allAgents.length === 0
-      ? '<p class="text-muted">No agents found.</p>'
-      : allAgents.map(a => \`
-        <div class="flex items-center gap-2 mb-4" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">
-          <input type="checkbox" id="agent-perm-\${esc(a.id)}" value="\${esc(a.id)}" \${grantedAgents.has(a.id) ? 'checked' : ''}>
-          <label for="agent-perm-\${esc(a.id)}" style="margin:0;font-weight:normal">\${esc(a.name || a.id)}</label>
-        </div>\`).join('');
-
-    // Skills list
-    const skills = skillsR.ok ? skillsR.data.skills : [];
-    const skillsList = document.getElementById('perms-skills-list');
-    skillsList.innerHTML = skills.length === 0
-      ? '<p class="text-muted">No skills found in any agent workspace.</p>'
-      : skills.map(s => \`
-        <div class="flex items-center gap-2 mb-4" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">
-          <input type="checkbox" id="skill-perm-\${esc(s.name)}" value="\${esc(s.name)}" \${grantedSkills.has(s.name) ? 'checked' : ''}>
-          <label for="skill-perm-\${esc(s.name)}" style="margin:0;font-weight:normal">\${esc(s.name)}\${s.description ? \`<span class="text-muted" style="margin-left:0.5rem;font-size:0.8em">\${esc(s.description)}</span>\` : ''}</label>
-        </div>\`).join('');
-
-    // Channels list
-    const channels = channelsR.ok ? channelsR.data.channels : [];
-    const channelsList = document.getElementById('perms-channels-list');
-    channelsList.innerHTML = channels.length === 0
-      ? '<p class="text-muted">No channels configured.</p>'
-      : channels.map(c => \`
-        <div class="flex items-center gap-2 mb-4" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">
-          <input type="checkbox" id="channel-perm-\${esc(c.id)}" value="\${esc(c.id)}" \${grantedChannels.has(c.id) ? 'checked' : ''}>
-          <label for="channel-perm-\${esc(c.id)}" style="margin:0;font-weight:normal">\${esc(c.id)}</label>
-        </div>\`).join('');
-  };
-
-  document.getElementById('perms-modal-cancel').addEventListener('click', () => {
-    document.getElementById('perms-modal').classList.add('hidden');
-  });
-
-  document.getElementById('perms-modal-save').addEventListener('click', async () => {
-    const permissions = [];
-    document.querySelectorAll('#perms-agents-list input[type=checkbox]:checked').forEach(cb => {
-      permissions.push({ permissionType: 'agent', value: cb.value });
-    });
-    document.querySelectorAll('#perms-skills-list input[type=checkbox]:checked').forEach(cb => {
-      permissions.push({ permissionType: 'skill', value: cb.value });
-    });
-    document.querySelectorAll('#perms-channels-list input[type=checkbox]:checked').forEach(cb => {
-      permissions.push({ permissionType: 'channel', value: cb.value });
-    });
-    document.querySelectorAll('#perms-features-list input[type=checkbox]:checked').forEach(cb => {
-      permissions.push({ permissionType: 'feature', value: cb.value });
-    });
-    document.querySelectorAll('#perms-reports-list input[type=checkbox]:checked').forEach(cb => {
-      permissions.push({ permissionType: 'report', value: cb.value });
-    });
-    await api('PUT', '/users/' + permsModalUserId + '/permissions', { permissions });
-    document.getElementById('perms-modal').classList.add('hidden');
-  });
-
-  // Tabs in perms modal
-  document.querySelectorAll('.tabs .tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-      tab.classList.add('active');
-      document.getElementById(target).classList.remove('hidden');
-    });
-  });
 
   // ── Resources ─────────────────────────────────────────────────────────────
   let resourceActiveTags = new Set();
@@ -5595,7 +5816,7 @@ ${MARKET_COMPONENT_JS}
         <div>\${esc(n.body)}</div>
         <div class="fin-note-meta">
           <span>\${esc(n.createdByName || 'Unknown')} · \${new Date(n.createdAt).toLocaleString()}</span>
-          \${canDelete ? \`<span class="fin-note-del" data-id="\${esc(n.id)}" style="cursor:pointer;color:var(--accent)">Delete</span>\` : ''}
+          \${canDelete ? \`<span class="fin-note-del" data-id="\${esc(n.id)}" style="cursor:pointer;color:var(--accent-ink)">Delete</span>\` : ''}
         </div>
       </div>\`;
     }).join('');
@@ -7592,7 +7813,7 @@ ${MARKET_COMPONENT_JS}
     var up = f.up||0, down = f.down||0, rated = up + down;
     if(!rated) return '';
     var pct = Math.round((up / rated) * 100);
-    var tone = pct >= 80 ? '#16a34a' : (pct >= 50 ? '#d97706' : '#c0000a');
+    var tone = pct >= 80 ? '#16a34a' : (pct >= 50 ? '#d97706' : '#d40000');
     return '<div class="stat-card" title="'+up+' said it looks great, '+down+' said not quite'+((f.comments||0)?' · '+f.comments+' left a comment':'')+'">'+
       '<div class="stat-label">Satisfaction</div>'+
       '<div class="stat-value" style="color:'+tone+'">'+pct+'%</div>'+
@@ -7706,7 +7927,7 @@ ${MARKET_COMPONENT_JS}
     }
     box.classList.remove('hidden');
     var up = t.feedbackRating === 'up';
-    var tone = up ? '#16a34a' : '#c0000a';
+    var tone = up ? '#16a34a' : '#d40000';
     var mark = up ? '👍' : (t.feedbackRating === 'down' ? '👎' : '💬');
     var verdict = up ? 'Looks great' : (t.feedbackRating === 'down' ? 'Not quite right' : 'Left a note');
     var html = '<div style="border:1px solid '+tone+'33;border-left:3px solid '+tone+';background:'+tone+'0d;border-radius:8px;padding:0.75rem 0.9rem">';
@@ -8387,10 +8608,326 @@ ${MARKET_COMPONENT_JS}
     setTimeout(function(){ btn.textContent='Copy'; }, 1800);
   });
 
-  // ── Nav ───────────────────────────────────────────────────────────────────
-  document.querySelectorAll('.nav-link').forEach(a => {
-    a.addEventListener('click', e => { e.preventDefault(); navigate(a.dataset.page); });
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+  // The menu is data, not markup: its order, its headings and which of those
+  // headings fold into a submenu come from the saved arrangement (Settings →
+  // Navigation). What a viewer is *allowed* to open is still decided by
+  // canAccessPage(), so an arrangement can never widen anyone's access — an
+  // item they cannot reach is simply not drawn.
+  let navConfig = null;
+  // Which collapsible headings are open, kept per browser so a submenu someone
+  // opened is still open on their next visit.
+  let navOpenGroups = new Set(JSON.parse(localStorage.getItem('oc_nav_open') || '[]'));
+
+  function persistOpenGroups() {
+    localStorage.setItem('oc_nav_open', JSON.stringify(Array.from(navOpenGroups)));
+  }
+
+  async function loadSidebar() {
+    const r = await api('GET', '/nav-config?surface=admin');
+    navConfig = r.ok ? r.data.config : null;
+    renderSidebar();
+  }
+
+  function renderSidebar() {
+    const nav = document.getElementById('sidebar-nav');
+    if (!navConfig) { nav.innerHTML = ''; return; }
+    const html = [];
+    navConfig.groups.forEach(function(group) {
+      const items = navConfig.items.filter(function(it) {
+        return it.group === group.id && !it.hidden && canAccessPage(it.id);
+      });
+      // A heading with nothing under it is noise, so it is not drawn at all.
+      if (!items.length) return;
+      const collapsible = !!group.collapsible && !!group.label;
+      const open = !collapsible || navOpenGroups.has(group.id);
+      if (collapsible) {
+        html.push('<button type="button" class="nav-section nav-section-toggle' + (open ? ' open' : '') +
+          '" data-nav-group="' + esc(group.id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+          '<span class="nav-caret" aria-hidden="true">▸</span>' + esc(group.label) + '</button>');
+      } else if (group.label) {
+        html.push('<div class="nav-section">' + esc(group.label) + '</div>');
+      }
+      html.push('<div class="nav-group' + (open ? '' : ' hidden') + '" data-nav-group-body="' + esc(group.id) + '">');
+      items.forEach(function(it) {
+        html.push('<a href="#' + esc(it.id) + '" class="nav-link" data-page="' + esc(it.id) + '">' +
+          '<span class="icon">' + esc(it.icon) + '</span> ' + esc(it.label) + '</a>');
+      });
+      html.push('</div>');
+    });
+    nav.innerHTML = html.join('');
+    markActiveNav(currentNavKey);
+  }
+
+  let currentNavKey = null;
+  /** Highlight the current page and open the submenu it lives in. */
+  function markActiveNav(navKey) {
+    currentNavKey = navKey;
+    document.querySelectorAll('#sidebar-nav .nav-link').forEach(function(a) {
+      a.classList.toggle('active', a.dataset.page === navKey);
+    });
+    if (!navKey) return;
+    const active = document.querySelector('#sidebar-nav .nav-link.active');
+    const body = active && active.closest('[data-nav-group-body]');
+    if (!body || !body.classList.contains('hidden')) return;
+    const groupId = body.dataset.navGroupBody;
+    navOpenGroups.add(groupId);
+    persistOpenGroups();
+    renderSidebar();
+  }
+
+  document.getElementById('sidebar-nav').addEventListener('click', function(e) {
+    const toggle = e.target.closest('[data-nav-group]');
+    if (toggle) {
+      const id = toggle.dataset.navGroup;
+      if (navOpenGroups.has(id)) navOpenGroups.delete(id); else navOpenGroups.add(id);
+      persistOpenGroups();
+      renderSidebar();
+      return;
+    }
+    const link = e.target.closest('.nav-link');
+    if (link) { e.preventDefault(); navigate(link.dataset.page); }
   });
+
+  // ── Navigation editor ─────────────────────────────────────────────────────
+  // Superadmin-only, because the sidebar is shared: this edits everybody's
+  // menu on the chosen surface, not the editor's own.
+  let navEditSurface = 'admin';
+  let navEditConfig = null;
+  let navEditDirty = false;
+  let navDragItem = null;
+
+  function navEditStatus(text, tone) {
+    const el = document.getElementById('nav-editor-status');
+    el.textContent = text || '';
+    el.className = 'nav-editor-status ' + (tone === 'error' ? 'is-error' : tone === 'ok' ? 'is-ok' : 'text-muted');
+  }
+
+  async function loadNavEditor() {
+    navEditStatus('');
+    const host = document.getElementById('nav-editor');
+    host.innerHTML = '<div class="empty-state"><span class="spin">⟳</span> Loading…</div>';
+    const r = await api('GET', '/nav-config?surface=' + encodeURIComponent(navEditSurface));
+    if (!r.ok) { host.innerHTML = '<div class="empty-state">Could not load the menu.</div>'; return; }
+    navEditConfig = r.data.config;
+    navEditDirty = false;
+    renderNavEditor();
+  }
+
+  function renderNavEditor() {
+    const host = document.getElementById('nav-editor');
+    if (!navEditConfig) return;
+    const groups = navEditConfig.groups;
+    host.innerHTML = groups.map(function(g, gi) {
+      const items = navEditConfig.items.filter(function(i){ return i.group === g.id; });
+      const rows = items.map(function(it, ii) {
+        const idx = navEditConfig.items.indexOf(it);
+        return '<li class="nav-edit-item' + (it.hidden ? ' is-hidden' : '') + '" draggable="true" data-item="' + esc(it.id) + '">' +
+          '<span class="nav-edit-grip" aria-hidden="true">⠿</span>' +
+          '<input class="nav-edit-icon" data-field="icon" data-idx="' + idx + '" value="' + esc(it.icon) + '" aria-label="Icon for ' + esc(it.label) + '">' +
+          '<input class="nav-edit-label" data-field="label" data-idx="' + idx + '" value="' + esc(it.label) + '" aria-label="Menu label">' +
+          '<div class="nav-edit-item-actions">' +
+            '<button type="button" class="nav-edit-btn" data-move="up" data-item-id="' + esc(it.id) + '" title="Move up"' + (ii === 0 ? ' disabled' : '') + '>▲</button>' +
+            '<button type="button" class="nav-edit-btn" data-move="down" data-item-id="' + esc(it.id) + '" title="Move down"' + (ii === items.length - 1 ? ' disabled' : '') + '>▼</button>' +
+            '<button type="button" class="nav-edit-btn" data-toggle-hidden="' + esc(it.id) + '" title="' + (it.hidden ? 'Show in the menu' : 'Hide from the menu') + '">' + (it.hidden ? '🚫' : '👁') + '</button>' +
+          '</div>' +
+        '</li>';
+      }).join('');
+      return '<section class="nav-edit-group" data-group="' + esc(g.id) + '">' +
+        '<header class="nav-edit-group-head">' +
+          '<span class="nav-edit-grip" aria-hidden="true">⠿</span>' +
+          '<input class="nav-edit-group-label" data-group-label="' + esc(g.id) + '" value="' + esc(g.label) + '" placeholder="No heading" aria-label="Heading name">' +
+          '<label class="nav-edit-submenu"><input type="checkbox" data-group-collapsible="' + esc(g.id) + '"' + (g.collapsible ? ' checked' : '') + '> Submenu</label>' +
+          '<div class="nav-edit-item-actions">' +
+            '<button type="button" class="nav-edit-btn" data-group-move="up" data-group-id="' + esc(g.id) + '" title="Move heading up"' + (gi === 0 ? ' disabled' : '') + '>▲</button>' +
+            '<button type="button" class="nav-edit-btn" data-group-move="down" data-group-id="' + esc(g.id) + '" title="Move heading down"' + (gi === groups.length - 1 ? ' disabled' : '') + '>▼</button>' +
+            '<button type="button" class="nav-edit-btn" data-group-delete="' + esc(g.id) + '" title="Remove heading"' + (groups.length === 1 ? ' disabled' : '') + '>✕</button>' +
+          '</div>' +
+        '</header>' +
+        '<ul class="nav-edit-list" data-drop-group="' + esc(g.id) + '">' + rows +
+          (items.length ? '' : '<li class="nav-edit-empty">Drag a section here.</li>') +
+        '</ul>' +
+      '</section>';
+    }).join('');
+  }
+
+  function navMarkDirty() {
+    navEditDirty = true;
+    navEditStatus('Unsaved changes.');
+  }
+
+  /** Move an item within its own group, by one place. */
+  function navMoveItem(id, dir) {
+    const items = navEditConfig.items;
+    const from = items.findIndex(function(i){ return i.id === id; });
+    if (from === -1) return;
+    const group = items[from].group;
+    const siblings = items.filter(function(i){ return i.group === group; });
+    const pos = siblings.indexOf(items[from]);
+    const target = siblings[pos + (dir === 'up' ? -1 : 1)];
+    if (!target) return;
+    const to = items.indexOf(target);
+    items.splice(from, 1);
+    items.splice(to, 0, siblings[pos]);
+    navMarkDirty();
+    renderNavEditor();
+  }
+
+  document.getElementById('nav-editor').addEventListener('click', function(e) {
+    const move = e.target.closest('[data-move]');
+    if (move) { navMoveItem(move.dataset.itemId, move.dataset.move); return; }
+    const hide = e.target.closest('[data-toggle-hidden]');
+    if (hide) {
+      const it = navEditConfig.items.find(function(i){ return i.id === hide.dataset.toggleHidden; });
+      if (it) { it.hidden = !it.hidden; navMarkDirty(); renderNavEditor(); }
+      return;
+    }
+    const gmove = e.target.closest('[data-group-move]');
+    if (gmove) {
+      const groups = navEditConfig.groups;
+      const i = groups.findIndex(function(g){ return g.id === gmove.dataset.groupId; });
+      const j = i + (gmove.dataset.groupMove === 'up' ? -1 : 1);
+      if (i !== -1 && j >= 0 && j < groups.length) {
+        const tmp = groups[i]; groups[i] = groups[j]; groups[j] = tmp;
+        navMarkDirty(); renderNavEditor();
+      }
+      return;
+    }
+    const gdel = e.target.closest('[data-group-delete]');
+    if (gdel) {
+      const id = gdel.dataset.groupDelete;
+      const groups = navEditConfig.groups;
+      if (groups.length < 2) return;
+      const survivor = groups.find(function(g){ return g.id !== id; });
+      // Sections under a removed heading move rather than disappear: deleting a
+      // heading is a grouping change, not a way to drop pages from the menu.
+      navEditConfig.items.forEach(function(it){ if (it.group === id) it.group = survivor.id; });
+      navEditConfig.groups = groups.filter(function(g){ return g.id !== id; });
+      navMarkDirty(); renderNavEditor();
+    }
+  });
+
+  document.getElementById('nav-editor').addEventListener('input', function(e) {
+    const field = e.target.closest('[data-field]');
+    if (field) {
+      const it = navEditConfig.items[Number(field.dataset.idx)];
+      if (it) { it[field.dataset.field] = e.target.value; navMarkDirty(); }
+      return;
+    }
+    const label = e.target.closest('[data-group-label]');
+    if (label) {
+      const g = navEditConfig.groups.find(function(x){ return x.id === label.dataset.groupLabel; });
+      if (g) { g.label = e.target.value; navMarkDirty(); }
+    }
+  });
+
+  document.getElementById('nav-editor').addEventListener('change', function(e) {
+    const box = e.target.closest('[data-group-collapsible]');
+    if (!box) return;
+    const g = navEditConfig.groups.find(function(x){ return x.id === box.dataset.groupCollapsible; });
+    if (g) { g.collapsible = box.checked; navMarkDirty(); }
+  });
+
+  // Drag to reorder and to move between headings. The ▲▼ buttons do the same
+  // job for anyone not using a pointer.
+  document.getElementById('nav-editor').addEventListener('dragstart', function(e) {
+    const li = e.target.closest('.nav-edit-item');
+    if (!li) return;
+    navDragItem = li.dataset.item;
+    li.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox refuses to start a drag without payload.
+    e.dataTransfer.setData('text/plain', navDragItem);
+  });
+  document.getElementById('nav-editor').addEventListener('dragend', function(e) {
+    const li = e.target.closest('.nav-edit-item');
+    if (li) li.classList.remove('dragging');
+    navDragItem = null;
+  });
+  document.getElementById('nav-editor').addEventListener('dragover', function(e) {
+    if (!navDragItem) return;
+    const list = e.target.closest('[data-drop-group]');
+    if (!list) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  document.getElementById('nav-editor').addEventListener('drop', function(e) {
+    if (!navDragItem) return;
+    const list = e.target.closest('[data-drop-group]');
+    if (!list) return;
+    e.preventDefault();
+    const items = navEditConfig.items;
+    const from = items.findIndex(function(i){ return i.id === navDragItem; });
+    if (from === -1) return;
+    const moved = items[from];
+    const overLi = e.target.closest('.nav-edit-item');
+    items.splice(from, 1);
+    moved.group = list.dataset.dropGroup;
+    let to = items.length;
+    if (overLi && overLi.dataset.item !== navDragItem) {
+      const overIdx = items.findIndex(function(i){ return i.id === overLi.dataset.item; });
+      if (overIdx !== -1) {
+        // Dropping on the lower half of a row means "after it".
+        const rect = overLi.getBoundingClientRect();
+        to = e.clientY > rect.top + rect.height / 2 ? overIdx + 1 : overIdx;
+      }
+    } else {
+      // Dropped on empty space in a list: land after that group's last item.
+      const last = items.map(function(i, idx){ return { i: i, idx: idx }; })
+        .filter(function(x){ return x.i.group === moved.group; }).pop();
+      to = last ? last.idx + 1 : items.length;
+    }
+    items.splice(to, 0, moved);
+    navDragItem = null;
+    navMarkDirty();
+    renderNavEditor();
+  });
+
+  document.getElementById('nav-add-group').addEventListener('click', function() {
+    if (!navEditConfig) return;
+    const id = 'g' + Date.now().toString(36);
+    navEditConfig.groups.push({ id: id, label: 'New heading', collapsible: false });
+    navMarkDirty();
+    renderNavEditor();
+  });
+
+  document.getElementById('nav-surface-tabs').addEventListener('click', async function(e) {
+    const btn = e.target.closest('[data-surface]');
+    if (!btn || btn.dataset.surface === navEditSurface) return;
+    if (navEditDirty && !confirm('Discard unsaved menu changes?')) return;
+    navEditSurface = btn.dataset.surface;
+    document.querySelectorAll('#nav-surface-tabs [data-surface]').forEach(function(b) {
+      b.classList.toggle('active', b === btn);
+    });
+    await loadNavEditor();
+  });
+
+  document.getElementById('nav-save').addEventListener('click', async function() {
+    if (!navEditConfig) return;
+    const btn = document.getElementById('nav-save');
+    btn.disabled = true;
+    const r = await api('PUT', '/nav-config', { surface: navEditSurface, config: navEditConfig });
+    btn.disabled = false;
+    if (!r.ok) { navEditStatus(r.data.error || 'Could not save the menu.', 'error'); return; }
+    navEditConfig = r.data.config;
+    navEditDirty = false;
+    navEditStatus('Menu saved.', 'ok');
+    renderNavEditor();
+    // The editor's own sidebar is one of the things that just changed.
+    if (navEditSurface === 'admin') await loadSidebar();
+  });
+
+  document.getElementById('nav-reset').addEventListener('click', async function() {
+    if (!confirm('Put this menu back to the default order and headings?')) return;
+    const r = await api('PUT', '/nav-config', { surface: navEditSurface, reset: true });
+    if (!r.ok) { navEditStatus(r.data.error || 'Could not reset the menu.', 'error'); return; }
+    navEditConfig = r.data.config;
+    navEditDirty = false;
+    navEditStatus('Menu reset to default.', 'ok');
+    renderNavEditor();
+    if (navEditSurface === 'admin') await loadSidebar();
+  });
+
   window.addEventListener('hashchange', () => {
     const page = parseHash().page;
     if (page && pages[page]) navigate(page);

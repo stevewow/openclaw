@@ -1,5 +1,5 @@
-import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
+import { navCatalogItems } from "./nav-catalog.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
 /**
@@ -13,13 +13,6 @@ import { USER_PORTAL_HTML } from "./user-portal-html.js";
  */
 
 type Perm = { permissionType: string; value: string };
-
-const NAV = `
-  <a class="nav-link" data-feature="chat"></a>
-  <a class="nav-link" data-feature="projects"></a>
-  <a class="nav-link" data-feature="reports"></a>
-  <a class="nav-link" data-feature="resources"></a>
-`;
 
 function loadPortalAccess(permissions: Perm[], userId = "u-me") {
   const script = USER_PORTAL_HTML.match(/<script>([\s\S]*?)<\/script>/)?.[1];
@@ -41,7 +34,6 @@ function loadPortalAccess(permissions: Perm[], userId = "u-me") {
   }
   const own = script.slice(ownStart, script.indexOf("\n  }", ownStart) + 4);
 
-  const dom = new JSDOM(`<!DOCTYPE html><nav>${NAV}</nav>`);
   const preamble = `
     var currentUser = ${JSON.stringify({ id: userId, permissions })};
     function hasFeature(f) { return currentUser.permissions.some(function(p) {
@@ -52,22 +44,21 @@ function loadPortalAccess(permissions: Perm[], userId = "u-me") {
   // own source file, not user data.
   // oxlint-disable-next-line no-implied-eval
   const factory = new Function(
-    "document",
-    `${preamble}\n${access}\n${own}\nreturn { canSeeResources, canUploadResources, applyAccess, firstAllowedPage, ownResource };`,
+    `${preamble}\n${access}\n${own}\nreturn { canSeeResources, canUploadResources, canSeeNavItem, firstAllowedPage, ownResource };`,
   );
-  const model = factory(dom.window.document) as {
+  const model = factory() as {
     canSeeResources: () => boolean;
     canUploadResources: () => boolean;
-    applyAccess: () => void;
+    canSeeNavItem: (page: string) => boolean;
     firstAllowedPage: () => string;
     ownResource: (r: { createdBy: string | null }) => boolean;
   };
-  const navVisible = () => {
-    model.applyAccess();
-    return Array.from(dom.window.document.querySelectorAll(".nav-link"))
-      .filter((a) => (a as HTMLElement).style.display !== "none")
-      .map((a) => (a as HTMLElement).dataset.feature);
-  };
+  // The sidebar is built from the catalog and filtered by canSeeNavItem, so the
+  // sections actually drawn are the catalog run through that predicate.
+  const navVisible = () =>
+    navCatalogItems("portal")
+      .map((i) => i.id)
+      .filter((id) => model.canSeeNavItem(id));
   return { ...model, navVisible };
 }
 
@@ -79,7 +70,7 @@ describe("the portal's resource upload grant", () => {
     // the upload grant carries its own way in.
     const m = loadPortalAccess([feature("resource-upload")]);
     expect(m.canSeeResources()).toBe(true);
-    expect(m.navVisible()).toEqual(["resources"]);
+    expect(m.navVisible()).toEqual(["resources", "account"]);
     expect(m.firstAllowedPage()).toBe("resources");
   });
 
@@ -92,7 +83,7 @@ describe("the portal's resource upload grant", () => {
   it("keeps the library shut for someone holding neither grant", () => {
     const m = loadPortalAccess([feature("chat")]);
     expect(m.canSeeResources()).toBe(false);
-    expect(m.navVisible()).toEqual(["chat"]);
+    expect(m.navVisible()).toEqual(["chat", "account"]);
   });
 
   it("offers edit controls on one's own uploads only", () => {

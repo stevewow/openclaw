@@ -1,4 +1,5 @@
 import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
+import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
@@ -18,30 +19,13 @@ export const USER_PORTAL_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${brandTitle("Portal")}</title>
 ${BRAND_FAVICON_TAG}
+${HUB_FONT_TAGS}
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #f4f4f5;
-    --surface: #ffffff;
-    --surface2: #f4f4f5;
-    --border: #e4e4e7;
-    --accent: #c0000a;
-    --accent-hover: #950008;
-    --text: #111111;
-    --text-muted: #71717a;
-    --sidebar-bg: #111111;
-    --sidebar-text: rgba(255,255,255,0.65);
-    --sidebar-text-active: #ffffff;
-    --sidebar-active-bg: rgba(192,0,10,0.18);
-    --sidebar-border: rgba(255,255,255,0.08);
-    --radius: 10px;
-    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-    --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --banner-h: 0px;
-  }
+${HUB_TOKENS_CSS}
   html, body { height: 100%; }
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
-  a { color: var(--accent); text-decoration: none; }
+  a { color: var(--accent-ink); text-decoration: none; }
 
   /* Login */
   .login-wrap { display: flex; min-height: 100vh; }
@@ -76,7 +60,7 @@ ${BRAND_FAVICON_TAG}
   .sidebar-user .name { color: var(--sidebar-text-active); font-weight: 600; font-size: 0.875rem; }
   .sidebar-user .role { color: var(--sidebar-text); font-size: 0.75rem; margin-top: 0.1rem; text-transform: capitalize; }
   nav { flex: 1; padding: 0.625rem 0.75rem; overflow-y: auto; }
-  nav a { display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0.625rem; color: var(--sidebar-text); border-radius: 7px; transition: background 0.12s, color 0.12s; margin-bottom: 1px; font-size: 0.875rem; cursor: pointer; }
+  nav a { display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0.7rem; color: var(--sidebar-text); border-radius: 9px; transition: background 0.12s, color 0.12s; margin-bottom: 1px; font-size: 0.875rem; cursor: pointer; }
   nav a:hover { background: rgba(255,255,255,0.07); color: var(--sidebar-text-active); }
   nav a.active { background: var(--sidebar-active-bg); color: var(--sidebar-text-active); border-left: 2.5px solid var(--accent); }
   nav a .icon { width: 20px; text-align: center; font-size: 0.95rem; }
@@ -95,26 +79,26 @@ ${BRAND_FAVICON_TAG}
   #chat-frame { flex: 1; width: 100%; border: none; display: block; }
 
   /* Cards */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
+  .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius); padding: 1.4rem 1.5rem; margin-bottom: 1.15rem; box-shadow: var(--shadow); }
   .card-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 0.75rem; letter-spacing: -0.01em; }
 
   /* Forms */
   .form-group { margin-bottom: 1.125rem; }
   label { display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-  input { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 14px; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
+  input { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 
   /* Buttons */
-  .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.125rem; border-radius: 7px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 600; transition: background 0.12s, box-shadow 0.12s, opacity 0.12s; letter-spacing: 0.01em; }
-  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(192,0,10,0.25); }
-  .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 2px 6px rgba(192,0,10,0.35); }
+  .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.125rem; border-radius: var(--radius-pill); border: 1px solid transparent; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 600; transition: background 0.12s, box-shadow 0.12s, opacity 0.12s; letter-spacing: 0.01em; }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(255,0,0,0.22); }
+  .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 2px 8px rgba(255,0,0,0.28); }
   .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-muted); }
   .btn-ghost:hover { background: var(--surface2); color: var(--text); border-color: #d1d1d6; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn-sm { padding: 0.35rem 0.75rem; font-size: 12px; }
 
   /* Alert */
-  .alert { padding: 0.7rem 1rem; border-radius: 7px; margin-bottom: 1rem; font-size: 0.875rem; font-weight: 500; }
+  .alert { padding: 0.7rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem; font-size: 0.875rem; font-weight: 500; }
   .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
   .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
   .alert-info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
@@ -143,17 +127,17 @@ ${BRAND_FAVICON_TAG}
   table.rt-table th.rt-frozen { background: var(--surface2); z-index: 3; }
   .report-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
   .report-tab { padding: 0.5rem 0.9rem; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; cursor: pointer; font: inherit; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
-  .report-tab.active { border-color: var(--accent); color: var(--accent); }
+  .report-tab.active { border-color: var(--accent); color: var(--accent-ink); }
   .report-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1rem; }
   .report-controls label { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 0.8rem; color: var(--text); }
-  .report-controls select { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 7px; font: inherit; background: var(--surface); margin-left: 0.4rem; }
+  .report-controls select { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; background: var(--surface); margin-left: 0.4rem; }
   .report-subhead { padding: 0.75rem 1rem; font-weight: 700; border-bottom: 1px solid var(--border); }
 
   /* Resources */
   .resources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
   .resources-toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   .resources-breadcrumb { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.85rem; font-size: 0.85rem; }
-  .resources-breadcrumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .resources-breadcrumb a { color: var(--accent-ink); cursor: pointer; text-decoration: none; }
   .resources-breadcrumb a:hover { text-decoration: underline; }
   .resources-breadcrumb .crumb-sep { color: var(--text-muted); }
   .resources-breadcrumb .crumb-current { font-weight: 700; }
@@ -177,8 +161,8 @@ ${BRAND_FAVICON_TAG}
   .account-section { max-width: 480px; }
 
   /* Projects & Tasks */
-  select, textarea { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 14px; font-family: inherit; }
-  select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(192,0,10,0.1); }
+  select, textarea { width: 100%; padding: 0.6rem 0.875rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; font-family: inherit; }
+  select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
   .tasks-toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
   .tasks-toolbar .spacer { margin-left: auto; }
   /* Board/Calendar switch, styled to match the dashboard's view toggle. */
@@ -229,7 +213,7 @@ ${MARKET_CSS}
   .task-card-desc { font-size: 0.76rem; line-height: 1.45; color: var(--text-muted); margin-bottom: 0.4rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
   .task-card-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; font-size: 0.7rem; margin-top: 0.3rem; }
   .attach-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; }
-  .attach-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.55rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; font-size: 0.8rem; }
+  .attach-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.55rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.8rem; }
   .attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-decoration: none; }
   .attach-name:hover { text-decoration: underline; }
   .attach-size { flex-shrink: 0; font-size: 0.7rem; color: var(--text-muted); }
@@ -250,7 +234,7 @@ ${MARKET_CSS}
   .modal-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 1.25rem; }
   .modal-actions .spacer { flex: 1; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-  .member-picker { border: 1px solid var(--border); border-radius: 7px; padding: 0.35rem; max-height: 140px; overflow-y: auto; background: var(--surface); }
+  .member-picker { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.35rem; max-height: 140px; overflow-y: auto; background: var(--surface); }
   .member-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.4rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem; }
   .member-row:hover { background: var(--surface2); }
   .member-row input { width: auto; margin: 0; }
@@ -276,6 +260,14 @@ ${MARKET_CSS}
   .prt-contact-who { color: var(--text-muted); }
   .prt-contact-del { margin-left: auto; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; font-family: inherit; }
   .prt-contact-del:hover { color: #b5473b; }
+  /* Collapsible sidebar headings, when an admin groups the portal's menu. */
+  .nav-section { padding: 0.7rem 0.7rem 0.3rem; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.11em; color: rgba(255,255,255,0.34); margin-top: 0.375rem; }
+  .nav-section-toggle { display: flex; align-items: center; gap: 0.35rem; width: 100%; background: none; border: none; font: inherit; cursor: pointer; text-align: left; color: rgba(255,255,255,0.5); }
+  .nav-section-toggle:hover { color: rgba(255,255,255,0.78); }
+  .nav-caret { display: inline-block; font-size: 0.7em; transition: transform 0.15s; }
+  .nav-section-toggle.open .nav-caret { transform: rotate(90deg); }
+
+${HUB_BASE_CSS}
 </style>
 </head>
 <body>
@@ -327,13 +319,9 @@ ${MARKET_CSS}
       <div class="name" id="sidebar-username"></div>
       <div class="role" id="sidebar-role"></div>
     </div>
-    <nav>
-      <a class="nav-link active" data-page="chat" data-feature="chat"><span class="icon">💬</span> Chat</a>
-      <a class="nav-link" data-page="tasks" data-feature="projects"><span class="icon">📋</span> Projects &amp; Tasks</a>
-      <a class="nav-link" data-page="reports" data-feature="reports"><span class="icon">📊</span> Reports</a>
-      <a class="nav-link" data-page="resources" data-feature="resources"><span class="icon">📚</span> Resources</a>
-      <a class="nav-link" data-page="account"><span class="icon">👤</span> My Account</a>
-    </nav>
+    <!-- Built by renderSidebar() from the arrangement an admin saved for this
+         surface, filtered by what this account was granted. -->
+    <nav id="sidebar-nav"></nav>
     <div class="sidebar-footer">
       <button class="btn btn-ghost btn-sm" id="logout-btn" style="width:100%">Sign out</button>
     </div>
@@ -678,16 +666,19 @@ ${MARKET_COMPONENT_JS}
   /** Whether this viewer may add to the library and tend what they added. */
   function canUploadResources(){ return hasFeature('resource-upload'); }
 
-  // Deny-by-default: show a nav item only when the section is granted.
-  function applyAccess(){
-    document.querySelectorAll('.nav-link[data-feature]').forEach(function(a){
-      var feat = a.dataset.feature;
-      var ok = feat === 'reports' ? anyReportGranted()
-        : feat === 'resources' ? canSeeResources()
-        : hasFeature(feat);
-      a.style.display = ok ? '' : 'none';
-    });
+  /**
+   * Whether a section may be drawn at all. Deny-by-default: everything except
+   * My Account needs its grant. This is the portal's own gate and it does not
+   * consult the saved menu — a layout can rearrange sections, never unlock one.
+   */
+  function canSeeNavItem(page){
+    if (page === 'account') return true;
+    if (page === 'reports') return anyReportGranted();
+    if (page === 'resources') return canSeeResources();
+    if (page === 'tasks') return hasFeature('projects');
+    return hasFeature(page);
   }
+
   function firstAllowedPage(){
     if (hasFeature('chat')) return 'chat';
     if (hasFeature('projects')) return 'tasks';
@@ -695,6 +686,77 @@ ${MARKET_COMPONENT_JS}
     if (canSeeResources()) return 'resources';
     return 'account';
   }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+  // Order, headings and submenus come from the arrangement an admin saved for
+  // the portal (the Hub's Settings → Navigation page). Nothing is cached across
+  // sessions: the menu is small and one fetch keeps it honest after an edit.
+  var navConfig = null;
+  var navOpenGroups = new Set(JSON.parse(localStorage.getItem('oc_portal_nav_open') || '[]'));
+  var currentNavKey = null;
+
+  async function loadSidebar(){
+    var r = await api('GET', '/nav-config?surface=portal');
+    navConfig = r.ok ? r.data.config : null;
+    renderSidebar();
+  }
+
+  function renderSidebar(){
+    var nav = document.getElementById('sidebar-nav');
+    if (!navConfig) { nav.innerHTML = ''; return; }
+    var html = [];
+    navConfig.groups.forEach(function(group){
+      var items = navConfig.items.filter(function(it){
+        return it.group === group.id && !it.hidden && canSeeNavItem(it.id);
+      });
+      if (!items.length) return;
+      var collapsible = !!group.collapsible && !!group.label;
+      var open = !collapsible || navOpenGroups.has(group.id);
+      if (collapsible) {
+        html.push('<button type="button" class="nav-section nav-section-toggle' + (open ? ' open' : '') +
+          '" data-nav-group="' + esc(group.id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+          '<span class="nav-caret" aria-hidden="true">▸</span>' + esc(group.label) + '</button>');
+      } else if (group.label) {
+        html.push('<div class="nav-section">' + esc(group.label) + '</div>');
+      }
+      html.push('<div class="nav-group' + (open ? '' : ' hidden') + '" data-nav-group-body="' + esc(group.id) + '">');
+      items.forEach(function(it){
+        html.push('<a class="nav-link" data-page="' + esc(it.id) + '">' +
+          '<span class="icon">' + esc(it.icon) + '</span> ' + esc(it.label) + '</a>');
+      });
+      html.push('</div>');
+    });
+    nav.innerHTML = html.join('');
+    markActiveNav(currentNavKey);
+  }
+
+  /** Highlight the open page and unfold the submenu it lives in. */
+  function markActiveNav(page){
+    currentNavKey = page;
+    document.querySelectorAll('#sidebar-nav .nav-link').forEach(function(a){
+      a.classList.toggle('active', a.dataset.page === page);
+    });
+    if (!page) return;
+    var active = document.querySelector('#sidebar-nav .nav-link.active');
+    var body = active && active.closest('[data-nav-group-body]');
+    if (!body || !body.classList.contains('hidden')) return;
+    navOpenGroups.add(body.dataset.navGroupBody);
+    localStorage.setItem('oc_portal_nav_open', JSON.stringify(Array.from(navOpenGroups)));
+    renderSidebar();
+  }
+
+  document.getElementById('sidebar-nav').addEventListener('click', function(e){
+    var toggle = e.target.closest('[data-nav-group]');
+    if (toggle) {
+      var id = toggle.dataset.navGroup;
+      if (navOpenGroups.has(id)) navOpenGroups.delete(id); else navOpenGroups.add(id);
+      localStorage.setItem('oc_portal_nav_open', JSON.stringify(Array.from(navOpenGroups)));
+      renderSidebar();
+      return;
+    }
+    var link = e.target.closest('.nav-link');
+    if (link) { e.preventDefault(); navigate(link.dataset.page); }
+  });
 
   // ── Reports (read-only view of cached report data) ──────────────────────────
   var portalReportMonths = [];
@@ -1107,7 +1169,7 @@ ${MARKET_COMPONENT_JS}
 
   /** What the client committed to, and by when. Clearing the date drops both. */
   function portalPromiseBlock(c){
-    var inputStyle = 'margin-top:0.2rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)';
+    var inputStyle = 'margin-top:0.2rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);font:inherit;font-size:0.82rem;background:var(--surface);color:var(--text)';
     return '<div style="margin-top:0.6rem;font-weight:700;font-size:0.85rem">Promise to pay</div>' +
       '<div style="display:flex;gap:0.75rem;align-items:flex-start;flex-wrap:wrap;margin-top:0.25rem">' +
         '<label class="text-muted" style="font-size:0.78rem">By when<br />' +
@@ -1283,7 +1345,7 @@ ${MARKET_COMPONENT_JS}
         '<td>' + pdMoney(i.outstanding) + '</td><td>' + esc(pdDate(i.dateDue)) + '</td><td>' + i.daysPastDue + '</td></tr>';
     }).join('');
     var notes = (r.data.notes || []).map(function(n){
-      return '<div style="border:1px solid var(--border);border-radius:7px;padding:0.45rem 0.6rem;margin-bottom:0.35rem">' +
+      return '<div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.45rem 0.6rem;margin-bottom:0.35rem">' +
         '<div style="font-size:0.85rem">' + esc(n.body) + '</div>' +
         '<div class="text-muted" style="font-size:0.72rem;margin-top:0.2rem">' + esc(n.createdByName || 'Unknown') + ' · ' + esc(new Date(n.createdAt).toLocaleString()) + '</div>' +
       '</div>';
@@ -1405,7 +1467,7 @@ ${MARKET_COMPONENT_JS}
         ? '<a href="'+esc(href)+'" target="_blank" rel="noopener" style="font-weight:600;color:var(--accent,#2563eb);text-decoration:none">'+esc(r.label)+' ↗</a>'
         : '<span style="font-weight:600">'+esc(r.label)+'</span>';
       var meta = r.meta ? '<div class="text-muted" style="font-size:0.72rem">'+esc(r.meta)+'</div>' : '';
-      return '<div style="padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:7px">'+role+name+meta+'</div>';
+      return '<div style="padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm)">'+role+name+meta+'</div>';
     }).join('');
     return '<div style="display:grid;gap:0.3rem;margin-top:0.45rem;margin-left:1.6rem">'+cards+'</div>';
   }
@@ -1450,22 +1512,13 @@ ${MARKET_COMPONENT_JS}
   // ── Navigation ────────────────────────────────────────────────────────────
   function navigate(page) {
     document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
     const pageEl = document.getElementById('page-' + page);
     if (pageEl) pageEl.classList.add('active');
-    const navEl = document.querySelector('.nav-link[data-page="' + page + '"]');
-    if (navEl) navEl.classList.add('active');
+    markActiveNav(page);
     if (page === 'resources') loadResources();
     if (page === 'tasks') loadTasksPage();
     if (page === 'reports') loadReportsPage();
   }
-
-  document.querySelectorAll('.nav-link').forEach(a => {
-    a.addEventListener('click', e => {
-      e.preventDefault();
-      navigate(a.dataset.page);
-    });
-  });
 
   // ── Chat iframe ────────────────────────────────────────────────────────────
   function mountChatFrame(cfg) {
@@ -2538,7 +2591,7 @@ ${MARKET_COMPONENT_JS}
     document.getElementById('account-info').innerHTML =
       'Signed in as <strong>' + esc(currentUser.username) + '</strong> (' + esc(currentUser.role) + ')';
     updateImpersonationBanner();
-    applyAccess();
+    await loadSidebar();
 
     // Mount the chat iframe only when the user has chat access.
     if (hasFeature('chat')) {

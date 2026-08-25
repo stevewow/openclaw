@@ -2,6 +2,7 @@ import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
 import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
+import { navCatalogItems } from "./nav-catalog.js";
 
 /**
  * The authoring page is inline JS inside a template string, so no type or lint
@@ -166,7 +167,9 @@ describe("wiring", () => {
   });
 
   it("has a nav entry, a routed page and a loader", () => {
-    expect(ADMIN_UI_HTML).toContain('data-page="kb"');
+    // The sidebar is generated from the catalog now, so that is where the nav
+    // entry has to exist for the section to be reachable at all.
+    expect(navCatalogItems("admin").map((i) => i.id)).toContain("kb");
     expect(ADMIN_UI_HTML).toContain("el: 'page-kb'");
     expect(ADMIN_UI_HTML).toContain("feature: 'knowledge-base'");
     expect(ADMIN_UI_HTML).toContain("if (page === 'kb') loadKb();");

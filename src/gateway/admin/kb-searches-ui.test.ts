@@ -2,6 +2,7 @@ import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
 import { KB_SEARCHES_COMPONENT_JS } from "./kb-searches-ui.js";
+import { navCatalogItems } from "./nav-catalog.js";
 
 /**
  * The report is inline JS inside a template string, so no type or lint pass
@@ -202,7 +203,8 @@ function mount(opts: { ok?: boolean; asks?: boolean; engagement?: boolean } = {}
 describe("the help-search report", () => {
   it("is wired into the SPA", () => {
     expect(ADMIN_UI_HTML).toContain('id="page-kb-searches"');
-    expect(ADMIN_UI_HTML).toContain('data-page="kb-searches"');
+    // The nav entry lives in the catalog the sidebar is generated from.
+    expect(navCatalogItems("admin").map((i) => i.id)).toContain("kb-searches");
     expect(ADMIN_UI_HTML).toContain("loadKbSearches()");
   });
 

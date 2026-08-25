@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ADMIN_UI_HTML } from "./admin-ui-html.js";
+import { navCatalogGroups, navCatalogItems } from "./nav-catalog.js";
 
 /**
  * The admin SPA's nav gating is inline JS inside a template string, so TypeScript
@@ -70,14 +71,24 @@ describe("the nav and the page registry agree", () => {
     return keys;
   }
 
-  it("registers a page for every nav link", () => {
+  it("registers a page for every section the sidebar can show", () => {
+    // The sidebar is built from the nav catalog now, not from static markup, so
+    // a catalog entry whose id is not in `pages` is the same dead link the old
+    // hand-written <a> was: navigate() falls through to its `if (!def)` branch
+    // and quietly shows the dashboard.
     const pages = registeredPages();
     expect(pages.size).toBeGreaterThan(10); // the scrape found something real
-    const linked = Array.from(ADMIN_UI_HTML.matchAll(/<a[^>]*data-page="([a-z-]+)"/g)).map(
-      (m) => m[1] ?? "",
-    );
-    expect(linked.length).toBeGreaterThan(10);
-    expect(linked.filter((p) => !pages.has(p))).toEqual([]);
+    const catalog = navCatalogItems("admin").map((i) => i.id);
+    expect(catalog.length).toBeGreaterThan(10);
+    expect(catalog.filter((p) => !pages.has(p))).toEqual([]);
+  });
+
+  it("puts every catalog section under a group the catalog declares", () => {
+    // An item whose default group does not exist would be silently rehomed by
+    // resolveNavConfig, so the shipped sidebar would not match the catalog.
+    const groups = new Set(navCatalogGroups("admin").map((g) => g.id));
+    const orphans = navCatalogItems("admin").filter((i) => !groups.has(i.group));
+    expect(orphans.map((i) => i.id)).toEqual([]);
   });
 
   it("gives every registered page an element that exists in the markup", () => {
