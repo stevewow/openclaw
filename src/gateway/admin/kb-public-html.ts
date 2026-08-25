@@ -297,6 +297,44 @@ const HELP_STYLES = `
   }
   .hc-cat:hover { border-color:var(--wow); color:var(--wow); }
   .hc-cat.hc-cat-on { border-color:var(--wow); background:var(--wow-tint); color:var(--wow); }
+  .hc-cats-label {
+    flex:0 0 100%; margin:0 0 0.1rem; color:var(--muted);
+    font-size:0.7rem; font-weight:700; letter-spacing:0.09em; text-transform:uppercase;
+  }
+  .hc-cat .hc-fold { opacity:0.55; margin-right:0.35rem; vertical-align:-1px; }
+
+  /* A category is a shelf, not an article.
+     Told apart only by type size, a category called "Your Media: Finding It,
+     Downloading It, and Using It" reads exactly like something to open and
+     read. So a shelf gets a card, a folder mark, the word Category and a count
+     — four cues that survive a long title — while the editorial groupings keep
+     the quiet label they had. The difference between the two treatments is
+     itself the signal. */
+  .hc-shelf {
+    border:1px solid var(--border); border-radius:16px; background:var(--surface);
+    padding:1.05rem 1.15rem 0.9rem;
+  }
+  .hc-shelf-head { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin:0 0 0.45rem; }
+  .hc-kind {
+    display:inline-flex; align-items:center; gap:0.32rem; padding:0.18rem 0.55rem;
+    border-radius:999px; background:var(--wow-tint); color:var(--wow);
+    font-size:0.66rem; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;
+  }
+  .hc-fold { width:12px; height:12px; flex:none; }
+  .hc-tally { color:var(--muted); font-size:0.74rem; font-weight:600; }
+  .hc-shelf h2 {
+    font-size:1.05rem; font-weight:700; letter-spacing:-0.01em; text-transform:none;
+    color:var(--ink); line-height:1.3; margin:0 0 0.1rem;
+  }
+  .hc-shelf .hc-desc { margin:0 0 0.35rem; }
+  /* The rows read as what is filed on the shelf: lighter than its title, and
+     fenced off from it by the rule rather than running straight on. */
+  .hc-shelf .hc-list { border-top:1px solid var(--hairline); margin-top:0.55rem; }
+  .hc-shelf .hc-list li:first-child { border-top:none; }
+  .hc-shelf .hc-list a { font-weight:500; font-size:0.9rem; padding:0.6rem 0; }
+  /* The same chip introduces a category page, so arriving on one is not
+     mistaken for arriving on an article. */
+  .hc-pagekind { display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap; margin:0 0 0.5rem; }
 
   /* Two columns only once there is genuinely room for two readable ones. */
   .hc-groups { display:grid; grid-template-columns:1fr; gap:1.75rem; }
@@ -1008,6 +1046,25 @@ function engagementBlock(article: KbArticle, likes: number): string {
 }
 
 /**
+ * A folder mark, inline so a help page still needs no asset of its own and the
+ * chip keeps working where an emoji would render differently on every phone.
+ */
+const FOLDER_MARK =
+  `<svg class="hc-fold" viewBox="0 0 16 16" aria-hidden="true" focusable="false">` +
+  `<path fill="currentColor" d="M1.6 4.1c0-.94.76-1.7 1.7-1.7h2.9c.55 0 1.07.27 1.39.72l.53.75H13c.94 0 1.7.76 1.7 1.7v6.3c0 .94-.76 1.7-1.7 1.7H3.3c-.94 0-1.7-.76-1.7-1.7V4.1Z"/>` +
+  `</svg>`;
+
+/** Says "this is a shelf, not something to read" in one small chip. */
+function categoryChip(): string {
+  return `<span class="hc-kind">${FOLDER_MARK}Category</span>`;
+}
+
+/** "3 articles" — a count is the other thing an article never has. */
+function articleTally(count: number): string {
+  return `<span class="hc-tally">${count} article${count === 1 ? "" : "s"}</span>`;
+}
+
+/**
  * The browse-by-category row.
  *
  * The index already grouped articles under category headings, but nothing
@@ -1024,9 +1081,14 @@ function categoryPills(
   const pills = categories.map((c) => {
     const on = active && c.slug === active ? " hc-cat-on" : "";
     const count = c.articles ? ` <span class="hc-count">${c.articles.length}</span>` : "";
-    return `        <a class="hc-cat${on}" href="${categoryUrl(c)}">${escapeHtml(c.title)}${count}</a>`;
+    return `        <a class="hc-cat${on}" href="${categoryUrl(c)}">${FOLDER_MARK}${escapeHtml(
+      c.title,
+    )}${count}</a>`;
   });
+  // Without the label the row reads as tags, or as a list of articles someone
+  // picked out; naming it says what one click does.
   return `      <nav class="hc-cats" aria-label="Help categories">
+        <span class="hc-cats-label">Browse by category</span>
 ${pills.join("\n")}
       </nav>`;
 }
@@ -1130,7 +1192,8 @@ export type HelpIndexView = {
 
 export function renderHelpIndexHtml(view: HelpIndexView): string {
   const groups = view.categories.map(
-    (category) => `      <section class="hc-group">
+    (category) => `      <section class="hc-group hc-shelf">
+        <div class="hc-shelf-head">${categoryChip()}${articleTally(category.articles.length)}</div>
         <h2><a href="${categoryUrl(category)}">${escapeHtml(category.title)}</a></h2>
         ${category.description ? `<p class="hc-desc">${escapeHtml(category.description)}</p>` : ""}
         <ul class="hc-list">
@@ -1209,8 +1272,11 @@ export type HelpCategoryView = {
 };
 
 export function renderHelpCategoryHtml(view: HelpCategoryView): string {
+  // The chip and the count do here what the shelf card does on the index:
+  // an eyebrow reading "Help Center" over a title looked exactly like an
+  // article page.
   const body = `      <a class="hc-back" href="${HELP_PATH}">← All help articles</a>
-      <p class="eyebrow">Help Center</p>
+      <p class="hc-pagekind">${categoryChip()}${articleTally(view.articles.length)}</p>
       <h1 class="title">${escapeHtml(view.category.title)}</h1>
       ${view.category.description ? `<p class="lead">${escapeHtml(view.category.description)}</p>` : ""}
 ${searchForm("")}
@@ -1254,7 +1320,7 @@ export function renderHelpArticleHtml(view: HelpArticleView): string {
       : "";
   const others = view.siblings.filter((s) => s.id !== article.id);
   const body = `      <a class="hc-back" href="${category ? categoryUrl(category) : HELP_PATH}">← ${escapeHtml(category ? category.title : "All help articles")}</a>
-      <p class="eyebrow">${escapeHtml(category ? category.title : "Help Center")}</p>
+      <p class="eyebrow">${category ? `In ${escapeHtml(category.title)}` : "Help Center"}</p>
       <h1 class="title">${escapeHtml(article.title)}</h1>
       ${article.summary ? `<p class="lead">${escapeHtml(article.summary)}</p>` : ""}
 ${articleMeta(article)}

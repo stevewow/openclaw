@@ -13,7 +13,7 @@ const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "oc-kb-public-"));
 process.env.OPENCLAW_STATE_DIR = TMP_DIR;
 
 const { handleKbPublicRequest } = await import("./kb-public-http.js");
-const { renderMarkdown, videoEmbedUrl } = await import("./kb-public-html.js");
+const { renderHelpIndexHtml, renderMarkdown, videoEmbedUrl } = await import("./kb-public-html.js");
 const store = await import("./kb-store.js");
 const { getAdminDb } = await import("./user-store.js");
 
@@ -216,6 +216,124 @@ describe("browsing by category", () => {
     const res = await get("/help");
     expect(res.body).toContain(".hc-groups { display:grid; grid-template-columns:1fr;");
     expect(res.body).toContain("@media (min-width:820px)");
+  });
+});
+
+const category = {
+  id: "c-0",
+  slug: "shelf",
+  title: "Shelf",
+  description: null,
+  sortOrder: 0,
+  createdAt: 0,
+  updatedAt: 0,
+};
+
+const article = {
+  id: "a-0",
+  slug: "an-article",
+  title: "An article",
+  summary: null,
+  bodyMd: "Words.",
+  categoryId: null,
+  status: "published" as const,
+  videoUrl: null,
+  sortOrder: 0,
+  createdBy: null,
+  publishedBy: "steve",
+  publishedAt: 0,
+  contentUpdatedAt: null,
+  updatedAt: 0,
+};
+
+describe("telling a category from an article", () => {
+  // Live categories are titled in full sentences — "Your Media: Finding It,
+  // Downloading It, and Using It" — so size alone never separated a shelf from
+  // something to read. Each cue below is one a long title cannot swallow.
+  it("files each category on the index as a shelf, named as a category and counted", async () => {
+    const res = await get("/help");
+    expect(res.body).toContain('class="hc-group hc-shelf"');
+    expect(res.body).toContain('<span class="hc-kind">');
+    expect(res.body).toContain("Category</span>");
+    // Scheduling holds two published articles; the draft is not counted.
+    expect(res.body).toContain('<span class="hc-tally">2 articles</span>');
+  });
+
+  it("counts a lone article in the singular", async () => {
+    const solo = await store.createCategory({ title: "Billing" });
+    const bill = await store.createArticle({
+      title: "Read your invoice",
+      bodyMd: "Line by line.",
+      categoryId: solo.id,
+    });
+    await store.publishArticle(bill.id, "steve");
+    const res = await get("/help");
+    expect(res.body).toContain('<span class="hc-tally">1 article</span>');
+    expect(res.body).not.toContain('<span class="hc-tally">1 articles</span>');
+  });
+
+  it("leaves the editorial sections looking like sections, not shelves", () => {
+    // Most read and Recently updated group articles too, so marking those as
+    // categories would undo the distinction the shelf card just made. Rendered
+    // directly: the highlights are only drawn above a floor of published
+    // articles, so the shelf is stocked past it rather than left to whatever
+    // the fixture happens to hold.
+    const shelved = [1, 2, 3, 4, 5].map((n) =>
+      Object.assign({}, article, {
+        id: `a-${n}`,
+        slug: `article-${n}`,
+        title: `Article ${n}`,
+        categoryId: "c-1",
+      }),
+    );
+    const html = renderHelpIndexHtml({
+      categories: [{ ...category, id: "c-1", title: "Scheduling", articles: shelved }],
+      unfiled: [],
+      popular: shelved.slice(0, 2),
+      recent: shelved.slice(0, 2),
+    });
+    const sections = html.split('<section class="hc-group');
+    const editorial = sections.filter((s) => /^">\s*<h2>(Most read|Recently updated)/.test(s));
+    expect(editorial).toHaveLength(2);
+    for (const section of editorial) {
+      expect(section).not.toContain("hc-kind");
+      expect(section).not.toContain("hc-tally");
+      expect(section).not.toContain("hc-shelf");
+    }
+    // ...while the category beside them is a shelf, in the same render.
+    const shelves = sections.filter((s) => s.startsWith(' hc-shelf"'));
+    expect(shelves).toHaveLength(1);
+    expect(shelves[0]).toContain("Category</span>");
+  });
+
+  it("says what one click on the chooser does", async () => {
+    const res = await get("/help");
+    expect(res.body).toContain("Browse by category");
+    // Every pill carries the folder mark, so a pill is never read as an article.
+    expect(res.body).toContain('class="hc-fold"');
+  });
+
+  it("marks a category page as a category rather than as an article", async () => {
+    const res = await get("/help/category/scheduling");
+    expect(res.body).toContain('class="hc-pagekind"');
+    expect(res.body).toContain("Category</span>");
+    expect(res.body).toContain('<span class="hc-tally">2 articles</span>');
+  });
+
+  it("names the shelf an article sits on as a relationship, not as a kicker", async () => {
+    const res = await get("/help/reschedule-a-shoot");
+    // The bare category title in this slot read as the article's own kicker.
+    expect(res.body).toContain('<p class="eyebrow">In Scheduling</p>');
+    // An article page is not a shelf: no chip, no count.
+    expect(res.body).not.toContain('class="hc-pagekind"');
+    expect(res.body).not.toContain('<span class="hc-kind">');
+  });
+
+  it("still says Help Center over an article filed nowhere", async () => {
+    const loose = await store.createArticle({ title: "Odds and ends", bodyMd: "Bits." });
+    await store.publishArticle(loose.id, "steve");
+    const res = await get("/help/odds-and-ends");
+    expect(res.body).toContain('<p class="eyebrow">Help Center</p>');
   });
 });
 
