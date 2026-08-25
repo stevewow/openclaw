@@ -39,8 +39,8 @@ export function adminBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
 export const BRAND_TAGLINE =
   "One hub for the whole operation — shoots, projects, clients, and the numbers behind them.";
 
-/** Brand red. Matches --accent in both pages. */
-export const BRAND_COLOR = "#c0000a";
+/** Brand red. The same `--accent` both signed-in pages and the public forms set. */
+export const BRAND_COLOR = "#ff0000";
 
 /**
  * Red circle, white play triangle.

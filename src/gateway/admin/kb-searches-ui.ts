@@ -26,7 +26,7 @@ export const KB_SEARCHES_CSS = `
   .kbs-num { text-align: right; font-variant-numeric: tabular-nums; width: 1%; white-space: nowrap; }
   .kbs-when { color: var(--text-muted); font-size: 0.78rem; white-space: nowrap; }
   .kbs-try { font-size: 0.75rem; color: var(--text-muted); text-decoration: none; white-space: nowrap; }
-  .kbs-try:hover { color: var(--accent); text-decoration: underline; }
+  .kbs-try:hover { color: var(--accent-ink); text-decoration: underline; }
 
   /* The gap list is the one that costs us something, so it reads as a warning. */
   .kbs-sect-gap .stat-card, .kbs-gap-head { border-top-color: #b45309; }

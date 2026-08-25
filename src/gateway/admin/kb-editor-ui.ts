@@ -23,7 +23,7 @@ export const KB_EDITOR_CSS = `
   .kb-toolbar { display: flex; align-items: center; gap: 0.15rem; flex-wrap: wrap; padding: 0.3rem 0.35rem; border-bottom: 1px solid var(--border); background: var(--surface2); }
   .kb-tool { flex: none; min-width: 1.85rem; height: 1.85rem; padding: 0 0.45rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--radius); background: none; color: var(--text); font-family: inherit; font-size: 0.82rem; font-weight: 600; line-height: 1; cursor: pointer; }
   .kb-tool:hover { background: var(--surface); border-color: var(--border); }
-  .kb-tool.kb-tool-on { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+  .kb-tool.kb-tool-on { background: var(--surface); border-color: var(--accent); color: var(--accent-ink); }
   .kb-tool-sep { flex: none; width: 1px; height: 1.15rem; margin: 0 0.25rem; background: var(--border); }
 
   /* Matches .kb-body-input's old height so the modal does not jump. */
@@ -35,7 +35,7 @@ export const KB_EDITOR_CSS = `
   .kb-editor p { margin: 0 0 0.75rem; }
   .kb-editor ul, .kb-editor ol { margin: 0 0 0.75rem; padding-left: 1.4rem; }
   .kb-editor li { margin: 0 0 0.25rem; }
-  .kb-editor a { color: var(--accent); font-weight: 600; }
+  .kb-editor a { color: var(--accent-ink); font-weight: 600; }
   .kb-editor blockquote { margin: 0 0 0.75rem; padding: 0.1rem 0 0.1rem 0.8rem; border-left: 3px solid var(--border); color: var(--text-muted); }
   .kb-editor:empty::before { content: attr(data-placeholder); color: var(--text-muted); }
 
@@ -44,7 +44,7 @@ export const KB_EDITOR_CSS = `
   .kb-vid-frame { position: relative; padding-top: 56.25%; border-radius: var(--radius); overflow: hidden; background: #000; }
   .kb-vid-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .kb-vid-note { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; }
-  .kb-vid-note.kb-vid-bad { color: var(--accent); }
+  .kb-vid-note.kb-vid-bad { color: var(--accent-ink); }
 `;
 
 /** The toolbar and the surface. `kb-article-body-md` stays as the hidden markdown field. */

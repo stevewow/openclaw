@@ -28,10 +28,10 @@ export const FEEDBACK_CSS = `
 
   .fb-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 600;
     background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); margin: 0 0.2rem 0.2rem 0; }
-  .fb-tag-client { background: rgba(192,0,10,0.07); color: var(--accent); border-color: rgba(192,0,10,0.25); }
+  .fb-tag-client { background: rgba(192,0,10,0.07); color: var(--accent-ink); border-color: rgba(192,0,10,0.25); }
 
   .fb-body-cell { cursor: pointer; font-weight: 500; max-width: 40rem; }
-  .fb-body-cell:hover { color: var(--accent); }
+  .fb-body-cell:hover { color: var(--accent-ink); }
   .fb-snippet { display: block; font-weight: 400; color: var(--text-muted); font-size: 0.76rem;
     overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .fb-ref { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.72rem; color: var(--text-muted); }

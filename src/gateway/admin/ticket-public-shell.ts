@@ -31,6 +31,17 @@ export const BRAND_HEADER_HTML = `<a class="brand" href="https://www.wowvideotou
     </a>`;
 
 /**
+ * The brand type stack.
+ *
+ * Its own export because the signed-in Hub sets the same face from its own
+ * token block (`hub-theme.ts`), and a fallback chain that differs between the
+ * public form and the dashboard would show up the moment Montserrat fails to
+ * load.
+ */
+export const PUBLIC_FONT_FAMILY =
+  '"Montserrat",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
+
+/**
  * Palette, type and layout, taken from wowvideotours.com: Montserrat
  * throughout, charcoal ink on a light grey ground, pure-red accent, pill
  * buttons, and the uppercase letter-spaced eyebrow the site sets above every
@@ -46,7 +57,7 @@ export const PUBLIC_SHELL_CSS = `
     --wow:#ff0000; --wow-dark:#d40000; --wow-tint:rgba(255,0,0,0.08);
     --ink:#2c2c2c; --muted:#888888; --border:#dbdbdb; --hairline:#ececec;
     --bg:#f3f3f3; --surface:#ffffff;
-    --font:"Montserrat",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font:${PUBLIC_FONT_FAMILY};
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }

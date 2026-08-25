@@ -19,13 +19,13 @@ export const TASK_FEED_CSS = `
   .tf-time { font-size: 0.68rem; color: var(--text-muted); }
   .tf-edited { font-size: 0.66rem; color: var(--text-muted); font-style: italic; }
   .tf-text { font-size: 0.82rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-  .tf-mention { background: rgba(192,0,10,0.10); color: var(--accent); font-weight: 600; border-radius: 3px; padding: 0 0.15rem; }
+  .tf-mention { background: rgba(192,0,10,0.10); color: var(--accent-ink); font-weight: 600; border-radius: 3px; padding: 0 0.15rem; }
   /* Activity is context, not conversation — quieter, and no avatar block. */
   .tf-activity { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; padding-left: 2px; }
   .tf-activity b { color: var(--text); font-weight: 600; }
   .tf-actions { display: flex; gap: 0.4rem; margin-top: 0.1rem; }
   .tf-action { background: none; border: none; padding: 0; font-size: 0.68rem; color: var(--text-muted); cursor: pointer; font-family: inherit; text-decoration: underline; }
-  .tf-action:hover { color: var(--accent); }
+  .tf-action:hover { color: var(--accent-ink); }
   .tf-composer { display: flex; flex-direction: column; gap: 0.35rem; position: relative; }
   .tf-composer textarea { width: 100%; min-height: 3.5rem; resize: vertical; padding: 0.5rem 0.65rem; font-size: 0.82rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
   .tf-composer-row { display: flex; align-items: center; gap: 0.5rem; }

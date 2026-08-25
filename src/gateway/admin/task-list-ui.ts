@@ -17,7 +17,7 @@ export const TASK_LIST_CSS = `
   .tl-mine { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
   .tl-mine input { cursor: pointer; }
   .tl-clear { background: none; border: none; font-size: 0.78rem; color: var(--text-muted); text-decoration: underline; cursor: pointer; font-family: inherit; }
-  .tl-clear:hover { color: var(--accent); }
+  .tl-clear:hover { color: var(--accent-ink); }
   .tl-count { font-size: 0.75rem; color: var(--text-muted); margin-left: auto; white-space: nowrap; }
 
   /* Priority, due window, tag and "only mine" live behind one button. Four
@@ -26,7 +26,7 @@ export const TASK_LIST_CSS = `
   .tl-more { position: relative; flex-shrink: 0; }
   .tl-more-btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; font-family: inherit; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; white-space: nowrap; }
   .tl-more-btn:hover { color: var(--text); }
-  .tl-more-btn.tl-more-on { color: var(--accent); border-color: var(--accent); background: rgba(192,0,10,0.05); }
+  .tl-more-btn.tl-more-on { color: var(--accent-ink); border-color: var(--accent); background: rgba(192,0,10,0.05); }
   .tl-more-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px; background: var(--accent); color: #fff; font-size: 0.62rem; font-weight: 800; }
   /* Anchored to the button's RIGHT edge so it opens leftward, back over the
      toolbar. Opening rightward pushed it off-screen: the button sits well into
@@ -55,7 +55,7 @@ export const TASK_LIST_CSS = `
   .tl-table tr:last-child td { border-bottom: none; }
   .tl-table tbody tr:hover { background: var(--surface2); }
   .tl-title-cell { font-weight: 600; cursor: pointer; }
-  .tl-title-cell:hover { color: var(--accent); }
+  .tl-title-cell:hover { color: var(--accent-ink); }
   .tl-sub { display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 400; }
   .tl-inline { padding: 0.2rem 0.35rem; font-size: 0.75rem; font-family: inherit; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text); cursor: pointer; }
   .tl-inline:hover { border-color: var(--border); background: var(--surface); }

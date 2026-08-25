@@ -36,7 +36,7 @@ export const KB_CSS = `
   .kb-chip-live { background: #16a34a; }
 
   .kb-title-cell { font-weight: 600; cursor: pointer; }
-  .kb-title-cell:hover { color: var(--accent); }
+  .kb-title-cell:hover { color: var(--accent-ink); }
   .kb-slug { display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 400; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .kb-group-row td { background: var(--surface2); font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
 
