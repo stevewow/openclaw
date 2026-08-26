@@ -8,7 +8,13 @@ import {
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import { KB_SEARCHES_COMPONENT_JS, KB_SEARCHES_CSS, KB_SEARCHES_MARKUP } from "./kb-searches-ui.js";
 import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
-import { LEADS_COMPONENT_JS, LEADS_CSS, LEADS_MARKUP, LEADS_MODALS } from "./leads-ui.js";
+import {
+  LEAD_PLAYBOOKS_MARKUP,
+  LEADS_COMPONENT_JS,
+  LEADS_CSS,
+  LEADS_MARKUP,
+  LEADS_MODALS,
+} from "./leads-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
@@ -1337,6 +1343,7 @@ ${HUB_BASE_CSS}
 ${KB_MARKUP}
 ${KB_SEARCHES_MARKUP}
 ${LEADS_MARKUP}
+${LEAD_PLAYBOOKS_MARKUP}
 ${FEEDBACK_MARKUP}
 
       <!-- Request Types: the categories offered on the public intake form -->
@@ -2299,6 +2306,7 @@ ${FEEDBACK_MODALS}
     // Same grant opens both, but editing the routing table is an admin's: the
     // server refuses the writes either way, and this keeps the nav honest.
     'lead-routing': { el: 'page-lead-routing', title: 'Lead Routing', adminOnly: true, superAdminOnly: false },
+    'lead-playbooks': { el: 'page-lead-playbooks', title: 'Outreach Notes', adminOnly: true, superAdminOnly: false },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: false, superAdminOnly: false, feature: 'tickets' },
     departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
@@ -2430,6 +2438,7 @@ ${FEEDBACK_MODALS}
       });
     }
     if (page === 'lead-routing') loadLeadRouting();
+    if (page === 'lead-playbooks') loadLeadPlaybooks();
     if (page === 'tickets') loadTickets();
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();

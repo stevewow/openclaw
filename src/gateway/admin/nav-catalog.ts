@@ -65,6 +65,7 @@ const ADMIN_CATALOG: NavCatalog = {
     { id: "reports", label: "Reports", icon: "📊", group: "workspace" },
     { id: "leads", label: "Leads", icon: "🎯", group: "sales" },
     { id: "lead-routing", label: "Lead Routing", icon: "🗺️", group: "sales" },
+    { id: "lead-playbooks", label: "Outreach Notes", icon: "📣", group: "sales" },
     { id: "tickets", label: "Tickets", icon: "🎫", group: "support" },
     { id: "departments", label: "Departments", icon: "🏷️", group: "support" },
     { id: "categories", label: "Request Types", icon: "🗂️", group: "support" },

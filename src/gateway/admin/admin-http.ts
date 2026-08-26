@@ -21,6 +21,7 @@ import {
 import { handleKbAdminRequest } from "./kb-http.js";
 import { handleLeadAdminRequest } from "./lead-http.js";
 import { ensureLeadDigestScheduler } from "./lead-notify.js";
+import { ensurePlaybookSeed } from "./lead-playbooks-store.js";
 import { ensureTerritorySeed } from "./lead-territories.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
@@ -557,6 +558,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   await ensureDepartmentSeed();
   await ensureCategorySeed();
   await ensureTerritorySeed();
+  await ensurePlaybookSeed();
   ensureSpiroReportScheduler();
   ensureFinancialsScheduler();
   ensureClevelandScheduler();
@@ -1177,7 +1179,9 @@ export async function handleAdminHttpRequest(
               subPath === "/leads" ||
                 subPath.startsWith("/leads/") ||
                 subPath === "/lead-territories" ||
-                subPath.startsWith("/lead-territories/")
+                subPath.startsWith("/lead-territories/") ||
+                subPath === "/lead-playbooks" ||
+                subPath.startsWith("/lead-playbooks/")
               ? ["leads"]
               : // Authoring the knowledge base is one grant, read and write
                 // alike: everything under here edits or previews unpublished

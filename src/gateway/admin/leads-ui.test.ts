@@ -129,7 +129,57 @@ const EVENTS = [
   },
 ];
 
+const PLAYBOOKS = [
+  {
+    key: "getting_ready_guide",
+    label: "Getting Ready Guide",
+    signal: "Listing imminent — days, not weeks.",
+    opener: "Hey [Name], Taylor with WOW Video Tours.",
+    softClose: "When are you looking to shoot it?",
+    matchTerms: ["getting ready"],
+    steps: [
+      { step: 1, when: "Within 1 hour", channel: "call", action: "Call. Voicemail if no answer." },
+      { step: 2, when: "Day 2", channel: "call", action: "Call, different time of day." },
+    ],
+    active: true,
+    sortOrder: 0,
+  },
+  {
+    key: "pricing_list",
+    label: "Pricing List",
+    signal: "Comparing vendors right now.",
+    opener: "Hey [Name], Taylor here.",
+    softClose: "What's the property?",
+    matchTerms: ["pricing"],
+    steps: [{ step: 1, when: "Within 24 hours", channel: "call", action: "Call." }],
+    active: false,
+    sortOrder: 1,
+  },
+];
+
+const LEAD_SETTINGS = {
+  standardFollowUp: "a quarterly check-in until they engage",
+  attemptsBeforeStandard: 3,
+};
+
 function respond(method: string, path: string, body: unknown): [number, unknown] {
+  if (path === "/lead-playbooks" && method === "GET") {
+    return [200, { playbooks: PLAYBOOKS, settings: LEAD_SETTINGS }];
+  }
+  if (path === "/lead-playbooks/preview") {
+    const data = body as { opener?: string; steps?: Array<{ when: string; action: string }> };
+    return [
+      200,
+      {
+        text: `PREVIEW\n${data.opener ?? ""}\n${(data.steps ?? [])
+          .map((s, i) => `${i + 1}. ${s.when} — ${s.action}`)
+          .join("\n")}`,
+      },
+    ];
+  }
+  if (path.startsWith("/lead-playbooks")) {
+    return [200, { playbook: PLAYBOOKS[0], settings: LEAD_SETTINGS }];
+  }
   if (path === "/auth/login") {
     return [
       200,
@@ -323,6 +373,115 @@ describe("the lead queue in the dashboard", () => {
 
     const saved = calls.find((c) => c.method === "PUT" && c.path === "/lead-territories/lima");
     expect((saved?.body as { ownerEmail: string }).ownerEmail).toBe("ryan@example.com");
+  });
+});
+
+describe("editing the outreach notes", () => {
+  it("lists every source, with the words it matches on and whether it is sent", async () => {
+    const { document, click } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+
+    const rows = Array.from(document.querySelectorAll("#ld-pb-rows tr"));
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Getting Ready Guide");
+    expect(rows[0].textContent).toContain("2 steps");
+    expect(rows[0].textContent).toContain("getting ready");
+    // A note switched off says so rather than looking identical to a live one.
+    expect(rows[1].textContent).toContain("not sent");
+  });
+
+  it("loads the shared closing sentence into its own form", async () => {
+    const { document, click } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+    expect((document.getElementById("ld-pb-standard") as HTMLTextAreaElement).value).toContain(
+      "quarterly",
+    );
+    expect((document.getElementById("ld-pb-attempts") as HTMLInputElement).value).toBe("3");
+  });
+
+  it("opens a source with its copy and one row per cadence step", async () => {
+    const { document, click } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+    await click(document.querySelector("#ld-pb-rows tr .ld-pb-open"));
+
+    expect(document.getElementById("ld-pb-modal")?.classList.contains("hidden")).toBe(false);
+    expect((document.getElementById("ld-pb-opener") as HTMLTextAreaElement).value).toContain(
+      "[Name]",
+    );
+    const steps = document.querySelectorAll("#ld-pb-step-list .ld-pb-step");
+    expect(steps).toHaveLength(2);
+    expect((steps[1].querySelector(".ld-pb-when") as HTMLInputElement).value).toBe("Day 2");
+  });
+
+  it("shows the email as it will read, rendered by the server", async () => {
+    const { document, click, calls } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+    await click(document.querySelector("#ld-pb-rows tr .ld-pb-open"));
+
+    expect(calls.some((c) => c.path === "/lead-playbooks/preview")).toBe(true);
+    expect(document.getElementById("ld-pb-preview")?.textContent).toContain("PREVIEW");
+    expect(document.getElementById("ld-pb-preview")?.textContent).toContain("Within 1 hour");
+  });
+
+  it("saves the edited copy and the steps as they were left on the form", async () => {
+    const { document, click, calls } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+    await click(document.querySelector("#ld-pb-rows tr .ld-pb-open"));
+
+    (document.getElementById("ld-pb-opener") as HTMLTextAreaElement).value =
+      "Hey [Name], new words.";
+    const firstWhen = document.querySelector("#ld-pb-step-list .ld-pb-when") as HTMLInputElement;
+    firstWhen.value = "Within 2 hours";
+    await click(document.getElementById("ld-pb-save"));
+
+    const saved = calls.find(
+      (c) => c.method === "PUT" && c.path === "/lead-playbooks/getting_ready_guide",
+    );
+    const payload = saved?.body as { opener: string; steps: Array<{ when: string }> };
+    expect(payload.opener).toBe("Hey [Name], new words.");
+    expect(payload.steps[0].when).toBe("Within 2 hours");
+    expect(payload.steps).toHaveLength(2);
+  });
+
+  it("adds and removes cadence steps on the form", async () => {
+    const { document, click } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+    await click(document.querySelector("#ld-pb-rows tr .ld-pb-open"));
+
+    await click(document.getElementById("ld-pb-step-add"));
+    expect(document.querySelectorAll("#ld-pb-step-list .ld-pb-step")).toHaveLength(3);
+    await click(document.querySelector("#ld-pb-step-list .ld-pb-x"));
+    expect(document.querySelectorAll("#ld-pb-step-list .ld-pb-step")).toHaveLength(2);
+  });
+
+  it("creates a new source from an empty form", async () => {
+    const { document, click, calls } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+    await click(document.getElementById("ld-pb-new"));
+
+    expect((document.getElementById("ld-pb-label") as HTMLInputElement).value).toBe("");
+    // A new source starts with one empty step rather than none to fill in.
+    expect(document.querySelectorAll("#ld-pb-step-list .ld-pb-step")).toHaveLength(1);
+    (document.getElementById("ld-pb-label") as HTMLInputElement).value = "Home Valuation Tool";
+    await click(document.getElementById("ld-pb-save"));
+
+    const created = calls.find((c) => c.method === "POST" && c.path === "/lead-playbooks");
+    expect((created?.body as { label: string }).label).toBe("Home Valuation Tool");
+  });
+
+  it("saves the shared closing sentence on its own", async () => {
+    const { document, click, calls } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="lead-playbooks"]'));
+    (document.getElementById("ld-pb-standard") as HTMLTextAreaElement).value =
+      "a note twice a year";
+    (document.getElementById("ld-pb-attempts") as HTMLInputElement).value = "4";
+    await click(document.getElementById("ld-pb-settings-save"));
+
+    const saved = calls.find((c) => c.path === "/lead-playbooks/settings");
+    expect(saved?.body).toMatchObject({
+      standardFollowUp: "a note twice a year",
+      attemptsBeforeStandard: 4,
+    });
   });
 });
 

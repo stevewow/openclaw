@@ -54,6 +54,25 @@ export const LEADS_CSS = `
   .ld-stat-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
   .ld-stat-value { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
 
+  /* Outreach notes: the copy that rides along with a dispatched lead. */
+  .ld-pb-row { cursor: pointer; }
+  .ld-pb-row:hover { color: var(--accent-ink); }
+  .ld-pb-terms { font-size: 0.72rem; color: var(--text-muted); }
+  .ld-pb-off { opacity: 0.55; }
+  .ld-pb-steps { list-style: none; margin: 0; padding: 0; }
+  .ld-pb-step { display: flex; gap: 0.4rem; align-items: flex-start; margin-bottom: 0.4rem; }
+  .ld-pb-step input, .ld-pb-step select { font-size: 0.82rem; padding: 0.35rem 0.5rem; }
+  .ld-pb-step .ld-pb-when { flex: 0 0 8.5rem; }
+  .ld-pb-step .ld-pb-ch { flex: 0 0 7rem; width: auto; }
+  .ld-pb-step .ld-pb-act { flex: 1 1 12rem; min-width: 8rem; }
+  .ld-pb-x { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; padding: 0.3rem; }
+  .ld-pb-x:hover { color: #b91c1c; }
+  /* The preview is the email, so it is shown as the email: monospace, wrapped. */
+  .ld-pb-preview { background: var(--surface2); border: 1px solid var(--border, var(--hairline)); border-radius: var(--radius);
+    padding: 0.8rem 0.9rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem;
+    line-height: 1.6; white-space: pre-wrap; max-height: 22rem; overflow-y: auto; }
+  .ld-pb-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+
   /* Routing table: an address missing here is why a lead went nowhere. */
   .ld-missing { color: #b45309; font-style: italic; }
   .ld-alias { font-size: 0.72rem; color: var(--text-muted); }
@@ -148,6 +167,51 @@ ${leadsQueueMarkup({ canManage: true })}
         </div>
       </div>`;
 
+export const LEAD_PLAYBOOKS_MARKUP = `
+      <!-- Outreach notes: what rides along with a dispatched lead -->
+      <div id="page-lead-playbooks" class="page hidden">
+        <div class="card" style="margin-bottom:1rem">
+          <div class="ld-head">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;margin-bottom:0.35rem">Outreach Notes</div>
+              <p class="text-muted" style="font-size:0.85rem;margin:0">
+                What the territory owner is told to say, by the source the lead came in on. Each note carries the
+                signal, an opener, a soft close and a cadence — only the matching one is sent, so an owner reading
+                the email on their phone gets one script rather than a choice of three. Edits apply to the next
+                lead that arrives; emails already sent are unchanged.
+              </p>
+            </div>
+            <button type="button" class="btn btn-primary" id="ld-pb-new">＋ Add a source</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Source</th><th>Signal</th><th>Steps</th><th>Matches on</th><th style="width:1%"></th></tr></thead>
+              <tbody id="ld-pb-rows"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:0.35rem">After the cadence is spent</div>
+          <p class="text-muted" style="font-size:0.85rem;margin:0 0 0.75rem">
+            The sentence every note closes on, whichever source the lead came in on.
+          </p>
+          <div class="form-group">
+            <label for="ld-pb-attempts">Attempts before it moves on</label>
+            <input id="ld-pb-attempts" type="number" min="1" max="12" style="max-width:6rem" />
+          </div>
+          <div class="form-group">
+            <label for="ld-pb-standard">Standard follow-up</label>
+            <textarea id="ld-pb-standard" rows="2"></textarea>
+            <p class="ld-pb-hint">Reads as: “After 3 attempts with no answer, move to the standard follow-up — <em>your words here</em>.”</p>
+          </div>
+          <button type="button" class="btn btn-primary" id="ld-pb-settings-save">Save</button>
+        </div>
+      </div>`;
+
 /** The portal's copy: the queue only. Routing is an admin's page. */
 export const LEADS_PORTAL_MARKUP = `
     <div id="page-leads" class="page">
@@ -191,8 +255,58 @@ export const LEAD_DETAIL_MODAL = `
   </div>
 </div>`;
 
+/** The editor. Its own modal because it is a page's worth of copy, not a field. */
+export const LEAD_PLAYBOOK_MODAL = `
+<div id="ld-pb-modal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-title" id="ld-pb-modal-title">Source</div>
+    <div class="form-group">
+      <label for="ld-pb-label">Source name</label>
+      <input id="ld-pb-label" type="text" placeholder="Getting Ready Guide" />
+    </div>
+    <div class="form-group">
+      <label for="ld-pb-terms">Matches on</label>
+      <input id="ld-pb-terms" type="text" placeholder="getting ready, seller prep" />
+      <p class="ld-pb-hint">Comma separated. A lead matches this source when one of these words appears in the form name, the page it came from, or an answer — the Source field your forms send is usually the one that matches. The source name counts too.</p>
+    </div>
+    <div class="form-group">
+      <label for="ld-pb-signal">Signal</label>
+      <input id="ld-pb-signal" type="text" placeholder="Listing imminent — days, not weeks." />
+      <p class="ld-pb-hint">One line on where this person is. It heads the note.</p>
+    </div>
+    <div class="form-group">
+      <label for="ld-pb-opener">Opener</label>
+      <textarea id="ld-pb-opener" rows="4"></textarea>
+      <p class="ld-pb-hint">Write <code>[Name]</code> where their first name goes. Left as written when we don't have one.</p>
+    </div>
+    <div class="form-group">
+      <label for="ld-pb-soft">Soft close, once they engage</label>
+      <textarea id="ld-pb-soft" rows="3"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Cadence</label>
+      <ul class="ld-pb-steps" id="ld-pb-step-list"></ul>
+      <button type="button" class="btn btn-sm btn-ghost" id="ld-pb-step-add">＋ Add a step</button>
+    </div>
+    <div class="form-group">
+      <label>Preview <button type="button" class="ld-pb-copy" id="ld-pb-refresh">refresh</button></label>
+      <div class="ld-pb-preview" id="ld-pb-preview">…</div>
+      <p class="ld-pb-hint">The email as it will read, against a made-up lead.</p>
+    </div>
+    <label style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem">
+      <input type="checkbox" id="ld-pb-active" style="width:auto" /> Send this note
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-danger" id="ld-pb-delete">Delete</button>
+      <button type="button" class="btn btn-ghost" id="ld-pb-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="ld-pb-save">Save</button>
+    </div>
+  </div>
+</div>`;
+
 /** Everything an admin can do beyond working the queue. */
 export const LEADS_MODALS = `${LEAD_DETAIL_MODAL}
+${LEAD_PLAYBOOK_MODAL}
 <div id="ld-new-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:520px">
     <div class="modal-title">Add a lead</div>
@@ -588,6 +702,180 @@ export const LEADS_COMPONENT_JS = `
     if(r.ok) await loadLeadRouting();
   }
 
+  // ── Outreach notes ───────────────────────────────────────────────────────
+  // The copy that rides along with a dispatched lead, edited here rather than
+  // shipped in a deploy. The preview is rendered by the server from the same
+  // function the mailer uses, so what is read here is what will be sent.
+
+  var ldPlaybooks = [];
+  var ldPbSettings = null;
+  var ldPbEditingKey = null;
+  var ldPbPreviewTimer = null;
+
+  async function loadLeadPlaybooks(){
+    var r = await api('GET','/lead-playbooks');
+    var body = document.getElementById('ld-pb-rows');
+    if(!r.ok){
+      body.innerHTML = '<tr><td colspan="5" class="empty-state">Could not load the outreach notes.</td></tr>';
+      return;
+    }
+    ldPlaybooks = (r.data && r.data.playbooks) || [];
+    ldPbSettings = (r.data && r.data.settings) || null;
+    if(ldPbSettings){
+      document.getElementById('ld-pb-standard').value = ldPbSettings.standardFollowUp || '';
+      document.getElementById('ld-pb-attempts').value = ldPbSettings.attemptsBeforeStandard || 3;
+    }
+    if(ldPlaybooks.length === 0){
+      body.innerHTML = '<tr><td colspan="5" class="empty-state">No sources yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = ldPlaybooks.map(function(p){
+      var steps = (p.steps || []).length;
+      return '<tr data-key="' + esc(p.key) + '" class="' + (p.active ? '' : 'ld-pb-off') + '">' +
+        '<td class="ld-pb-row ld-pb-open"><strong>' + esc(p.label) + '</strong>' +
+          (p.active ? '' : '<span class="ld-sub">not sent</span>') + '</td>' +
+        '<td>' + esc(p.signal || '—') + '</td>' +
+        '<td>' + steps + (steps === 1 ? ' step' : ' steps') + '</td>' +
+        '<td class="ld-pb-terms">' + esc((p.matchTerms || []).join(', ') || p.label) + '</td>' +
+        '<td><button class="btn btn-sm btn-ghost ld-pb-open">Edit</button></td>' +
+      '</tr>';
+    }).join('');
+    body.querySelectorAll('.ld-pb-open').forEach(function(el){
+      el.addEventListener('click', function(){
+        openPlaybookModal(el.closest('tr').getAttribute('data-key'));
+      });
+    });
+  }
+
+  function ldPlaybookByKey(key){
+    for (var i=0;i<ldPlaybooks.length;i++){ if(ldPlaybooks[i].key === key) return ldPlaybooks[i]; }
+    return null;
+  }
+
+  var LD_CHANNELS = [
+    { key: 'call', label: 'Call' },
+    { key: 'email', label: 'Email' },
+    { key: 'call_or_email', label: 'Call or email' }
+  ];
+
+  function ldStepRow(step){
+    var li = document.createElement('li');
+    li.className = 'ld-pb-step';
+    var when = document.createElement('input');
+    when.type = 'text'; when.className = 'ld-pb-when'; when.placeholder = 'Day 2';
+    when.value = (step && step.when) || '';
+    var channel = document.createElement('select');
+    channel.className = 'ld-pb-ch';
+    LD_CHANNELS.forEach(function(c){
+      var o = document.createElement('option'); o.value = c.key; o.textContent = c.label;
+      if(step && step.channel === c.key) o.selected = true;
+      channel.appendChild(o);
+    });
+    var action = document.createElement('input');
+    action.type = 'text'; action.className = 'ld-pb-act';
+    action.placeholder = 'Call, different time of day.';
+    action.value = (step && step.action) || '';
+    var remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'ld-pb-x'; remove.textContent = '✕';
+    remove.title = 'Remove this step';
+    remove.addEventListener('click', function(){ li.remove(); schedulePreview(); });
+    [when, channel, action].forEach(function(el){ el.addEventListener('input', schedulePreview); });
+    channel.addEventListener('change', schedulePreview);
+    li.appendChild(when); li.appendChild(channel); li.appendChild(action); li.appendChild(remove);
+    return li;
+  }
+
+  function ldReadSteps(){
+    return Array.prototype.map.call(
+      document.querySelectorAll('#ld-pb-step-list .ld-pb-step'),
+      function(li){
+        return {
+          when: li.querySelector('.ld-pb-when').value.trim(),
+          channel: li.querySelector('.ld-pb-ch').value,
+          action: li.querySelector('.ld-pb-act').value.trim()
+        };
+      }
+    ).filter(function(s){ return s.when || s.action; });
+  }
+
+  function openPlaybookModal(key){
+    ldPbEditingKey = key || null;
+    var p = key ? ldPlaybookByKey(key) : null;
+    document.getElementById('ld-pb-modal-title').textContent = p ? p.label : 'Add a source';
+    document.getElementById('ld-pb-label').value = p ? p.label : '';
+    document.getElementById('ld-pb-terms').value = p ? (p.matchTerms || []).join(', ') : '';
+    document.getElementById('ld-pb-signal').value = (p && p.signal) || '';
+    document.getElementById('ld-pb-opener').value = (p && p.opener) || '';
+    document.getElementById('ld-pb-soft').value = (p && p.softClose) || '';
+    document.getElementById('ld-pb-active').checked = p ? !!p.active : true;
+    var list = document.getElementById('ld-pb-step-list');
+    list.innerHTML = '';
+    ((p && p.steps) || []).forEach(function(s){ list.appendChild(ldStepRow(s)); });
+    if(!p) list.appendChild(ldStepRow(null));
+    document.getElementById('ld-pb-delete').classList.toggle('hidden', !p);
+    document.getElementById('ld-pb-modal').classList.remove('hidden');
+    refreshPlaybookPreview();
+  }
+
+  /** Typing redraws the preview, but not on every keystroke. */
+  function schedulePreview(){
+    if(ldPbPreviewTimer) clearTimeout(ldPbPreviewTimer);
+    ldPbPreviewTimer = setTimeout(refreshPlaybookPreview, 400);
+  }
+
+  async function refreshPlaybookPreview(){
+    var r = await api('POST','/lead-playbooks/preview', {
+      label: document.getElementById('ld-pb-label').value.trim(),
+      signal: document.getElementById('ld-pb-signal').value.trim(),
+      opener: document.getElementById('ld-pb-opener').value,
+      softClose: document.getElementById('ld-pb-soft').value,
+      standardFollowUp: document.getElementById('ld-pb-standard').value.trim(),
+      steps: ldReadSteps()
+    });
+    document.getElementById('ld-pb-preview').textContent =
+      (r.ok && r.data && r.data.text) || 'Could not render the preview.';
+  }
+
+  async function savePlaybook(){
+    var label = document.getElementById('ld-pb-label').value.trim();
+    if(!label){ alert('A source name is required.'); return; }
+    var payload = {
+      label: label,
+      matchTerms: document.getElementById('ld-pb-terms').value,
+      signal: document.getElementById('ld-pb-signal').value.trim(),
+      opener: document.getElementById('ld-pb-opener').value,
+      softClose: document.getElementById('ld-pb-soft').value,
+      steps: ldReadSteps(),
+      active: document.getElementById('ld-pb-active').checked
+    };
+    var r = ldPbEditingKey
+      ? await api('PUT','/lead-playbooks/' + encodeURIComponent(ldPbEditingKey), payload)
+      : await api('POST','/lead-playbooks', payload);
+    if(!r.ok){
+      alert(r.data && r.data.error === 'playbook_exists' ? 'That source already exists.' : 'Could not save it.');
+      return;
+    }
+    document.getElementById('ld-pb-modal').classList.add('hidden');
+    await loadLeadPlaybooks();
+  }
+
+  async function removePlaybook(){
+    if(!ldPbEditingKey) return;
+    if(!confirm('Delete this source? Leads that already came in on it keep it on their record, and stop getting these tips.')) return;
+    var r = await api('DELETE','/lead-playbooks/' + encodeURIComponent(ldPbEditingKey));
+    document.getElementById('ld-pb-modal').classList.add('hidden');
+    if(r.ok) await loadLeadPlaybooks();
+  }
+
+  async function saveLeadPlaybookSettings(){
+    var r = await api('PUT','/lead-playbooks/settings', {
+      standardFollowUp: document.getElementById('ld-pb-standard').value.trim(),
+      attemptsBeforeStandard: parseInt(document.getElementById('ld-pb-attempts').value, 10)
+    });
+    if(!r.ok){ alert('Could not save that.'); return; }
+    ldPbSettings = r.data && r.data.settings;
+  }
+
   /**
    * Wire a control only if this surface drew it. The portal renders the queue
    * and the lead panel but neither the add-a-lead form nor the routing table,
@@ -622,4 +910,18 @@ export const LEADS_COMPONENT_JS = `
   });
   ldOn('ld-terr-save', 'click', saveTerritory);
   ldOn('ld-terr-delete', 'click', removeTerritory);
+  ldOn('ld-pb-new', 'click', function(){ openPlaybookModal(null); });
+  ldOn('ld-pb-save', 'click', savePlaybook);
+  ldOn('ld-pb-delete', 'click', removePlaybook);
+  ldOn('ld-pb-cancel', 'click', function(){
+    document.getElementById('ld-pb-modal').classList.add('hidden');
+  });
+  ldOn('ld-pb-step-add', 'click', function(){
+    document.getElementById('ld-pb-step-list').appendChild(ldStepRow(null));
+  });
+  ldOn('ld-pb-refresh', 'click', refreshPlaybookPreview);
+  ldOn('ld-pb-settings-save', 'click', saveLeadPlaybookSettings);
+  ['ld-pb-label','ld-pb-signal','ld-pb-opener','ld-pb-soft'].forEach(function(id){
+    ldOn(id, 'input', schedulePreview);
+  });
 `;
