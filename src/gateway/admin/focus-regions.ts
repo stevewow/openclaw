@@ -22,8 +22,13 @@ export const BDS_NAMES: BdsName[] = [
   "Ryan Bowersock",
 ];
 
-/** Regions one person owns outright, whatever the numbers say. */
-const SOLE_OWNERS: Record<string, BdsName> = {
+/**
+ * Regions one person owns outright, whatever the numbers say.
+ *
+ * Exported because lead dispatch seeds its routing table from the same book:
+ * the footprint and its owners are learned here or nowhere.
+ */
+export const SOLE_OWNERS: Record<string, BdsName> = {
   cincinnati: "Pam Branam",
   charlotte: "Joy Kiser",
   toledo: "Craig Magrum",

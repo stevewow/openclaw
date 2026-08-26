@@ -777,6 +777,82 @@ type NavConfigTable = {
   updated_by: string | null;
 };
 
+type LeadsTable = {
+  id: string;
+  /** Sequential human reference, e.g. LEAD-1042. Quoted in dispatch emails. */
+  number: string;
+  /** Where it came from: a website form ("framer") or typed in by hand. */
+  source: string;
+  /** Which form on the site, when the payload names one. */
+  form_name: string | null;
+  /**
+   * The submitting form's own id for this submission. UNIQUE, because it is the
+   * idempotency key: Framer retries a webhook up to five times when it does not
+   * get a 2xx, and a retry must not become a second lead.
+   */
+  submission_id: string | null;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  message: string | null;
+  /** The market exactly as the form sent it, kept even once it resolves. */
+  market_raw: string | null;
+  /** Territory key it resolved to, or null when nothing matched. */
+  territory_key: string | null;
+  /**
+   * Who it was dispatched to, copied onto the lead at intake rather than joined
+   * at read time: the routing table changes, and the record of who was actually
+   * emailed must not change with it.
+   */
+  owner_name: string | null;
+  owner_email: string | null;
+  status: string;
+  /** Page the form was submitted from, when the payload carries it. */
+  page_url: string | null;
+  /** JSON object of every other answer, verbatim. */
+  fields: string;
+  notified_at: number | null;
+  /** Why the dispatch email did not go out, so the queue shows it. */
+  notify_error: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type LeadEventsTable = {
+  id: string;
+  lead_id: string;
+  kind: string;
+  author_name: string | null;
+  body: string | null;
+  created_at: number;
+};
+
+type LeadSeqTable = {
+  id: number;
+  next_number: number;
+};
+
+type LeadTerritoriesTable = {
+  key: string;
+  label: string;
+  /** JSON array of other spellings the form might send for this market. */
+  aliases: string;
+  owner_name: string | null;
+  owner_email: string | null;
+  active: number;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+};
+
+type LeadDigestLogTable = {
+  /** YYYY-MM-DD in the digest timezone. Primary key, so a day sends once. */
+  day: string;
+  sent_at: number;
+  lead_count: number;
+};
+
 export type AdminDb = {
   admin_users: UsersTable;
   admin_sessions: SessionsTable;
@@ -835,6 +911,11 @@ export type AdminDb = {
   admin_kb_article_stats: KbArticleStatsTable;
   admin_kb_article_notes: KbArticleNotesTable;
   admin_nav_config: NavConfigTable;
+  admin_leads: LeadsTable;
+  admin_lead_events: LeadEventsTable;
+  admin_lead_seq: LeadSeqTable;
+  admin_lead_territories: LeadTerritoriesTable;
+  admin_lead_digest_log: LeadDigestLogTable;
   // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
   // no stable column types for the query builder, and kb-store.ts reaches it
   // through a raw `sql` MATCH query instead.
@@ -1613,6 +1694,76 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       config TEXT NOT NULL,
       updated_at INTEGER NOT NULL,
       updated_by TEXT
+    );
+    -- Sales leads from the marketing site's forms, centralized here so tracking
+    -- them does not mean living in the CRM. The row holds the answers the form
+    -- collected; the fields column holds everything else it sent, so a question added on
+    -- the site lands in the Hub without a migration.
+    CREATE TABLE IF NOT EXISTS admin_leads (
+      id TEXT PRIMARY KEY,
+      number TEXT UNIQUE NOT NULL,
+      source TEXT NOT NULL DEFAULT 'framer',
+      form_name TEXT,
+      submission_id TEXT UNIQUE,
+      name TEXT,
+      email TEXT,
+      phone TEXT,
+      company TEXT,
+      message TEXT,
+      market_raw TEXT,
+      territory_key TEXT,
+      owner_name TEXT,
+      owner_email TEXT,
+      status TEXT NOT NULL DEFAULT 'new'
+        CHECK(status IN ('new','contacted','qualified','won','lost')),
+      page_url TEXT,
+      fields TEXT NOT NULL DEFAULT '{}',
+      notified_at INTEGER,
+      notify_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_leads_status ON admin_leads(status);
+    CREATE INDEX IF NOT EXISTS admin_leads_territory ON admin_leads(territory_key);
+    CREATE INDEX IF NOT EXISTS admin_leads_created ON admin_leads(created_at);
+    CREATE INDEX IF NOT EXISTS admin_leads_email ON admin_leads(email);
+    -- The trail on a lead: dispatched, replied to, moved along. Append-only,
+    -- CASCADE because none of it means anything without the lead.
+    CREATE TABLE IF NOT EXISTS admin_lead_events (
+      id TEXT PRIMARY KEY,
+      lead_id TEXT NOT NULL REFERENCES admin_leads(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('created','note','status_change','dispatch','assignment')),
+      author_name TEXT,
+      body TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_lead_events_lead ON admin_lead_events(lead_id);
+    -- A counter rather than MAX(number), for the reason the feedback sequence
+    -- has one: deleting the newest lead must not hand its number to the next.
+    CREATE TABLE IF NOT EXISTS admin_lead_seq (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      next_number INTEGER NOT NULL
+    );
+    -- Who owns which market, for dispatch. Seeded from the BDS book the sales
+    -- reports already use, then editable here: this table is what decides who
+    -- gets the email, so it has to be changeable without a deploy.
+    CREATE TABLE IF NOT EXISTS admin_lead_territories (
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      aliases TEXT NOT NULL DEFAULT '[]',
+      owner_name TEXT,
+      owner_email TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    -- One row per day the digest went out. The primary key is the day, so a
+    -- restart inside the send window cannot mail a second copy.
+    CREATE TABLE IF NOT EXISTS admin_lead_digest_log (
+      day TEXT PRIMARY KEY,
+      sent_at INTEGER NOT NULL,
+      lead_count INTEGER NOT NULL
     );
   `);
   initKbSearch(db);
