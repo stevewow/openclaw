@@ -17,6 +17,7 @@ import {
   renderLeadEmailHtml,
   renderLeadEmailText,
 } from "./lead-email-render.js";
+import { getLeadSettings, getPlaybook } from "./lead-playbooks-store.js";
 import { type Lead, listLeadsBetween, recordLeadDispatch } from "./lead-store.js";
 import { emailLogoUrl } from "./ticket-brand.js";
 import {
@@ -84,8 +85,18 @@ export function formatLeadEmail(
   config: EmailConfig,
   to: string,
   env: NodeJS.ProcessEnv = process.env,
+  tips: {
+    playbook?: import("./lead-playbooks.js").LeadPlaybook | null;
+    standardFollowUp?: string;
+    attemptsBeforeStandard?: number;
+  } = {},
 ): OutboundEmail {
-  const view = { lead, logoUrl: emailLogoUrl(env), leadUrl: leadUrl(lead, env) };
+  const view = {
+    lead,
+    logoUrl: emailLogoUrl(env),
+    leadUrl: leadUrl(lead, env),
+    ...tips,
+  };
   return {
     to,
     from: config.from,
@@ -124,9 +135,22 @@ export async function dispatchLead(lead: Lead, deps: LeadNotifyDeps = {}): Promi
     await recordLeadDispatch(lead.id, { ok: false, error: detail });
     return { ok: false, detail };
   }
+  // The outreach note is loaded here rather than inside the renderer, which
+  // stays pure. A playbook deleted since the lead arrived simply sends the
+  // plain email: the tips are guidance, never a reason to hold up a lead.
+  const [playbook, leadSettings] = await Promise.all([
+    getPlaybook(lead.playbookKey).catch(() => null),
+    getLeadSettings().catch(() => null),
+  ]);
   let result: SendResult;
   try {
-    result = await mailer.send(formatLeadEmail(lead, config, to, env));
+    result = await mailer.send(
+      formatLeadEmail(lead, config, to, env, {
+        playbook,
+        standardFollowUp: leadSettings?.standardFollowUp,
+        attemptsBeforeStandard: leadSettings?.attemptsBeforeStandard,
+      }),
+    );
   } catch (err) {
     result = { ok: false, detail: err instanceof Error ? err.message : "send error" };
   }

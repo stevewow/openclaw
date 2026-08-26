@@ -826,6 +826,31 @@ type LeadsTable = {
   updated_at: number;
 };
 
+type LeadPlaybooksTable = {
+  key: string;
+  label: string;
+  /** What this source says about where the person is. */
+  signal: string;
+  opener: string;
+  soft_close: string;
+  /** JSON array of words that identify this source in a submission. */
+  match_terms: string;
+  /** JSON array of {when, channel, action}. Read and written as a unit. */
+  steps: string;
+  active: number;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+};
+
+type LeadSettingsTable = {
+  id: number;
+  /** The sentence the email closes on once the playbook is spent. */
+  standard_follow_up: string;
+  attempts_before_standard: number;
+  updated_at: number;
+};
+
 type LeadEventsTable = {
   id: string;
   lead_id: string;
@@ -920,6 +945,8 @@ export type AdminDb = {
   admin_nav_config: NavConfigTable;
   admin_leads: LeadsTable;
   admin_lead_events: LeadEventsTable;
+  admin_lead_playbooks: LeadPlaybooksTable;
+  admin_lead_settings: LeadSettingsTable;
   admin_lead_seq: LeadSeqTable;
   admin_lead_territories: LeadTerritoriesTable;
   admin_lead_digest_log: LeadDigestLogTable;
@@ -1746,6 +1773,35 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS admin_lead_events_lead ON admin_lead_events(lead_id);
+    -- The outreach note sent with a lead, by the source it came in on. Managed
+    -- from the dashboard rather than hardcoded, because this is sales copy: it
+    -- is rewritten far more often than the code around it is, and waiting for a
+    -- deploy to change a sentence is how it goes stale instead.
+    --
+    -- Steps are JSON rather than a child table. They are read and written as a
+    -- whole playbook and never queried across, so a second table would buy
+    -- joins and migrations and nothing else.
+    CREATE TABLE IF NOT EXISTS admin_lead_playbooks (
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      signal TEXT NOT NULL DEFAULT '',
+      opener TEXT NOT NULL DEFAULT '',
+      soft_close TEXT NOT NULL DEFAULT '',
+      match_terms TEXT NOT NULL DEFAULT '[]',
+      steps TEXT NOT NULL DEFAULT '[]',
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    -- One row. What every playbook shares: where a lead goes once its own
+    -- sequence is spent, and how many attempts that takes.
+    CREATE TABLE IF NOT EXISTS admin_lead_settings (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      standard_follow_up TEXT NOT NULL,
+      attempts_before_standard INTEGER NOT NULL DEFAULT 3,
+      updated_at INTEGER NOT NULL
+    );
     -- A counter rather than MAX(number), for the reason the feedback sequence
     -- has one: deleting the newest lead must not hand its number to the next.
     CREATE TABLE IF NOT EXISTS admin_lead_seq (

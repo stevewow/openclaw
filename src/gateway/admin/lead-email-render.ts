@@ -9,10 +9,10 @@
 
 import { adminBaseUrl } from "./brand.js";
 import {
-  ATTEMPTS_BEFORE_STANDARD,
-  getPlaybook,
+  DEFAULT_ATTEMPTS_BEFORE_STANDARD,
+  DEFAULT_STANDARD_FOLLOW_UP,
+  type LeadPlaybook,
   personalizeOpener,
-  STANDARD_CADENCE,
 } from "./lead-playbooks.js";
 import type { Lead } from "./lead-store.js";
 import { brandHeaderHtml, escapeHtml } from "./ticket-email-render.js";
@@ -29,6 +29,18 @@ export type LeadEmailView = {
   logoUrl: string;
   /** Absolute link to the lead in the Hub. */
   leadUrl: string;
+  /**
+   * The outreach note for the source this lead came in on, already loaded.
+   *
+   * Passed in rather than looked up here: the playbooks are editable rows now,
+   * and a renderer that reached for the database could not be asserted on
+   * without one. Null renders the plain email, which is what a lead matching no
+   * source gets.
+   */
+  playbook?: LeadPlaybook | null;
+  /** What the email says happens after the playbook is spent. Editable copy. */
+  standardFollowUp?: string;
+  attemptsBeforeStandard?: number;
 };
 
 /** Where the Hub opens this lead. The Leads page takes an id in its hash. */
@@ -84,8 +96,8 @@ export function leadDetailRows(lead: Lead): Row[] {
  * between showings needs the script for the person who just downloaded the
  * pricing list — not all three and a decision about which one applies.
  */
-function playbookTextBlock(lead: Lead): string[] {
-  const playbook = getPlaybook(lead.playbookKey);
+function playbookTextBlock(view: LeadEmailView): string[] {
+  const { lead, playbook } = view;
   if (!playbook) {
     return [];
   }
@@ -105,7 +117,7 @@ function playbookTextBlock(lead: Lead): string[] {
     // so the step is when and what — printing the channel too reads as a stutter.
     ...playbook.steps.map((s) => `${s.step}. ${s.when} — ${s.action}`),
     "",
-    `After ${ATTEMPTS_BEFORE_STANDARD} attempts with no answer, move to the standard follow-up — ${STANDARD_CADENCE.detail}.`,
+    `After ${view.attemptsBeforeStandard ?? DEFAULT_ATTEMPTS_BEFORE_STANDARD} attempts with no answer, move to the standard follow-up — ${view.standardFollowUp ?? DEFAULT_STANDARD_FOLLOW_UP}.`,
   ];
 }
 
@@ -119,7 +131,7 @@ export function renderLeadEmailText(view: LeadEmailView): string {
   if (lead.message?.trim()) {
     lines.push("", "What they wrote:", lead.message.trim());
   }
-  lines.push(...playbookTextBlock(lead));
+  lines.push(...playbookTextBlock(view));
   lines.push(
     "",
     lead.ownerName
@@ -148,8 +160,8 @@ function htmlRow(row: Row): string {
  * two scripts set apart so they can be read off the screen while the phone is
  * ringing, and the cadence as a numbered list with the timing in its own column.
  */
-function playbookHtmlBlock(lead: Lead): string {
-  const playbook = getPlaybook(lead.playbookKey);
+function playbookHtmlBlock(view: LeadEmailView): string {
+  const { lead, playbook } = view;
   if (!playbook) {
     return "";
   }
@@ -182,7 +194,7 @@ ${script("Soft close, once they engage", playbook.softClose)}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
 ${steps}
 </table>
-<div style="padding:12px 0 0;color:${MUTED};font-size:12px;line-height:1.6">After ${ATTEMPTS_BEFORE_STANDARD} attempts with no answer, move to the standard follow-up — ${escapeHtml(STANDARD_CADENCE.detail)}.</div>
+<div style="padding:12px 0 0;color:${MUTED};font-size:12px;line-height:1.6">After ${view.attemptsBeforeStandard ?? DEFAULT_ATTEMPTS_BEFORE_STANDARD} attempts with no answer, move to the standard follow-up — ${escapeHtml(view.standardFollowUp ?? DEFAULT_STANDARD_FOLLOW_UP)}.</div>
 </td></tr>
 </table>
 </td></tr>`;
@@ -239,7 +251,7 @@ ${rows}
 </td></tr>
 
 ${message}
-${playbookHtmlBlock(lead)}
+${playbookHtmlBlock(view)}
 ${routing}
 
 <tr><td style="padding:22px 0 0">

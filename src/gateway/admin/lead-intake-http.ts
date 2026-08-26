@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { hasContact, parseLeadPayload, verifyFramerSignature } from "./lead-intake.js";
 import { dispatchLead } from "./lead-notify.js";
+import { listPlaybooks } from "./lead-playbooks-store.js";
 import { matchPlaybook } from "./lead-playbooks.js";
 import { createLead, getLeadBySubmissionId, type Lead } from "./lead-store.js";
 import { resolveLeadOwner } from "./lead-territories.js";
@@ -240,7 +241,7 @@ export async function handleLeadIntakeRequest(
   // Which lead magnet they came in on decides the script the owner is sent, so
   // it is resolved here and stored on the lead rather than matched again later.
   const pageUrl = parsed.pageUrl ?? headerValue(req, "referer") ?? null;
-  const playbook = matchPlaybook({
+  const playbook = matchPlaybook(await listPlaybooks(), {
     formName: parsed.formName,
     pageUrl,
     fields: parsed.fields,

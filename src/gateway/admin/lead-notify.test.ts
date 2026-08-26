@@ -214,6 +214,40 @@ describe("the tips in the dispatch email", () => {
     expect(sent.htmlBody).toContain("After 3 attempts with no answer");
   });
 
+  it("sends what the Hub says today, not what the code shipped with", async () => {
+    // The whole point of the notes being editable: an admin rewrites the opener
+    // and the next lead's email carries the new words, with no deploy in between.
+    const playbooks = await import("./lead-playbooks-store.js");
+    await playbooks.updatePlaybook("pricing_list", {
+      opener: "Hey [Name], Taylor here — heard you're weighing up a few options.",
+      steps: [{ when: "Same afternoon", channel: "call", action: "Call. Keep it short." }],
+    });
+    await playbooks.setLeadSettings({
+      standardFollowUp: "a note every six months, nothing heavier",
+      attemptsBeforeStandard: 2,
+    });
+
+    const sent = await dispatchWith({ playbookKey: "pricing_list" });
+    expect(sent.textBody).toContain("heard you're weighing up a few options");
+    expect(sent.textBody).toContain("1. Same afternoon — Call. Keep it short.");
+    expect(sent.textBody).toContain("After 2 attempts with no answer");
+    expect(sent.textBody).toContain("a note every six months");
+    // And the copy it replaced is gone.
+    expect(sent.textBody).not.toContain("what's included varies a lot");
+  });
+
+  it("sends the plain email when the source was deleted after the lead arrived", async () => {
+    const playbooks = await import("./lead-playbooks-store.js");
+    await playbooks.createPlaybook({ label: "Temporary Magnet", opener: "Hey [Name]." });
+    const sent = await dispatchWith({ playbookKey: "temporary_magnet" });
+    expect(sent.textBody).toContain("Hey Dana.");
+    await playbooks.deletePlaybook("temporary_magnet");
+    const after = await dispatchWith({ playbookKey: "temporary_magnet" });
+    // The tips are guidance; losing them must never hold up the lead itself.
+    expect(after.textBody).toContain("Dana Reyes");
+    expect(after.textBody).not.toContain("Cadence:");
+  });
+
   it("sends the plain email when the form matched no playbook", async () => {
     const sent = await dispatchWith({ playbookKey: null });
     expect(sent.textBody).toContain("Dana Reyes");

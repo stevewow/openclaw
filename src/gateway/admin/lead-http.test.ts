@@ -176,6 +176,79 @@ describe("the lead queue API", () => {
     }
   });
 
+  it("edits the outreach notes and previews the email they produce", async () => {
+    const listed = await call("GET", "/lead-playbooks");
+    expect(listed.status).toBe(200);
+    expect((listed.data.playbooks as unknown[]).length).toBe(3);
+    expect(listed.data.settings).toMatchObject({ attemptsBeforeStandard: 3 });
+
+    const saved = await call("PUT", "/lead-playbooks/pricing_list", {
+      opener: "Hey [Name], quick one.",
+      steps: [{ when: "Same day", channel: "call", action: "Call." }],
+    });
+    expect((saved.data.playbook as { opener: string }).opener).toBe("Hey [Name], quick one.");
+
+    // The preview renders through the same function the mailer uses, so what an
+    // admin reads while editing is what the next lead's owner will be sent.
+    const preview = await call("POST", "/lead-playbooks/preview", {
+      label: "Pricing List",
+      signal: "Comparing vendors.",
+      opener: "Hey [Name], quick one.",
+      softClose: "What's the property?",
+      steps: [{ when: "Same day", channel: "call", action: "Call." }],
+    });
+    expect(preview.data.text).toContain("Hey Dana, quick one.");
+    expect(preview.data.text).toContain("1. Same day — Call.");
+    expect(preview.data.text).toContain("Comparing vendors.");
+  });
+
+  it("adds a source, refuses a duplicate, and reorders the list", async () => {
+    const created = await call("POST", "/lead-playbooks", {
+      label: "Home Valuation Tool",
+      matchTerms: "valuation, home value",
+    });
+    expect(created.status).toBe(201);
+    expect((created.data.playbook as { matchTerms: string[] }).matchTerms).toEqual([
+      "valuation",
+      "home value",
+    ]);
+    expect((await call("POST", "/lead-playbooks", { label: "Home Valuation Tool" })).status).toBe(
+      409,
+    );
+    const reordered = await call("PUT", "/lead-playbooks/reorder", {
+      keys: ["home_valuation_tool"],
+    });
+    expect((reordered.data.playbooks as Array<{ key: string }>)[0].key).toBe("home_valuation_tool");
+    expect((await call("DELETE", "/lead-playbooks/home_valuation_tool")).status).toBe(200);
+  });
+
+  it("saves the shared closing sentence", async () => {
+    const res = await call("PUT", "/lead-playbooks/settings", {
+      standardFollowUp: "a note twice a year",
+      attemptsBeforeStandard: 4,
+    });
+    expect(res.data.settings).toMatchObject({
+      standardFollowUp: "a note twice a year",
+      attemptsBeforeStandard: 4,
+    });
+  });
+
+  it("keeps the outreach notes out of a granted teammate's hands", async () => {
+    asAdmin = false;
+    try {
+      expect((await call("GET", "/lead-playbooks")).status).toBe(403);
+      expect((await call("PUT", "/lead-playbooks/pricing_list", { opener: "x" })).status).toBe(403);
+      expect((await call("POST", "/lead-playbooks/preview", {})).status).toBe(403);
+    } finally {
+      asAdmin = true;
+    }
+  });
+
+  it("answers 404 for a source that is not there", async () => {
+    expect((await call("GET", "/lead-playbooks/nope")).status).toBe(404);
+    expect((await call("PUT", "/lead-playbooks/nope", { opener: "x" })).status).toBe(404);
+  });
+
   it("leaves other admin routes alone", async () => {
     const res = await fetch(`${base}/resources`);
     expect(res.status).toBe(404);

@@ -1,4 +1,10 @@
-// How to work a lead, by what the lead came in on.
+// How to work a lead, by what the lead came in on — the copy the Hub starts with.
+//
+// These three are the seed. Once an install has run, the editable table in
+// `lead-playbooks-store.ts` is what the email is built from, and this file is
+// only read again if that table is empty. Keeping the originals here means a
+// fresh install behaves like the one that shipped, and the matching rules stay
+// beside the wording they were written for.
 //
 // Written by the person who makes these calls, kept as data here — the same
 // arrangement `past-due-policy.ts` uses for the collections process, and for the
@@ -13,9 +19,6 @@
 // tracks anything: attempts and disposition live in the CRM. This is the note
 // the territory owner gets when the lead lands, and no more.
 
-/** Which of the site's lead magnets a submission came in on. */
-export type LeadPlaybookKey = "getting_ready_guide" | "pricing_list" | "listing_presentation";
-
 export type CadenceChannel = "call" | "email" | "call_or_email";
 
 export type CadenceStep = {
@@ -28,7 +31,8 @@ export type CadenceStep = {
 };
 
 export type LeadPlaybook = {
-  key: LeadPlaybookKey;
+  /** Stable forever: leads are filed under it, and a rename must not re-file them. */
+  key: string;
   label: string;
   /** What the download tells you about where they are. */
   signal: string;
@@ -36,12 +40,23 @@ export type LeadPlaybook = {
   opener: string;
   /** What to say once they engage — never in the opener. */
   softClose: string;
+  /** Words that identify this source in a submission. Editable, so a form can be renamed. */
+  matchTerms: string[];
   steps: CadenceStep[];
+  active: boolean;
+  sortOrder: number;
 };
 
-const PLAYBOOKS: LeadPlaybook[] = [
+export function isCadenceChannel(value: unknown): value is CadenceChannel {
+  return value === "call" || value === "email" || value === "call_or_email";
+}
+
+const SEED: LeadPlaybook[] = [
   {
     key: "getting_ready_guide",
+    active: true,
+    sortOrder: 0,
+    matchTerms: ["getting ready", "get ready", "prep guide", "seller prep"],
     label: "Getting Ready Guide",
     signal: "Listing imminent — days, not weeks.",
     opener:
@@ -71,6 +86,9 @@ const PLAYBOOKS: LeadPlaybook[] = [
   },
   {
     key: "pricing_list",
+    active: true,
+    sortOrder: 1,
+    matchTerms: ["pricing", "price list", "packages", "rate card"],
     label: "Pricing List",
     signal: "Comparing vendors right now — possibly booking this week.",
     opener:
@@ -100,6 +118,14 @@ const PLAYBOOKS: LeadPlaybook[] = [
   },
   {
     key: "listing_presentation",
+    active: true,
+    sortOrder: 2,
+    matchTerms: [
+      "listing presentation",
+      "listing template",
+      "presentation template",
+      "pre listing",
+    ],
     label: "Listing Presentation Template",
     signal: "Working on winning listings. Weeks out, no order attached.",
     opener:
@@ -130,7 +156,7 @@ const PLAYBOOKS: LeadPlaybook[] = [
 ];
 
 /** How many attempts a playbook is worth before the standard follow-up takes over. */
-export const ATTEMPTS_BEFORE_STANDARD = 3;
+export const DEFAULT_ATTEMPTS_BEFORE_STANDARD = 3;
 
 /**
  * Where a lead goes once its playbook is spent.
@@ -140,40 +166,13 @@ export const ATTEMPTS_BEFORE_STANDARD = 3;
  * that alternates channel, and repeats rather than ending — nobody decides a
  * lead is dead, they either engage or get dispositioned in the CRM.
  */
-export const STANDARD_CADENCE = {
-  label: "Standard follow-up",
-  detail:
-    "a quarterly check-in until they engage or you close them out, alternating a call and an email so it never lands the same way twice",
-} as const;
+export const DEFAULT_STANDARD_FOLLOW_UP =
+  "a quarterly check-in until they engage or you close them out, alternating a call and an email so it never lands the same way twice";
 
-export function listPlaybooks(): LeadPlaybook[] {
-  return PLAYBOOKS;
+/** The copy a fresh install starts with. Copied into the table once, then owned by it. */
+export function seedPlaybooks(): LeadPlaybook[] {
+  return SEED;
 }
-
-export function getPlaybook(key: string | null | undefined): LeadPlaybook | null {
-  return PLAYBOOKS.find((p) => p.key === key) ?? null;
-}
-
-/**
- * Words that identify a playbook when they turn up in what the form sent.
- *
- * The three magnets are three separate forms, so the form's own name is the
- * answer nearly every time. The rest is insurance: a form renamed on the site,
- * or one whose name never reaches us, should still route by its landing page or
- * by an answer naming the thing that was downloaded, rather than silently
- * dropping the playbook out of the email.
- */
-const MATCH_TERMS: Array<{ key: LeadPlaybookKey; terms: string[] }> = [
-  {
-    key: "getting_ready_guide",
-    terms: ["getting ready", "get ready", "prep guide", "seller prep", "readyguide"],
-  },
-  { key: "pricing_list", terms: ["pricing", "price list", "pricelist", "packages", "rate card"] },
-  {
-    key: "listing_presentation",
-    terms: ["listing presentation", "listing template", "presentation template", "pre listing"],
-  },
-];
 
 function fold(value: string): string {
   return value
@@ -185,17 +184,27 @@ function fold(value: string): string {
 /**
  * Work out which playbook a submission belongs to.
  *
- * Sources are searched in order of how much they mean: the form's name is a
- * deliberate label, a page URL is nearly as good, and a free-text answer is a
- * guess. A submission matching two playbooks resolves to none — an opener aimed
- * at the wrong signal is worse than no opener, because the owner reads it as
- * what we know about this person.
+ * The candidates are passed in rather than looked up here, so this stays pure
+ * and the caller decides whether it is matching against the live table or a
+ * fixture. Sources are searched in order of how much they mean: the form's own
+ * name is a deliberate label, a page URL is nearly as good, and a free-text
+ * answer — the "Source" field the site's forms carry — is where most of them
+ * actually land. A submission matching two playbooks resolves to none: an
+ * opener aimed at the wrong signal is worse than no opener, because the owner
+ * reads it as what we know about this person.
+ *
+ * A playbook's label counts as one of its own terms, so a source added in the
+ * Hub matches the wording it was named with before anybody adds a single term.
  */
-export function matchPlaybook(input: {
-  formName?: string | null;
-  pageUrl?: string | null;
-  fields?: Array<{ label: string; value: string }>;
-}): LeadPlaybook | null {
+export function matchPlaybook(
+  playbooks: readonly LeadPlaybook[],
+  input: {
+    formName?: string | null;
+    pageUrl?: string | null;
+    fields?: Array<{ label: string; value: string }>;
+  },
+): LeadPlaybook | null {
+  const candidates = playbooks.filter((p) => p.active);
   const haystacks = [
     input.formName ?? "",
     input.pageUrl ?? "",
@@ -206,9 +215,14 @@ export function matchPlaybook(input: {
     if (!haystack) {
       continue;
     }
-    const hits = MATCH_TERMS.filter((m) => m.terms.some((t) => haystack.includes(fold(t))));
+    const hits = candidates.filter((p) =>
+      [p.label, ...p.matchTerms].some((term) => {
+        const folded = fold(term);
+        return folded.length > 0 && haystack.includes(folded);
+      }),
+    );
     if (hits.length === 1) {
-      return getPlaybook(hits[0].key);
+      return hits[0];
     }
     if (hits.length > 1) {
       return null;

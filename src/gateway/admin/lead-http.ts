@@ -9,7 +9,18 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
 import { sendJson } from "../http-common.js";
+import { renderLeadEmailText } from "./lead-email-render.js";
 import { dispatchLead } from "./lead-notify.js";
+import {
+  createPlaybook,
+  deletePlaybook,
+  getLeadSettings,
+  getPlaybook,
+  listPlaybooks,
+  reorderPlaybooks,
+  setLeadSettings,
+  updatePlaybook,
+} from "./lead-playbooks-store.js";
 import {
   addLeadEvent,
   assignLead,
@@ -17,6 +28,7 @@ import {
   deleteLead,
   getLead,
   isLeadStatus,
+  type Lead,
   LEAD_STATUS_LABELS,
   LEAD_STATUSES,
   type ListLeadsFilter,
@@ -53,6 +65,98 @@ function sendNotFound(res: ServerResponse): void {
 
 function sendForbidden(res: ServerResponse): void {
   sendJson(res, 403, { error: "forbidden" });
+}
+
+/** Read the edit form's body into what the store takes. */
+function playbookInput(
+  data: Record<string, unknown>,
+  label: string | null,
+): { label: string } & Record<string, unknown> {
+  return {
+    label: label ?? "",
+    signal: str(data.signal) ?? undefined,
+    opener: str(data.opener) ?? undefined,
+    softClose: str(data.softClose) ?? undefined,
+    matchTerms: aliasList(data.matchTerms),
+    steps: Array.isArray(data.steps)
+      ? data.steps.flatMap((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return [];
+          }
+          const row = entry as Record<string, unknown>;
+          return [
+            {
+              when: str(row.when) ?? "",
+              channel: typeof row.channel === "string" ? row.channel : "call",
+              action: str(row.action) ?? "",
+            },
+          ];
+        })
+      : undefined,
+    active: data.active === undefined ? undefined : Boolean(data.active),
+  };
+}
+
+/**
+ * The lead a preview is rendered against. Invented rather than a real one: the
+ * point is to read the copy, and a preview that pulled somebody's actual
+ * enquiry would put a client's details on an editing screen.
+ */
+function previewLead(): Lead {
+  const now = Date.now();
+  return {
+    id: "preview",
+    number: "LEAD-0000",
+    source: "framer",
+    formName: "Preview",
+    submissionId: null,
+    name: "Dana Reyes",
+    email: "dana@example.com",
+    phone: "(614) 555-0111",
+    company: "Example Realty",
+    message: "Got a listing going up in a couple of weeks.",
+    marketRaw: "Columbus",
+    territoryKey: "columbus",
+    ownerName: "Chris Voge",
+    ownerEmail: "chris@example.com",
+    status: "new",
+    pageUrl: null,
+    fields: [],
+    playbookKey: "preview",
+    notifiedAt: null,
+    notifyError: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function previewSteps(raw: unknown): Array<{
+  step: number;
+  when: string;
+  channel: "call" | "email" | "call_or_email";
+  action: string;
+}> {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.flatMap((entry, i) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const row = entry as Record<string, unknown>;
+    const channel = row.channel;
+    return [
+      {
+        step: i + 1,
+        when: str(row.when) ?? "",
+        channel:
+          channel === "email" || channel === "call_or_email" || channel === "call"
+            ? channel
+            : "call",
+        action: str(row.action) ?? "",
+      },
+    ];
+  });
 }
 
 function str(value: unknown): string | null {
@@ -177,6 +281,152 @@ export async function handleLeadAdminRequest(
     }
     if (method === "DELETE") {
       await deleteTerritory(key);
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return true;
+  }
+
+  // ── The outreach notes ──────────────────────────────────────────────────
+  // Sales copy, edited live. Admin-only for the same reason the routing table
+  // is: this is what goes out over somebody else's name.
+  if (subPath === "/lead-playbooks" || subPath.startsWith("/lead-playbooks/")) {
+    if (!ctx.isAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    if (subPath === "/lead-playbooks" && method === "GET") {
+      sendJson(res, 200, { playbooks: await listPlaybooks(), settings: await getLeadSettings() });
+      return true;
+    }
+    if (subPath === "/lead-playbooks" && method === "POST") {
+      const body = await readJsonBody(req, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendBadRequest(res, body.error);
+        return true;
+      }
+      const data = body.value as Record<string, unknown>;
+      const label = str(data.label);
+      if (!label) {
+        sendBadRequest(res, "label required");
+        return true;
+      }
+      try {
+        sendJson(res, 201, { playbook: await createPlaybook(playbookInput(data, label)) });
+      } catch (err) {
+        if (err instanceof Error && err.message === "playbook_exists") {
+          sendJson(res, 409, { error: "playbook_exists" });
+          return true;
+        }
+        throw err;
+      }
+      return true;
+    }
+    // What the email will actually say, rendered from what is on the form right
+    // now. Editing copy blind and sending yourself a test lead to read it is the
+    // loop this exists to close.
+    if (subPath === "/lead-playbooks/preview" && method === "POST") {
+      const body = await readJsonBody(req, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendBadRequest(res, body.error);
+        return true;
+      }
+      const data = body.value as Record<string, unknown>;
+      const settings = await getLeadSettings();
+      sendJson(res, 200, {
+        text: renderLeadEmailText({
+          lead: previewLead(),
+          logoUrl: "",
+          leadUrl: "https://hub.wowvideotours.com/admin#leads",
+          playbook: {
+            key: "preview",
+            label: str(data.label) ?? "Preview",
+            signal: str(data.signal) ?? "",
+            opener: str(data.opener) ?? "",
+            softClose: str(data.softClose) ?? "",
+            matchTerms: [],
+            steps: previewSteps(data.steps),
+            active: true,
+            sortOrder: 0,
+          },
+          standardFollowUp: str(data.standardFollowUp) ?? settings.standardFollowUp,
+          attemptsBeforeStandard: settings.attemptsBeforeStandard,
+        }),
+      });
+      return true;
+    }
+    if (subPath === "/lead-playbooks/settings" && method === "PUT") {
+      const body = await readJsonBody(req, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendBadRequest(res, body.error);
+        return true;
+      }
+      const data = body.value as Record<string, unknown>;
+      // The form sends a number, an older client might send the string in the
+      // box; anything else is not a figure and leaves the setting alone.
+      const rawAttempts = data.attemptsBeforeStandard;
+      const attempts =
+        typeof rawAttempts === "number"
+          ? rawAttempts
+          : typeof rawAttempts === "string"
+            ? Number.parseInt(rawAttempts, 10)
+            : Number.NaN;
+      sendJson(res, 200, {
+        settings: await setLeadSettings({
+          standardFollowUp: str(data.standardFollowUp) ?? undefined,
+          attemptsBeforeStandard: Number.isFinite(attempts) ? attempts : undefined,
+        }),
+      });
+      return true;
+    }
+    if (subPath === "/lead-playbooks/reorder" && method === "PUT") {
+      const body = await readJsonBody(req, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendBadRequest(res, body.error);
+        return true;
+      }
+      const keys = (body.value as Record<string, unknown>).keys;
+      if (!Array.isArray(keys)) {
+        sendBadRequest(res, "keys required");
+        return true;
+      }
+      sendJson(res, 200, {
+        playbooks: await reorderPlaybooks(keys.filter((k): k is string => typeof k === "string")),
+      });
+      return true;
+    }
+    const key = decodeURIComponent(subPath.slice("/lead-playbooks/".length));
+    if (!key) {
+      sendNotFound(res);
+      return true;
+    }
+    if (method === "GET") {
+      const playbook = await getPlaybook(key);
+      if (!playbook) {
+        sendNotFound(res);
+        return true;
+      }
+      sendJson(res, 200, { playbook });
+      return true;
+    }
+    if (method === "PUT") {
+      const body = await readJsonBody(req, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendBadRequest(res, body.error);
+        return true;
+      }
+      const data = body.value as Record<string, unknown>;
+      const updated = await updatePlaybook(key, playbookInput(data, str(data.label)));
+      if (!updated) {
+        sendNotFound(res);
+        return true;
+      }
+      sendJson(res, 200, { playbook: updated });
+      return true;
+    }
+    if (method === "DELETE") {
+      await deletePlaybook(key);
       sendJson(res, 200, { ok: true });
       return true;
     }
