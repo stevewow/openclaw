@@ -84,6 +84,30 @@ describe("dispatching a lead", () => {
     expect((await store.listLeadEvents(lead.id)).at(-1)?.body).toContain("chris@example.com");
   });
 
+  it("does not send anyone to the Hub — the email is the whole thing", async () => {
+    const lead = await store.createLead({
+      name: "No Link",
+      email: "nolink@x.com",
+      ownerName: "Chris Voge",
+      ownerEmail: "chris@example.com",
+      territoryKey: "columbus",
+    });
+    const rec = recorder();
+    await notify.dispatchLead(lead, {
+      config: CONFIG,
+      mailer: rec.mailer,
+      settings,
+      logger: quiet,
+    });
+    expect(rec.sent[0].htmlBody).not.toContain("Open in the Hub");
+    expect(rec.sent[0].textBody).not.toContain("Open it in the Hub");
+    // Both renderings say the same thing, so neither carries a dashboard link.
+    expect(rec.sent[0].htmlBody).not.toContain("/admin#leads");
+    expect(rec.sent[0].textBody).not.toContain("/admin#leads");
+    // Replying is still the way to act on it.
+    expect(rec.sent[0].textBody).toContain("Reply to this email");
+  });
+
   it("sends an unrouted lead to the fallback address and says so in the email", async () => {
     const lead = await store.createLead({ name: "No Market", email: "nm@x.com" });
     const rec = recorder();

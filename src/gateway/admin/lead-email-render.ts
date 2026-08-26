@@ -7,7 +7,6 @@
 // answers second, and the reply-to is the lead's own address — the fastest path
 // from "I got the email" to "I called them" is hitting reply.
 
-import { adminBaseUrl } from "./brand.js";
 import {
   DEFAULT_ATTEMPTS_BEFORE_STANDARD,
   DEFAULT_STANDARD_FOLLOW_UP,
@@ -27,8 +26,6 @@ const FONT = "Montserrat,'Segoe UI',Helvetica,Arial,sans-serif";
 export type LeadEmailView = {
   lead: Lead;
   logoUrl: string;
-  /** Absolute link to the lead in the Hub. */
-  leadUrl: string;
   /**
    * The outreach note for the source this lead came in on, already loaded.
    *
@@ -42,11 +39,6 @@ export type LeadEmailView = {
   standardFollowUp?: string;
   attemptsBeforeStandard?: number;
 };
-
-/** Where the Hub opens this lead. The Leads page takes an id in its hash. */
-export function leadUrl(lead: Lead, env: NodeJS.ProcessEnv = process.env): string {
-  return `${adminBaseUrl(env)}/admin#leads?lead=${encodeURIComponent(lead.id)}`;
-}
 
 export function leadDisplayName(lead: Lead): string {
   return lead.name?.trim() || lead.email?.trim() || lead.company?.trim() || lead.number;
@@ -137,8 +129,6 @@ export function renderLeadEmailText(view: LeadEmailView): string {
     lead.ownerName
       ? `Routed to you as the ${leadMarketLabel(lead)} territory owner.`
       : "No territory owner matched this market — please pick it up or reassign it.",
-    "",
-    `Open it in the Hub: ${view.leadUrl}`,
     "",
     "Reply to this email to answer the lead directly.",
   );
@@ -254,9 +244,6 @@ ${message}
 ${playbookHtmlBlock(view)}
 ${routing}
 
-<tr><td style="padding:22px 0 0">
-<a href="${escapeHtml(view.leadUrl)}" style="display:inline-block;background:${WOW_RED};color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;padding:11px 20px;border-radius:8px">Open in the Hub</a>
-</td></tr>
 
 </table>
 </td></tr>

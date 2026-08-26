@@ -11,7 +11,6 @@ import {
   digestSubject,
   type LeadDigestView,
   leadSubject,
-  leadUrl,
   renderDigestHtml,
   renderDigestText,
   renderLeadEmailHtml,
@@ -94,7 +93,6 @@ export function formatLeadEmail(
   const view = {
     lead,
     logoUrl: emailLogoUrl(env),
-    leadUrl: leadUrl(lead, env),
     ...tips,
   };
   return {

@@ -338,7 +338,6 @@ export async function handleLeadAdminRequest(
         text: renderLeadEmailText({
           lead: previewLead(),
           logoUrl: "",
-          leadUrl: "https://hub.wowvideotours.com/admin#leads",
           playbook: {
             key: "preview",
             label: str(data.label) ?? "Preview",
