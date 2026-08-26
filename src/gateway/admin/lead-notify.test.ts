@@ -147,6 +147,81 @@ describe("dispatching a lead", () => {
   });
 });
 
+describe("the tips in the dispatch email", () => {
+  let store: typeof import("./lead-store.js");
+  let notify: typeof import("./lead-notify.js");
+  const settings = {
+    fallbackTo: "steve@wowvideotours.com",
+    digestTo: "steve@wowvideotours.com",
+    digestHour: 7,
+    digestTimeZone: "America/New_York",
+  };
+
+  beforeAll(async () => {
+    store = await import("./lead-store.js");
+    notify = await import("./lead-notify.js");
+  });
+
+  async function dispatchWith(over: Record<string, unknown>) {
+    const lead = await store.createLead({
+      name: "Dana Reyes",
+      email: "dana@brokerage.com",
+      ownerName: "Chris Voge",
+      ownerEmail: "chris@example.com",
+      territoryKey: "columbus",
+      marketRaw: "Columbus",
+      ...over,
+    });
+    const rec = recorder();
+    await notify.dispatchLead(lead, {
+      config: CONFIG,
+      mailer: rec.mailer,
+      settings,
+      logger: quiet,
+    });
+    return rec.sent[0];
+  }
+
+  it("carries the opener, the soft close and the cadence for the source it came in on", async () => {
+    const sent = await dispatchWith({ playbookKey: "pricing_list" });
+    expect(sent.textBody).toContain("Comparing vendors right now");
+    expect(sent.textBody).toContain("Looks like you're pricing out media");
+    expect(sent.textBody).toContain("What's the property?");
+    expect(sent.textBody).toContain("1. Within 24 hours — Call. Voicemail + text if no answer.");
+    expect(sent.textBody).toContain('3. Day 7 — Call. "Did you get that shoot handled?"');
+    expect(sent.htmlBody).toContain("Pricing List");
+    expect(sent.htmlBody).toContain("Soft close");
+  });
+
+  it("shows only that source's tips, never the other two", async () => {
+    const sent = await dispatchWith({ playbookKey: "getting_ready_guide" });
+    expect(sent.textBody).toContain("listing coming up");
+    expect(sent.textBody).not.toContain("pricing out media");
+    expect(sent.textBody).not.toContain("listing presentation");
+    expect(sent.htmlBody).not.toContain("Pricing List");
+  });
+
+  it("greets them by their first name", async () => {
+    const sent = await dispatchWith({ playbookKey: "listing_presentation", name: "Dana Reyes" });
+    expect(sent.textBody).toContain("Hey Dana, Taylor with WOW Video Tours");
+    expect(sent.textBody).not.toContain("[Name]");
+  });
+
+  it("says where the lead goes after three attempts", async () => {
+    const sent = await dispatchWith({ playbookKey: "getting_ready_guide" });
+    expect(sent.textBody).toContain("After 3 attempts with no answer");
+    expect(sent.textBody).toContain("quarterly check-in");
+    expect(sent.htmlBody).toContain("After 3 attempts with no answer");
+  });
+
+  it("sends the plain email when the form matched no playbook", async () => {
+    const sent = await dispatchWith({ playbookKey: null });
+    expect(sent.textBody).toContain("Dana Reyes");
+    expect(sent.textBody).not.toContain("Taylor with WOW Video Tours");
+    expect(sent.textBody).not.toContain("Cadence:");
+  });
+});
+
 describe("counting days in the sales team's own timezone", () => {
   let notify: typeof import("./lead-notify.js");
   const TZ = "America/New_York";

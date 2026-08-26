@@ -63,6 +63,8 @@ export type Lead = {
   pageUrl: string | null;
   /** Every other answer the form sent, in the order it sent them. */
   fields: Array<{ label: string; value: string }>;
+  /** Which lead-magnet playbook it arrived on, if it matched one. */
+  playbookKey: string | null;
   notifiedAt: number | null;
   notifyError: string | null;
   createdAt: number;
@@ -90,6 +92,7 @@ type LeadRow = {
   status: string;
   page_url: string | null;
   fields: string;
+  playbook_key: string | null;
   notified_at: number | null;
   notify_error: string | null;
   created_at: number;
@@ -137,6 +140,7 @@ function rowToLead(row: LeadRow): Lead {
     status: isLeadStatus(row.status) ? row.status : "new",
     pageUrl: row.page_url,
     fields: parseFields(row.fields),
+    playbookKey: row.playbook_key,
     notifiedAt: row.notified_at,
     notifyError: row.notify_error,
     createdAt: row.created_at,
@@ -183,6 +187,7 @@ export type CreateLeadParams = {
   ownerEmail?: string | null;
   pageUrl?: string | null;
   fields?: Array<{ label: string; value: string }>;
+  playbookKey?: string | null;
 };
 
 export async function createLead(params: CreateLeadParams): Promise<Lead> {
@@ -211,6 +216,7 @@ export async function createLead(params: CreateLeadParams): Promise<Lead> {
         status: "new",
         page_url: params.pageUrl ?? null,
         fields: JSON.stringify(params.fields ?? []),
+        playbook_key: params.playbookKey ?? null,
         notified_at: null,
         notify_error: null,
         created_at: now,

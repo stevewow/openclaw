@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
 import { hasContact, parseLeadPayload, verifyFramerSignature } from "./lead-intake.js";
 import { dispatchLead } from "./lead-notify.js";
+import { matchPlaybook } from "./lead-playbooks.js";
 import { createLead, getLeadBySubmissionId, type Lead } from "./lead-store.js";
 import { resolveLeadOwner } from "./lead-territories.js";
 
@@ -236,9 +237,18 @@ export async function handleLeadIntakeRequest(
   }
 
   const owner = await resolveLeadOwner(parsed.market);
+  // Which lead magnet they came in on decides the script the owner is sent, so
+  // it is resolved here and stored on the lead rather than matched again later.
+  const pageUrl = parsed.pageUrl ?? headerValue(req, "referer") ?? null;
+  const playbook = matchPlaybook({
+    formName: parsed.formName,
+    pageUrl,
+    fields: parsed.fields,
+  });
   const lead = await createLead({
     source: "framer",
     formName: parsed.formName,
+    playbookKey: playbook?.key ?? null,
     submissionId: submissionId || null,
     name: parsed.name,
     email: parsed.email,
@@ -251,7 +261,7 @@ export async function handleLeadIntakeRequest(
     ownerEmail: owner.ownerEmail,
     // The payload's own answer first; a browser-side post may add a Referer,
     // but a webhook delivered server to server carries none.
-    pageUrl: parsed.pageUrl ?? headerValue(req, "referer") ?? null,
+    pageUrl,
     fields: parsed.fields,
   });
 

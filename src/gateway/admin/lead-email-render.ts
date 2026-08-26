@@ -8,6 +8,12 @@
 // from "I got the email" to "I called them" is hitting reply.
 
 import { adminBaseUrl } from "./brand.js";
+import {
+  ATTEMPTS_BEFORE_STANDARD,
+  getPlaybook,
+  personalizeOpener,
+  STANDARD_CADENCE,
+} from "./lead-playbooks.js";
 import type { Lead } from "./lead-store.js";
 import { brandHeaderHtml, escapeHtml } from "./ticket-email-render.js";
 
@@ -71,6 +77,38 @@ export function leadDetailRows(lead: Lead): Row[] {
   return rows;
 }
 
+/**
+ * How to work this one, for the source it came in on.
+ *
+ * Only the matching playbook is rendered. An owner reading this on a phone
+ * between showings needs the script for the person who just downloaded the
+ * pricing list — not all three and a decision about which one applies.
+ */
+function playbookTextBlock(lead: Lead): string[] {
+  const playbook = getPlaybook(lead.playbookKey);
+  if (!playbook) {
+    return [];
+  }
+  return [
+    "",
+    `— ${playbook.label.toUpperCase()} —`,
+    playbook.signal,
+    "",
+    "Opener:",
+    personalizeOpener(playbook.opener, lead.name),
+    "",
+    "Soft close, once they engage:",
+    playbook.softClose,
+    "",
+    "Cadence:",
+    // The action names its own channel ("Call. Voicemail + text if no answer"),
+    // so the step is when and what — printing the channel too reads as a stutter.
+    ...playbook.steps.map((s) => `${s.step}. ${s.when} — ${s.action}`),
+    "",
+    `After ${ATTEMPTS_BEFORE_STANDARD} attempts with no answer, move to the standard follow-up — ${STANDARD_CADENCE.detail}.`,
+  ];
+}
+
 export function renderLeadEmailText(view: LeadEmailView): string {
   const { lead } = view;
   const lines = [
@@ -81,6 +119,7 @@ export function renderLeadEmailText(view: LeadEmailView): string {
   if (lead.message?.trim()) {
     lines.push("", "What they wrote:", lead.message.trim());
   }
+  lines.push(...playbookTextBlock(lead));
   lines.push(
     "",
     lead.ownerName
@@ -102,6 +141,51 @@ function htmlRow(row: Row): string {
 <td style="padding:6px 14px 6px 0;vertical-align:top;color:${MUTED};font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap">${escapeHtml(row.label)}</td>
 <td style="padding:6px 0;vertical-align:top;color:${INK};font-size:14px;line-height:1.5">${value}</td>
 </tr>`;
+}
+
+/**
+ * The playbook as it reads in an inbox: what the download says about them, the
+ * two scripts set apart so they can be read off the screen while the phone is
+ * ringing, and the cadence as a numbered list with the timing in its own column.
+ */
+function playbookHtmlBlock(lead: Lead): string {
+  const playbook = getPlaybook(lead.playbookKey);
+  if (!playbook) {
+    return "";
+  }
+  const script = (label: string, body: string): string =>
+    `<tr><td style="padding:14px 0 0">
+<div style="color:${MUTED};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding-bottom:6px">${escapeHtml(label)}</div>
+<div style="background:#fafafa;border-left:3px solid ${WOW_RED};border-radius:0 10px 10px 0;padding:14px 16px;color:${INK};font-size:14px;line-height:1.7">${escapeHtml(body)}</div>
+</td></tr>`;
+
+  const steps = playbook.steps
+    .map(
+      (s) => `<tr>
+<td style="padding:7px 12px 7px 0;vertical-align:top;color:${WOW_RED};font-size:13px;font-weight:700;white-space:nowrap">${s.step}.</td>
+<td style="padding:7px 12px 7px 0;vertical-align:top;color:${INK};font-size:13px;font-weight:700;white-space:nowrap">${escapeHtml(s.when)}</td>
+<td style="padding:7px 0;vertical-align:top;color:${INK};font-size:13px;line-height:1.6">${escapeHtml(s.action)}</td>
+</tr>`,
+    )
+    .join("\n");
+
+  return `<tr><td style="padding:24px 0 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border-top:1px solid ${HAIRLINE}">
+<tr><td style="padding:18px 0 0">
+<span style="display:inline-block;background:${INK};color:#ffffff;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:4px 10px;border-radius:6px">${escapeHtml(playbook.label)}</span>
+<div style="padding:10px 0 0;color:${INK};font-size:14px;font-weight:600">${escapeHtml(playbook.signal)}</div>
+</td></tr>
+${script("Opener", personalizeOpener(playbook.opener, lead.name))}
+${script("Soft close, once they engage", playbook.softClose)}
+<tr><td style="padding:18px 0 0">
+<div style="color:${MUTED};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding-bottom:6px">Cadence</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+${steps}
+</table>
+<div style="padding:12px 0 0;color:${MUTED};font-size:12px;line-height:1.6">After ${ATTEMPTS_BEFORE_STANDARD} attempts with no answer, move to the standard follow-up — ${escapeHtml(STANDARD_CADENCE.detail)}.</div>
+</td></tr>
+</table>
+</td></tr>`;
 }
 
 export function renderLeadEmailHtml(view: LeadEmailView): string {
@@ -155,6 +239,7 @@ ${rows}
 </td></tr>
 
 ${message}
+${playbookHtmlBlock(lead)}
 ${routing}
 
 <tr><td style="padding:22px 0 0">

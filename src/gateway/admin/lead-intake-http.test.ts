@@ -104,6 +104,25 @@ describe("website form submissions", () => {
     expect(dispatched).toEqual([first.data.lead]);
   });
 
+  it("files the lead under the magnet its form names, so the owner gets the right script", async () => {
+    await post({
+      ...submission,
+      email: "guide@x.com",
+      formName: "Getting Ready Guide",
+      pageUrl: "https://wowvideotours.com/getting-ready",
+    });
+    const lead = (await store.listLeads({ q: "guide@x.com" }))[0];
+    expect(lead.playbookKey).toBe("getting_ready_guide");
+    expect(lead.formName).toBe("Getting Ready Guide");
+    expect(lead.pageUrl).toBe("https://wowvideotours.com/getting-ready");
+  });
+
+  it("leaves the playbook unset for a form that is none of the three", async () => {
+    await post({ ...submission, email: "generic@x.com", formName: "Contact us" });
+    const lead = (await store.listLeads({ q: "generic@x.com" }))[0];
+    expect(lead.playbookKey).toBeNull();
+  });
+
   it("leaves a lead unrouted rather than guessing at an unknown market", async () => {
     await post({ ...submission, email: "nashville@x.com", market: "Nashville" });
     const lead = (await store.listLeads({ q: "nashville@x.com" }))[0];

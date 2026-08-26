@@ -812,6 +812,13 @@ type LeadsTable = {
   page_url: string | null;
   /** JSON object of every other answer, verbatim. */
   fields: string;
+  /**
+   * Which lead-magnet playbook it came in on, resolved at intake and stored
+   * rather than re-matched on read: the match rules will be tuned as forms are
+   * renamed, and a lead worked under one opener must not silently acquire
+   * another one months later.
+   */
+  playbook_key: string | null;
   notified_at: number | null;
   /** Why the dispatch email did not go out, so the queue shows it. */
   notify_error: string | null;
@@ -1718,6 +1725,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
         CHECK(status IN ('new','contacted','qualified','won','lost')),
       page_url TEXT,
       fields TEXT NOT NULL DEFAULT '{}',
+      playbook_key TEXT,
       notified_at INTEGER,
       notify_error TEXT,
       created_at INTEGER NOT NULL,
@@ -1836,6 +1844,15 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (!spiroOrderColumns.some((c) => c.name === "company")) {
     db.exec("ALTER TABLE admin_spiro_orders ADD COLUMN company TEXT");
+  }
+  // The lead queue shipped before the playbooks did, so a live database has
+  // admin_leads without this column. Nullable by design: a lead taken by hand,
+  // or one whose form matched no playbook, legitimately has none.
+  const leadColumns = db.prepare("PRAGMA table_info(admin_leads)").all() as Array<{
+    name: string;
+  }>;
+  if (leadColumns.length > 0 && !leadColumns.some((c) => c.name === "playbook_key")) {
+    db.exec("ALTER TABLE admin_leads ADD COLUMN playbook_key TEXT");
   }
   const ticketColumns = db.prepare("PRAGMA table_info(admin_tickets)").all() as Array<{
     name: string;
