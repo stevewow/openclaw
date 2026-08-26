@@ -8,6 +8,7 @@ import {
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import { KB_SEARCHES_COMPONENT_JS, KB_SEARCHES_CSS, KB_SEARCHES_MARKUP } from "./kb-searches-ui.js";
 import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
+import { LEADS_COMPONENT_JS, LEADS_CSS, LEADS_MARKUP, LEADS_MODALS } from "./leads-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
@@ -499,6 +500,7 @@ ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
 ${KB_CSS}
 ${KB_SEARCHES_CSS}
+${LEADS_CSS}
 ${FEEDBACK_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
@@ -1334,6 +1336,7 @@ ${HUB_BASE_CSS}
 
 ${KB_MARKUP}
 ${KB_SEARCHES_MARKUP}
+${LEADS_MARKUP}
 ${FEEDBACK_MARKUP}
 
       <!-- Request Types: the categories offered on the public intake form -->
@@ -1682,6 +1685,7 @@ ${FEEDBACK_MARKUP}
 
 <!-- Folder Modal: create, rename or move a resource folder. -->
 ${KB_MODALS}
+${LEADS_MODALS}
 ${FEEDBACK_MODALS}
 
 <div id="folder-modal" class="modal-backdrop hidden">
@@ -2291,6 +2295,10 @@ ${FEEDBACK_MODALS}
     market: { el: 'page-market', title: 'Housing Market', adminOnly: false, superAdminOnly: false, report: 'market' },
     'pipedrive-cleanup': { el: 'page-pipedrive-cleanup', title: 'Pipedrive Cleanup', adminOnly: false, superAdminOnly: false, report: 'pipedrive-cleanup' },
     churn: { el: 'page-churn', title: 'Churn & Retention', adminOnly: false, superAdminOnly: false, report: 'churn' },
+    leads: { el: 'page-leads', title: 'Leads', adminOnly: false, superAdminOnly: false, feature: 'leads' },
+    // Same grant opens both, but editing the routing table is an admin's: the
+    // server refuses the writes either way, and this keeps the nav honest.
+    'lead-routing': { el: 'page-lead-routing', title: 'Lead Routing', adminOnly: true, superAdminOnly: false },
     tickets: { el: 'page-tickets', title: 'Support Tickets', adminOnly: false, superAdminOnly: false, feature: 'tickets' },
     departments: { el: 'page-departments', title: 'Departments', adminOnly: false, superAdminOnly: false, feature: 'ticket-departments' },
     categories: { el: 'page-categories', title: 'Request Types', adminOnly: false, superAdminOnly: false, feature: 'ticket-categories' },
@@ -2413,6 +2421,15 @@ ${FEEDBACK_MODALS}
     if (page === 'market') loadMarket();
     if (page === 'pipedrive-cleanup') loadPipedriveCleanup();
     if (page === 'churn') loadChurn();
+    // '#leads?lead=<id>' opens that lead once the queue has loaded — the link
+    // every dispatch email sends.
+    if (page === 'leads') {
+      const wantedLead = parseHash().params.lead;
+      loadLeads().then(function() {
+        if (wantedLead) openLeadModal(wantedLead);
+      });
+    }
+    if (page === 'lead-routing') loadLeadRouting();
     if (page === 'tickets') loadTickets();
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();
@@ -3682,6 +3699,7 @@ ${TASK_FEED_COMPONENT_JS}
 ${TASK_LIST_COMPONENT_JS}
 ${KB_COMPONENT_JS}
 ${KB_SEARCHES_COMPONENT_JS}
+${LEADS_COMPONENT_JS}
 ${FEEDBACK_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}

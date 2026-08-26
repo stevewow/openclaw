@@ -174,7 +174,7 @@ describe("the dashboard boots", () => {
     const headings = Array.from(document.querySelectorAll("#sidebar-nav .nav-section")).map((h) =>
       h.textContent?.trim(),
     );
-    expect(headings).toEqual(["Main", "Workspace", "Support", "Financials", "Settings"]);
+    expect(headings).toEqual(["Main", "Workspace", "Sales", "Support", "Financials", "Settings"]);
   });
 
   it("drops sections the viewer cannot open, and the heading with them", async () => {
@@ -397,7 +397,7 @@ describe("the Navigation editor", () => {
     const groups = Array.from(document.querySelectorAll(".nav-edit-group")).map(
       (g) => (g as HTMLElement).dataset.group,
     );
-    expect(groups).toEqual(["main", "workspace", "support", "financials", "settings"]);
+    expect(groups).toEqual(["main", "workspace", "sales", "support", "financials", "settings"]);
     const mainItems = Array.from(
       document.querySelectorAll('[data-drop-group="main"] .nav-edit-item'),
     ).map((li) => (li as HTMLElement).dataset.item);
@@ -480,7 +480,7 @@ describe("the Navigation editor", () => {
     const items = Array.from(document.querySelectorAll(".nav-edit-item")).map(
       (li) => (li as HTMLElement).dataset.item,
     );
-    expect(items).toEqual(["chat", "tasks", "reports", "resources", "account"]);
+    expect(items).toEqual(["chat", "tasks", "reports", "leads", "resources", "account"]);
   });
 
   it("puts the menu back with Reset", async () => {

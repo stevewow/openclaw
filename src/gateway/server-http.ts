@@ -590,6 +590,12 @@ export function createGatewayHttpServer(opts: {
           run: async () => (await getAdminHttpModule()).handleTicketIntakeRequest(req, res),
         },
         {
+          // Website form submissions. Public because the marketing site has to
+          // reach it; trusted by the webhook signature, not by the network.
+          name: "lead-intake",
+          run: async () => (await getAdminHttpModule()).handleLeadIntakeRequest(req, res),
+        },
+        {
           // The public team feedback form. Unauthenticated like the intake
           // form, and writing only its own submissions.
           name: "feedback-intake",

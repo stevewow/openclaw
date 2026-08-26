@@ -1,5 +1,11 @@
 import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
+import {
+  LEADS_COMPONENT_JS,
+  LEADS_CSS,
+  LEADS_PORTAL_MARKUP,
+  LEADS_PORTAL_MODALS,
+} from "./leads-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
@@ -176,6 +182,7 @@ ${TASK_LIST_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
 ${MARKET_CSS}
+${LEADS_CSS}
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
   /* Client tags, matching the dashboard's Focus report. */
@@ -379,6 +386,8 @@ ${HUB_BASE_CSS}
       </div>
     </div>
 
+${LEADS_PORTAL_MARKUP}
+
     <!-- Reports -->
     <div id="page-reports" class="page">
       <div class="topbar"><h2>Reports</h2></div>
@@ -495,6 +504,8 @@ ${HUB_BASE_CSS}
     </form>
   </div>
 </div>
+
+${LEADS_PORTAL_MODALS}
 
 <!-- Project modal -->
 <div id="pt-project-modal" class="modal-backdrop hidden">
@@ -640,6 +651,7 @@ ${TASK_LIST_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}
 ${MARKET_COMPONENT_JS}
+${LEADS_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -1518,6 +1530,12 @@ ${MARKET_COMPONENT_JS}
     if (page === 'resources') loadResources();
     if (page === 'tasks') loadTasksPage();
     if (page === 'reports') loadReportsPage();
+    // '#leads?lead=<id>' opens that lead, the same deep link the dispatch
+    // emails send to the dashboard.
+    if (page === 'leads') {
+      var wantedLead = new URLSearchParams((location.hash.split('?')[1] || '')).get('lead');
+      loadLeads().then(function(){ if (wantedLead) openLeadModal(wantedLead); });
+    }
   }
 
   // ── Chat iframe ────────────────────────────────────────────────────────────

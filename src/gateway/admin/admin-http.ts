@@ -19,6 +19,9 @@ import {
   resolveAttachmentFilePath,
 } from "./attachment-store.js";
 import { handleKbAdminRequest } from "./kb-http.js";
+import { handleLeadAdminRequest } from "./lead-http.js";
+import { ensureLeadDigestScheduler } from "./lead-notify.js";
+import { ensureTerritorySeed } from "./lead-territories.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
 let _getResolvedAuth: (() => ResolvedGatewayAuth) | undefined;
@@ -249,6 +252,7 @@ import {
 } from "./feedback-store.js";
 export { handleFeedbackIntakeRequest } from "./feedback-http.js";
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
+export { handleLeadIntakeRequest } from "./lead-intake-http.js";
 import { isNavSurface } from "./nav-catalog.js";
 import { getNavConfig, parseNavConfig, resetNavConfig, setNavConfig } from "./nav-config-store.js";
 import {
@@ -552,11 +556,13 @@ export async function ensureAdminInitialized(): Promise<void> {
   await ensureSuperadminExists();
   await ensureDepartmentSeed();
   await ensureCategorySeed();
+  await ensureTerritorySeed();
   ensureSpiroReportScheduler();
   ensureFinancialsScheduler();
   ensureClevelandScheduler();
   ensurePhotographersScheduler();
   ensurePipedriveContactsScheduler();
+  ensureLeadDigestScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -1165,12 +1171,20 @@ export async function handleAdminHttpRequest(
           ? ["projects", "tickets"]
           : subPath === "/tickets" || subPath.startsWith("/tickets/")
             ? ticketFeaturesForRequest(subPath, req.method ?? "GET")
-            : // Authoring the knowledge base is one grant, read and write
-              // alike: everything under here edits or previews unpublished
-              // work. Clients read published articles on the public surface.
-              subPath === "/kb" || subPath.startsWith("/kb/")
-              ? ["knowledge-base"]
-              : null;
+            : // The lead queue is one grant covering the queue and the routing
+              // table alike; who may *edit* the routing table is decided in
+              // lead-http.ts, because that is an admin question, not a grant.
+              subPath === "/leads" ||
+                subPath.startsWith("/leads/") ||
+                subPath === "/lead-territories" ||
+                subPath.startsWith("/lead-territories/")
+              ? ["leads"]
+              : // Authoring the knowledge base is one grant, read and write
+                // alike: everything under here edits or previews unpublished
+                // work. Clients read published articles on the public surface.
+                subPath === "/kb" || subPath.startsWith("/kb/")
+                ? ["knowledge-base"]
+                : null;
     if (gatedFeatures) {
       let allowed = false;
       for (const feature of gatedFeatures) {
@@ -1188,6 +1202,11 @@ export async function handleAdminHttpRequest(
 
   // Knowledge base: its own module, dispatched once the gate above has run.
   if (await handleKbAdminRequest(subPath, req, res, { userId: sessionUser.id })) {
+    return true;
+  }
+
+  // Leads: same arrangement — its own module, reached after the gate.
+  if (await handleLeadAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
     return true;
   }
 

@@ -67,6 +67,7 @@ describe("resolving a saved arrangement against the catalog", () => {
       "chat",
       "tasks",
       "reports",
+      "leads",
       "resources",
       "account",
     ]);
@@ -128,6 +129,7 @@ describe("saving and reading back", () => {
     expect((await store.getNavConfig("admin")).groups.map((g) => g.id)).toEqual([
       "main",
       "workspace",
+      "sales",
       "support",
       "financials",
       "settings",
