@@ -32,12 +32,44 @@ export function adminBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
- * Login split-screen subtitle, under the brand name. Says what the Hub is for
- * someone seeing it for the first time: one place for the work and the numbers,
- * rather than a list of the modules it happens to contain today.
+ * Login split-screen subtitle, under the brand name. Deliberately plain: the
+ * sign-in page is public, so a client who lands here by mistake should read a
+ * neutral description rather than internal framing they were never meant to
+ * see. What the Hub actually contains is behind the login.
  */
 export const BRAND_TAGLINE =
-  "One hub for the whole operation — shoots, projects, clients, and the numbers behind them.";
+  "One place for scheduling, projects, and reporting at WOW Video Tours.";
+
+/** Heading on the sign-in card. Works for a first visit as well as a return. */
+export const LOGIN_HEADING = "Sign in";
+
+/**
+ * Sub-heading on the sign-in card. Says nothing about admin or staff: the same
+ * page serves the dashboard and the team portal, and a client seeing "admin"
+ * reads it as a wrong turn.
+ */
+export const LOGIN_SUBTITLE = "Use your WOW Video Tours account to continue.";
+
+/** Where clients sign in for photos, videos, and orders. */
+export const CLIENT_PORTAL_URL = "https://portal.wowvideotours.com/";
+
+/**
+ * Styles for the client-portal signpost under the sign-in form. Both login
+ * pages paste the same `.login-card` block, so this ships beside the markup
+ * that needs it instead of being pasted a third time.
+ */
+export const LOGIN_CLIENT_NOTE_CSS = `
+  .login-alt { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; }
+  .login-alt a { color: var(--accent-ink); font-weight: 600; text-decoration: none; }
+  .login-alt a:hover { text-decoration: underline; }
+`;
+
+/**
+ * Signpost for clients who reached the staff sign-in by mistake — the common
+ * wrong turn is someone looking for their own photos and orders, so send them
+ * to the client portal rather than leaving them at a login they cannot pass.
+ */
+export const LOGIN_CLIENT_NOTE_HTML = `<p class="login-alt">Looking for your photos, videos, or orders? Sign in at the <a href="${CLIENT_PORTAL_URL}">client portal</a>.</p>`;
 
 /** Brand red. The same `--accent` both signed-in pages and the public forms set. */
 export const BRAND_COLOR = "#ff0000";

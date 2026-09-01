@@ -1,4 +1,14 @@
-import { BRAND_FAVICON_TAG, BRAND_NAME, BRAND_TAGLINE, brandLogo, brandTitle } from "./brand.js";
+import {
+  BRAND_FAVICON_TAG,
+  BRAND_NAME,
+  BRAND_TAGLINE,
+  brandLogo,
+  brandTitle,
+  LOGIN_CLIENT_NOTE_CSS,
+  LOGIN_CLIENT_NOTE_HTML,
+  LOGIN_HEADING,
+  LOGIN_SUBTITLE,
+} from "./brand.js";
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import {
   LEADS_COMPONENT_JS,
@@ -50,6 +60,7 @@ ${HUB_TOKENS_CSS}
     .login-left { display: none; }
     .login-right { width: 100%; min-height: 100vh; }
   }
+${LOGIN_CLIENT_NOTE_CSS}
 
   /* Impersonation banner */
   .impersonation-banner { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 0.5rem 1rem; background: #f59e0b; color: #111; font-size: 0.8rem; font-weight: 600; text-align: center; }
@@ -292,8 +303,8 @@ ${HUB_BASE_CSS}
   </div>
   <div class="login-right">
     <div class="login-card">
-      <h2>Welcome back</h2>
-      <p class="subtitle">Sign in to your portal</p>
+      <h2>${LOGIN_HEADING}</h2>
+      <p class="subtitle">${LOGIN_SUBTITLE}</p>
       <div id="login-error" class="alert alert-error hidden"></div>
       <form id="login-form">
         <div class="form-group">
@@ -306,6 +317,7 @@ ${HUB_BASE_CSS}
         </div>
         <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:0.65rem 1rem;font-size:14px" id="login-btn">Sign in</button>
       </form>
+      ${LOGIN_CLIENT_NOTE_HTML}
     </div>
   </div>
 </div>
