@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   extractBundleName,
+  extractDeliveryUrl,
+  extractEventName,
   extractOrderId,
   extractOrderNumber,
+  extractUnbrandedUrl,
   readHookFacts,
 } from "./spiro-hook-payload.js";
 
@@ -129,5 +132,61 @@ describe("supporting facts", () => {
     const cyclic: Record<string, unknown> = { orderId: ORDER_ID };
     cyclic.self = cyclic;
     expect(readHookFacts(cyclic).orderId).toBe(ORDER_ID);
+  });
+});
+
+/**
+ * Spiro's actual webhook body, captured from the first event ever to reach the
+ * endpoint (2026-09-01) and trimmed to the fields the reader looks at. Nothing
+ * here was guessable: the keys are PascalCase, the event's name is `Status`,
+ * the delivery links are `DisplayPage_*`, and there is no order number at all.
+ * The array entries are kept because two of them broke the reader — `Type` was
+ * winning over `Status` as the name of the event.
+ */
+const SPIRO_WEBHOOK = {
+  TenantName: "Spiro",
+  OrderID: ORDER_ID,
+  DetailsURL: "https://spiro.media",
+  MediaTitle: "2100 Diller Rd, Elida, OH 45807, USA",
+  Status: "Delivery Email Sent",
+  Agent: { FirstName: "Spiro", LastName: "Admin", CompanyName: "Spiro Media" },
+  Listing: { AddressL1: "2100 Diller Road", City: "Elida", State: "OH", ZipCode: "45807" },
+  Bundle: { BundleID: ORDER_ID, Name: "Wow Stock Media", AgentPrice: 50 },
+  Upcharges: [{ Type: "Above Ground Square Footage", AgentPrice: 0 }],
+  PriceOverrides: [{ Type: "Bundle", Reason: "Updated fee" }],
+  DisplayPage_BrandedURL: "https://spiro.media/branded-url",
+  DisplayPage_UnbrandedURL: "https://spiro.media/unbranded-url",
+};
+
+describe("Spiro's own webhook shape", () => {
+  it("reads every fact the task needs from the real body", () => {
+    expect(readHookFacts(SPIRO_WEBHOOK)).toMatchObject({
+      orderId: ORDER_ID,
+      bundleName: "Wow Stock Media",
+      eventName: "Delivery Email Sent",
+      address: "2100 Diller Rd, Elida, OH 45807, USA",
+      deliveryUrl: "https://spiro.media/branded-url",
+      unbrandedUrl: "https://spiro.media/unbranded-url",
+    });
+  });
+
+  it("reads PascalCase Bundle.Name, which once read as null", () => {
+    expect(extractBundleName(SPIRO_WEBHOOK)).toBe("Wow Stock Media");
+  });
+
+  it("names the event from Status rather than a line item's Type", () => {
+    expect(extractEventName(SPIRO_WEBHOOK)).toBe("Delivery Email Sent");
+  });
+
+  it("keeps the branded and unbranded links apart", () => {
+    expect(extractDeliveryUrl(SPIRO_WEBHOOK)).toBe("https://spiro.media/branded-url");
+    expect(extractUnbrandedUrl(SPIRO_WEBHOOK)).toBe("https://spiro.media/unbranded-url");
+  });
+
+  it("treats Spiro's test event, whose ids are all zeros, as having no order", () => {
+    const zeroed = { ...SPIRO_WEBHOOK, OrderID: "00000000-0000-0000-0000-000000000000" };
+    expect(extractOrderId(zeroed)).toBeNull();
+    // The rest still reads, so the event is recorded as something legible.
+    expect(extractBundleName(zeroed)).toBe("Wow Stock Media");
   });
 });

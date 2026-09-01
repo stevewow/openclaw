@@ -136,7 +136,7 @@ export function orderFromFacts(facts: SpiroHookFacts): StockMediaOrder | null {
     companyName: null,
     deliveredAt: null,
     brandedUrl: facts.deliveryUrl,
-    unbrandedUrl: null,
+    unbrandedUrl: facts.unbrandedUrl,
   };
 }
 

@@ -135,6 +135,7 @@ describe("what the task says", () => {
       eventName: null,
       address: null,
       deliveryUrl: null,
+      unbrandedUrl: null,
     })!;
     const body = rule.buildTaskDescription(thin);
     expect(body).not.toContain("Client:");

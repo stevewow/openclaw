@@ -95,7 +95,14 @@ export function scanPayload(payload: unknown): Scan {
     }
     const record = node as Record<string, unknown>;
     if (path) {
-      objects.set(path, record);
+      // Keys are normalized the same way paths are. Spiro posts PascalCase
+      // (`Bundle.Name`), so a reader asking for `name` on the raw record found
+      // nothing and the bundle — the fact the whole rule turns on — read null.
+      const normalized: Record<string, unknown> = {};
+      for (const [childKey, child] of Object.entries(record)) {
+        normalized[normalizeKey(childKey)] = child;
+      }
+      objects.set(path, normalized);
     }
     for (const [childKey, child] of Object.entries(record)) {
       const norm = normalizeKey(childKey);
@@ -112,10 +119,14 @@ export function scanPayload(payload: unknown): Scan {
  * Ranking by the caller's list rather than by where the value happened to sit
  * is what stops a nested stray from beating the field actually named.
  */
-function pick(scan: Scan, keys: readonly string[], accept?: (v: string) => boolean): string | null {
+function pick(
+  scan: Scan,
+  keys: readonly string[],
+  accept?: (value: string, found: Found) => boolean,
+): string | null {
   for (const wanted of keys) {
     for (const found of scan.strings) {
-      if (found.key === wanted && (!accept || accept(found.value))) {
+      if (found.key === wanted && (!accept || accept(found.value, found))) {
         return found.value;
       }
     }
@@ -187,7 +198,7 @@ export function extractBundleName(payload: unknown, scan = scanPayload(payload))
       if (leaf.replace(/\[\d+\]$/, "") !== key) {
         continue;
       }
-      const name = obj.name ?? obj.bundleName ?? obj.title;
+      const name = obj.name ?? obj.bundlename ?? obj.title;
       if (typeof name === "string" && name.trim()) {
         return name.trim();
       }
@@ -211,12 +222,19 @@ export function extractBundleName(payload: unknown, scan = scanPayload(payload))
   return null;
 }
 
-/** What the sender called this event, kept for the log rather than matched on. */
+/**
+ * What the sender called this event, kept for the log rather than matched on.
+ *
+ * `status` outranks `type` because Spiro's own name for the event is
+ * `Status: "Delivery Email Sent"`, and nothing in the payload is called a type
+ * except line items. Values inside arrays are refused for the same reason: the
+ * first real event read as `Upcharges[0].Type` — "Above Ground Square Footage".
+ */
 export function extractEventName(payload: unknown, scan = scanPayload(payload)): string | null {
   return pick(
     scan,
-    ["event", "eventtype", "eventname", "topic", "type", "action", "trigger", "status"],
-    (v) => v.length <= 120,
+    ["event", "eventtype", "eventname", "topic", "status", "action", "trigger", "type"],
+    (v, found) => v.length <= 120 && !found.path.includes("["),
   );
 }
 
@@ -230,13 +248,33 @@ export function extractAddress(payload: unknown, scan = scanPayload(payload)): s
   return address ?? pick(scan, ["mediatitle"]);
 }
 
-/** The client-facing delivery page, when the event names one. */
+const isHttpUrl = (v: string): boolean => /^https?:\/\//i.test(v);
+
+/**
+ * The client-facing delivery page, when the event names one. Spiro's own name
+ * for it is `DisplayPage_BrandedURL`; the generic fallbacks stay behind it so a
+ * differently-shaped sender still lands somewhere sensible.
+ */
 export function extractDeliveryUrl(payload: unknown, scan = scanPayload(payload)): string | null {
   return pick(
     scan,
-    ["brandedasseturl", "asseturl", "displaypageurl", "deliveryurl", "pageurl", "url", "link"],
-    (v) => /^https?:\/\//i.test(v),
+    [
+      "brandedasseturl",
+      "displaypagebrandedurl",
+      "asseturl",
+      "displaypageurl",
+      "deliveryurl",
+      "pageurl",
+      "url",
+      "link",
+    ],
+    isHttpUrl,
   );
+}
+
+/** The unbranded twin, which the listing agent is usually the one who needs. */
+export function extractUnbrandedUrl(payload: unknown, scan = scanPayload(payload)): string | null {
+  return pick(scan, ["unbrandedasseturl", "displaypageunbrandedurl", "unbrandedurl"], isHttpUrl);
 }
 
 export type SpiroHookFacts = {
@@ -246,6 +284,7 @@ export type SpiroHookFacts = {
   eventName: string | null;
   address: string | null;
   deliveryUrl: string | null;
+  unbrandedUrl: string | null;
 };
 
 /** Everything worth having from one delivery event, read in a single scan. */
@@ -258,5 +297,6 @@ export function readHookFacts(payload: unknown): SpiroHookFacts {
     eventName: extractEventName(payload, scan),
     address: extractAddress(payload, scan),
     deliveryUrl: extractDeliveryUrl(payload, scan),
+    unbrandedUrl: extractUnbrandedUrl(payload, scan),
   };
 }
