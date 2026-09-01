@@ -596,6 +596,12 @@ export function createGatewayHttpServer(opts: {
           run: async () => (await getAdminHttpModule()).handleLeadIntakeRequest(req, res),
         },
         {
+          // Spiro's delivery webhook. Public because Spiro posts from outside;
+          // trusted by the shared token in the URL, not by the network.
+          name: "spiro-hook",
+          run: async () => (await getAdminHttpModule()).handleSpiroHookRequest(req, res),
+        },
+        {
           // The public team feedback form. Unauthenticated like the intake
           // form, and writing only its own submissions.
           name: "feedback-intake",

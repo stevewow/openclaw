@@ -413,6 +413,20 @@ type PastDueCasesTable = {
   updated_by_name: string | null;
 };
 
+type SpiroHookEventsTable = {
+  id: string;
+  received_at: number;
+  event_name: string | null;
+  order_id: string | null;
+  order_number: string | null;
+  bundle_name: string | null;
+  bundle_source: string | null;
+  outcome: string;
+  detail: string | null;
+  task_id: string | null;
+  raw: string;
+};
+
 type PastDueFollowupsTable = {
   task_id: string;
   account_key: string;
@@ -922,6 +936,7 @@ export type AdminDb = {
   admin_churn_notes: ChurnNotesTable;
   admin_financial_notes: FinancialNotesTable;
   admin_past_due_cases: PastDueCasesTable;
+  admin_spiro_hook_events: SpiroHookEventsTable;
   admin_past_due_followups: PastDueFollowupsTable;
   admin_past_due_events: PastDueEventsTable;
   admin_cleveland_orders: ClevelandOrdersTable;
@@ -1454,6 +1469,29 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS admin_past_due_followups_account
       ON admin_past_due_followups(account_key);
+    -- Every delivery webhook Spiro posts, body and all. Spiro documents no
+    -- webhook contract, so the raw body is the only record of what it actually
+    -- sends; an event that matched nothing is kept precisely so the mapping can
+    -- be fixed against a real one and replayed. Also the dedupe: one task per
+    -- order is decided by asking this table, not by trusting a retry not to
+    -- happen.
+    CREATE TABLE IF NOT EXISTS admin_spiro_hook_events (
+      id TEXT PRIMARY KEY,
+      received_at INTEGER NOT NULL,
+      event_name TEXT,
+      order_id TEXT,
+      order_number TEXT,
+      bundle_name TEXT,
+      bundle_source TEXT,
+      outcome TEXT NOT NULL,
+      detail TEXT,
+      task_id TEXT,
+      raw TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_spiro_hook_events_order
+      ON admin_spiro_hook_events(order_id);
+    CREATE INDEX IF NOT EXISTS admin_spiro_hook_events_received
+      ON admin_spiro_hook_events(received_at);
     -- Everything that happened to a case, in the order it happened. Contacts
     -- and notes keep their own tables — they are things a person wrote — while
     -- this records the state changes nobody would otherwise be able to see:

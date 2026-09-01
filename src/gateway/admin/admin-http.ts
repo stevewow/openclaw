@@ -254,6 +254,9 @@ import {
 export { handleFeedbackIntakeRequest } from "./feedback-http.js";
 export { handleTicketIntakeRequest } from "./ticket-intake-http.js";
 export { handleLeadIntakeRequest } from "./lead-intake-http.js";
+import { ingestHookBody } from "./spiro-hook-http.js";
+import { getHookEvent, listHookEvents } from "./spiro-hook-store.js";
+export { handleSpiroHookRequest } from "./spiro-hook-http.js";
 import { isNavSurface } from "./nav-catalog.js";
 import { getNavConfig, parseNavConfig, resetNavConfig, setNavConfig } from "./nav-config-store.js";
 import {
@@ -1008,6 +1011,44 @@ export async function handleAdminHttpRequest(
     }
     const saved = await setNavConfig(surface, parsed, sessionUser.id);
     sendJson(res, 200, { surface, config: saved });
+    return true;
+  }
+
+  // GET /api/admin/spiro-hook/events — what Spiro has actually posted.
+  //
+  // Superadmin only, and diagnostic rather than a feature: Spiro publishes no
+  // webhook contract, so this is how the real payload shape is read the first
+  // time one lands, and how an event that matched nothing is found.
+  if (subPath === "/spiro-hook/events" && req.method === "GET") {
+    if (!isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const limit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const events = await listHookEvents(Number.isFinite(limit) ? limit : 50);
+    sendJson(res, 200, { events });
+    return true;
+  }
+
+  // POST /api/admin/spiro-hook/events/<id>/replay — run a stored event again.
+  //
+  // The recovery path for the risk this design carries: an event whose bundle
+  // could not be established raised no task. Once the mapping is corrected, or
+  // once Spiro is reachable again, the stored body is put back through the same
+  // code a live delivery takes.
+  const hookReplayMatch = subPath.match(/^\/spiro-hook\/events\/([^/]+)\/replay$/);
+  if (hookReplayMatch && req.method === "POST") {
+    if (!isSuperAdmin) {
+      sendForbidden(res);
+      return true;
+    }
+    const stored = await getHookEvent(decodeURIComponent(hookReplayMatch[1]));
+    if (!stored) {
+      sendNotFound(res);
+      return true;
+    }
+    const event = await ingestHookBody(stored.raw);
+    sendJson(res, 200, { event });
     return true;
   }
 
