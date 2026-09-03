@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractAddress,
+  extractAgentName,
   extractBundleName,
+  extractCompanyName,
+  extractDeliveredAt,
   extractDeliveryUrl,
   extractEventName,
+  extractMediaTitle,
   extractOrderId,
   extractOrderNumber,
+  extractOrderUrl,
   extractUnbrandedUrl,
   readHookFacts,
 } from "./spiro-hook-payload.js";
 
 const ORDER_ID = "b47d6967-b750-46e0-22ab-08def6d513e4";
+const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
 
 /**
  * Spiro's own order-detail shape, trimmed from a live response. The important
@@ -120,6 +127,7 @@ describe("supporting facts", () => {
       address: "107 S Main St, Monroe, NC 28112",
     });
     expect(facts.deliveryUrl).toContain("view.wowvideotours.com");
+    expect(facts.mediaTitle).toBe("Downtown Monroe");
   });
 
   it("survives a payload of an unexpected shape", () => {
@@ -146,7 +154,7 @@ describe("supporting facts", () => {
 const SPIRO_WEBHOOK = {
   TenantName: "Spiro",
   OrderID: ORDER_ID,
-  DetailsURL: "https://spiro.media",
+  DetailsURL: `https://admins.wowvideotours.com/orders/${ORDER_ID}`,
   MediaTitle: "2100 Diller Rd, Elida, OH 45807, USA",
   Status: "Delivery Email Sent",
   Agent: { FirstName: "Spiro", LastName: "Admin", CompanyName: "Spiro Media" },
@@ -154,6 +162,7 @@ const SPIRO_WEBHOOK = {
   Bundle: { BundleID: ORDER_ID, Name: "Wow Stock Media", AgentPrice: 50 },
   Upcharges: [{ Type: "Above Ground Square Footage", AgentPrice: 0 }],
   PriceOverrides: [{ Type: "Bundle", Reason: "Updated fee" }],
+  DateListingDelivered: "2026-09-03T16:24:30.8043146",
   DisplayPage_BrandedURL: "https://spiro.media/branded-url",
   DisplayPage_UnbrandedURL: "https://spiro.media/unbranded-url",
 };
@@ -164,10 +173,46 @@ describe("Spiro's own webhook shape", () => {
       orderId: ORDER_ID,
       bundleName: "Wow Stock Media",
       eventName: "Delivery Email Sent",
-      address: "2100 Diller Rd, Elida, OH 45807, USA",
+      address: "2100 Diller Road, Elida, OH 45807",
+      mediaTitle: "2100 Diller Rd, Elida, OH 45807, USA",
+      agentName: "Spiro Admin",
+      companyName: "Spiro Media",
+      deliveredAt: "2026-09-03T16:24:30.8043146",
+      orderUrl: `https://admins.wowvideotours.com/orders/${ORDER_ID}`,
       deliveryUrl: "https://spiro.media/branded-url",
       unbrandedUrl: "https://spiro.media/unbranded-url",
     });
+  });
+
+  it("composes the address from the Listing parts, which is the only whole one", () => {
+    // MediaTitle looks like an address but is the listing's name; the address
+    // proper only exists as `AddressL1` + city + state + zip.
+    expect(extractAddress(SPIRO_WEBHOOK)).toBe("2100 Diller Road, Elida, OH 45807");
+  });
+
+  it("keeps the media title as its own fact", () => {
+    expect(extractMediaTitle(SPIRO_WEBHOOK)).toBe("2100 Diller Rd, Elida, OH 45807, USA");
+  });
+
+  it("reads the agent and the brokerage off the Agent block", () => {
+    expect(extractAgentName(SPIRO_WEBHOOK)).toBe("Spiro Admin");
+    expect(extractCompanyName(SPIRO_WEBHOOK)).toBe("Spiro Media");
+  });
+
+  it("does not mistake our own tenant for the client's brokerage", () => {
+    expect(extractCompanyName({ TenantName: "WOW Video Tours" })).toBeNull();
+  });
+
+  it("reads the delivery timestamp Spiro sends without a zone", () => {
+    expect(extractDeliveredAt(SPIRO_WEBHOOK)).toBe("2026-09-03T16:24:30.8043146");
+  });
+
+  it("reads DetailsURL as the link to the order", () => {
+    expect(extractOrderUrl(SPIRO_WEBHOOK)).toBe(
+      `https://admins.wowvideotours.com/orders/${ORDER_ID}`,
+    );
+    // Not the delivery page, which is a different link for a different reader.
+    expect(extractOrderUrl(SPIRO_WEBHOOK)).not.toContain("spiro.media/branded");
   });
 
   it("reads PascalCase Bundle.Name, which once read as null", () => {
@@ -184,7 +229,14 @@ describe("Spiro's own webhook shape", () => {
   });
 
   it("treats Spiro's test event, whose ids are all zeros, as having no order", () => {
-    const zeroed = { ...SPIRO_WEBHOOK, OrderID: "00000000-0000-0000-0000-000000000000" };
+    // A real test event zeroes the id everywhere it appears, `DetailsURL`
+    // included — that link is built from the same id, so it cannot name a
+    // different order and must not be a way back to one.
+    const zeroed = {
+      ...SPIRO_WEBHOOK,
+      OrderID: EMPTY_UUID,
+      DetailsURL: `https://admins.wowvideotours.com/orders/${EMPTY_UUID}`,
+    };
     expect(extractOrderId(zeroed)).toBeNull();
     // The rest still reads, so the event is recorded as something legible.
     expect(extractBundleName(zeroed)).toBe("Wow Stock Media");

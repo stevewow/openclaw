@@ -238,14 +238,124 @@ export function extractEventName(payload: unknown, scan = scanPayload(payload)):
   );
 }
 
+/** A string field off an already-normalized object, or null. */
+function strOf(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Spiro's webhook gives no whole address — it gives a `Listing` block of parts
+ * (`AddressL1`, `City`, `State`, `ZipCode`) — so the address has to be composed
+ * or the task reads as an id. Composed rather than falling through to
+ * `MediaTitle` because the two are different facts: the title is the listing's
+ * name and happens to look like an address, the address is the address.
+ */
+function addressFromParts(scan: Scan): string | null {
+  for (const [path, obj] of scan.objects) {
+    const leaf = (path.split(".").pop() ?? "").replace(/\[\d+\]$/, "");
+    if (leaf !== "listing" && leaf !== "property" && leaf !== "address") {
+      continue;
+    }
+    const line1 = strOf(obj.addressl1) ?? strOf(obj.streetaddress) ?? strOf(obj.address1);
+    if (!line1) {
+      continue;
+    }
+    const unit = strOf(obj.unit) ?? strOf(obj.unitnumber);
+    const city = strOf(obj.city);
+    const region = strOf(obj.state) ?? strOf(obj.stateorprovince);
+    const postal = strOf(obj.zipcode) ?? strOf(obj.postalcode);
+    const street = unit ? `${line1} ${unit}` : line1;
+    const tail = [city, [region, postal].filter(Boolean).join(" ").trim()]
+      .filter(Boolean)
+      .join(", ");
+    return tail ? `${street}, ${tail}` : street;
+  }
+  return null;
+}
+
 /** Street address, so a task reads as a place rather than as an id. */
 export function extractAddress(payload: unknown, scan = scanPayload(payload)): string | null {
-  const direct = pick(scan, ["fulladdress", "listingaddress", "propertyaddress", "streetaddress"]);
+  const direct = pick(scan, ["fulladdress", "listingaddress", "propertyaddress"]);
   if (direct) {
     return direct;
   }
+  const composed = addressFromParts(scan);
+  if (composed) {
+    return composed;
+  }
+  const street = pick(scan, ["streetaddress"]);
+  if (street) {
+    return street;
+  }
   const address = pick(scan, ["address"], (v) => v.length > 4 && /\d/.test(v));
   return address ?? pick(scan, ["mediatitle"]);
+}
+
+/**
+ * What Spiro calls the listing — `MediaTitle`, the name the order is recognised
+ * by in the Spiro UI. Usually the address with a country on the end, sometimes
+ * a name a human typed, and either way the thing the person doing the work
+ * searches for.
+ */
+export function extractMediaTitle(payload: unknown, scan = scanPayload(payload)): string | null {
+  return pick(scan, ["mediatitle", "propertytitle", "listingtitle"], (v) => v.length <= 200);
+}
+
+/** The listing agent, so the card says whose listing it is. */
+export function extractAgentName(payload: unknown, scan = scanPayload(payload)): string | null {
+  for (const [path, obj] of scan.objects) {
+    const leaf = (path.split(".").pop() ?? "").replace(/\[\d+\]$/, "");
+    if (leaf !== "agent" && leaf !== "client" && leaf !== "customer") {
+      continue;
+    }
+    const full = strOf(obj.name) ?? strOf(obj.fullname);
+    if (full) {
+      return full;
+    }
+    const name = [strOf(obj.firstname), strOf(obj.lastname)].filter(Boolean).join(" ");
+    if (name) {
+      return name;
+    }
+  }
+  return pick(scan, ["agentname"], (v) => v.length <= 120);
+}
+
+/**
+ * The brokerage. Read off the agent block rather than by key alone: the payload
+ * also carries `TenantName`, which is our own company, not the client's.
+ */
+export function extractCompanyName(payload: unknown, scan = scanPayload(payload)): string | null {
+  for (const [path, obj] of scan.objects) {
+    const leaf = (path.split(".").pop() ?? "").replace(/\[\d+\]$/, "");
+    if (leaf !== "agent" && leaf !== "client" && leaf !== "customer") {
+      continue;
+    }
+    const company = strOf(obj.companyname) ?? strOf(obj.company) ?? strOf(obj.brokerage);
+    if (company) {
+      return company;
+    }
+  }
+  return null;
+}
+
+/**
+ * When the media was delivered — the event this whole rule hangs off, and what
+ * the task is due on. Spiro's webhook writes these without a zone designator
+ * (`DateListingDelivered`), its API returns the same instant with a `Z`.
+ */
+export function extractDeliveredAt(payload: unknown, scan = scanPayload(payload)): string | null {
+  return pick(scan, ["datelistingdelivered", "deliveredat", "datedelivered", "deliverydate"], (v) =>
+    /^\d{4}-\d{2}-\d{2}/.test(v),
+  );
+}
+
+/**
+ * The order in the Spiro admin app. Spiro's public API never returns a web-app
+ * URL (see spiro-links.ts), but the webhook does — `DetailsURL` — so when an
+ * event carries one it is the real link rather than a composed guess.
+ */
+export function extractOrderUrl(payload: unknown, scan = scanPayload(payload)): string | null {
+  return pick(scan, ["detailsurl", "orderurl", "adminurl", "orderlink"], isHttpUrl);
 }
 
 const isHttpUrl = (v: string): boolean => /^https?:\/\//i.test(v);
@@ -283,6 +393,11 @@ export type SpiroHookFacts = {
   bundleName: string | null;
   eventName: string | null;
   address: string | null;
+  mediaTitle: string | null;
+  agentName: string | null;
+  companyName: string | null;
+  deliveredAt: string | null;
+  orderUrl: string | null;
   deliveryUrl: string | null;
   unbrandedUrl: string | null;
 };
@@ -296,6 +411,11 @@ export function readHookFacts(payload: unknown): SpiroHookFacts {
     bundleName: extractBundleName(payload, scan),
     eventName: extractEventName(payload, scan),
     address: extractAddress(payload, scan),
+    mediaTitle: extractMediaTitle(payload, scan),
+    agentName: extractAgentName(payload, scan),
+    companyName: extractCompanyName(payload, scan),
+    deliveredAt: extractDeliveredAt(payload, scan),
+    orderUrl: extractOrderUrl(payload, scan),
     deliveryUrl: extractDeliveryUrl(payload, scan),
     unbrandedUrl: extractUnbrandedUrl(payload, scan),
   };

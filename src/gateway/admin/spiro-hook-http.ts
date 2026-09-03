@@ -30,6 +30,7 @@ import {
   bundleMatches,
   createStockMediaTask,
   fetchOrderDetail,
+  mergeOrders,
   orderFromDetail,
   orderFromFacts,
   type StockMediaOrder,
@@ -198,7 +199,7 @@ export async function decideHook(
 
   const loadOrder = deps.loadOrder ?? ((id: string) => defaultLoadOrder(id, deps.log));
   const fromSpiro = await loadOrder(facts.orderId);
-  const order = fromSpiro ?? orderFromFacts(facts);
+  const order = mergeOrders(fromSpiro, orderFromFacts(facts));
   const bundleName = fromSpiro?.bundleName ?? facts.bundleName;
   const bundleSource: "payload" | "spiro" | null = fromSpiro?.bundleName
     ? "spiro"

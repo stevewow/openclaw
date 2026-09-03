@@ -28,6 +28,22 @@ export function spiroAdminBaseUrl(env: NodeJS.ProcessEnv = process.env): string 
  * there. Returns null when the id is not a UUID, so a malformed row renders as
  * plain text instead of a broken link.
  */
+/**
+ * Link to an order in the Spiro admin app. Composed, and so a fallback only:
+ * Spiro's delivery webhook sends the real one as `DetailsURL`, and that should
+ * be preferred whenever an event carried it. Returns null for a non-UUID id so
+ * a malformed row renders as plain text instead of a broken link.
+ */
+export function spiroOrderUrl(
+  orderId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  if (!UUID_RE.test(orderId)) {
+    return null;
+  }
+  return `${spiroAdminBaseUrl(env)}/orders/${orderId}`;
+}
+
 export function spiroInvoiceUrl(
   invoiceId: string,
   env: NodeJS.ProcessEnv = process.env,
