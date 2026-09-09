@@ -370,6 +370,17 @@ function extractPhotographer(raw: Record<string, unknown>): string | null {
   );
 }
 
+// Delivery is what recognizes revenue, and Spiro hangs that timestamp off the
+// order's website block (OrderListItemModel -> website.deliveredAt), not the
+// order root. The root-level fallbacks are kept for other shapes.
+function extractDeliveredAt(raw: Record<string, unknown>): number | null {
+  const site = asObject(raw.website);
+  return (
+    (site ? parseDateMs(site, ["deliveredAt", "delivered_at"]) : null) ??
+    parseDateMs(raw, ["deliveredAt", "delivered_at"])
+  );
+}
+
 const CLEVELAND_KEYWORDS = ["kickham", "kralovic"];
 
 function matchesCleveland(name: string | null): boolean {
@@ -413,8 +424,39 @@ function parsePagedOrdersResult(result: unknown): {
   return { orders: [], hasNextPage: false };
 }
 
+export type ClevelandOrder = {
+  orderId: string;
+  photographer: string;
+  revenue: number;
+  deliveredAt: number;
+};
+
+// Reduce one raw Spiro order row to a cached revenue event, or null when the row
+// is not Cleveland revenue yet. Exported so the field contract this depends on
+// is covered by a test against a real order payload.
+export function toClevelandOrder(raw: Record<string, unknown>): ClevelandOrder | null {
+  const photographer = extractPhotographer(raw);
+  if (!matchesCleveland(photographer)) {
+    return null;
+  }
+  const deliveredAt = extractDeliveredAt(raw);
+  // Revenue is recognized on delivery only.
+  if (deliveredAt === null) {
+    return null;
+  }
+  const orderId = firstString(raw, ["orderId", "order_id", "id"]);
+  if (!orderId) {
+    return null;
+  }
+  const revenue =
+    firstNumber(raw, ["totalSalePrice", "total_sale_price", "total", "totalPrice"]) ?? 0;
+  return { orderId, photographer: photographer!, revenue, deliveredAt };
+}
+
 const PAGE_SIZE = 200;
-const MAX_PAGES = 400; // 80k orders ceiling across the scan window.
+// The public API caps page size at 100 regardless of what we ask for, so this
+// is a 40k-order ceiling across the scan window (~10k orders as of Sept 2026).
+const MAX_PAGES = 400;
 const REFRESH_LOG_KEY = "cleveland";
 
 export async function refreshClevelandOrders(opts: {
@@ -423,8 +465,7 @@ export async function refreshClevelandOrders(opts: {
   const toolName = await resolveOrdersToolName();
   const to = new Date(Date.now() + DAY_MS).toISOString().slice(0, 10);
 
-  type Cached = { orderId: string; photographer: string; revenue: number; deliveredAt: number };
-  const byId = new Map<string, Cached>();
+  const byId = new Map<string, ClevelandOrder>();
   for (let page = 1; page <= MAX_PAGES; page++) {
     const result = await callTool(toolName, {
       dateSubmittedFrom: FETCH_FROM,
@@ -434,15 +475,10 @@ export async function refreshClevelandOrders(opts: {
     });
     const { orders, hasNextPage } = parsePagedOrdersResult(result);
     for (const raw of orders) {
-      const photographer = extractPhotographer(raw);
-      if (!matchesCleveland(photographer)) continue;
-      const deliveredAt = parseDateMs(raw, ["deliveredAt", "delivered_at"]);
-      if (deliveredAt === null) continue; // revenue recognized on delivery only
-      const orderId = firstString(raw, ["orderId", "order_id", "id"]);
-      if (!orderId) continue;
-      const revenue =
-        firstNumber(raw, ["totalSalePrice", "total_sale_price", "total", "totalPrice"]) ?? 0;
-      byId.set(orderId, { orderId, photographer: photographer!, revenue, deliveredAt });
+      const order = toClevelandOrder(raw);
+      if (order) {
+        byId.set(order.orderId, order);
+      }
     }
     if (!hasNextPage || orders.length === 0) break;
   }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeInvestment, ONGOING_WAGES, PAST_EXPENSES } from "./cleveland-store.js";
+import {
+  computeInvestment,
+  ONGOING_WAGES,
+  PAST_EXPENSES,
+  toClevelandOrder,
+} from "./cleveland-store.js";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -153,5 +158,65 @@ describe("computeInvestment", () => {
     expect(weighted.summary.trendSlopePerWeek).toBeGreaterThan(all.summary.trendSlopePerWeek);
     // ...but smoother than the hard 4-week cutoff, since older weeks still count a little.
     expect(weighted.summary.trendSlopePerWeek).toBeLessThan(hard4.summary.trendSlopePerWeek);
+  });
+});
+
+// A real Spiro order row (trimmed), captured from search_spiro_orders. The
+// delivery timestamp lives on `website`, not the order root — reading the root
+// silently dropped every order and the report charted cost with no revenue.
+const SPIRO_ORDER: Record<string, unknown> = {
+  orderId: "7a13abc6-371b-4144-2088-08df0b324c22",
+  trackingCode: "ffq276rif",
+  status: "delivered",
+  dateSubmitted: "2026-09-07T20:19:02.7713310Z",
+  totalSalePrice: 150,
+  mediaTitle: "14244 Puritas Ave, Cleveland, OH 44135, USA",
+  primaryAppointment: {
+    appointmentId: "8261b897-54c3-45a6-95e3-c78f50ef11f3",
+    photographer: {
+      photographerId: "71aaae43-5471-4e24-be46-c44f5b2e5459",
+      name: "Brandon Kralovic",
+    },
+  },
+  website: {
+    hasDisplayPage: true,
+    deliveredAt: "2026-09-09T05:05:47.8179245Z",
+  },
+};
+
+describe("toClevelandOrder", () => {
+  it("reads revenue and the delivered date off a real Spiro order row", () => {
+    const order = toClevelandOrder(SPIRO_ORDER);
+    expect(order).not.toBeNull();
+    expect(order!.orderId).toBe("7a13abc6-371b-4144-2088-08df0b324c22");
+    expect(order!.photographer).toBe("Brandon Kralovic");
+    expect(order!.revenue).toBe(150);
+    expect(order!.deliveredAt).toBe(Date.parse("2026-09-09T05:05:47.8179245Z"));
+  });
+
+  it("skips an order that has not been delivered yet", () => {
+    const undelivered = {
+      ...SPIRO_ORDER,
+      status: "confirmed",
+      website: { hasDisplayPage: false, deliveredAt: null },
+    };
+    expect(toClevelandOrder(undelivered)).toBeNull();
+  });
+
+  it("skips an order shot by a photographer outside Cleveland", () => {
+    const other = {
+      ...SPIRO_ORDER,
+      primaryAppointment: { photographer: { name: "Valerie Fitzsimmons" } },
+    };
+    expect(toClevelandOrder(other)).toBeNull();
+  });
+
+  it("counts both Cleveland photographers", () => {
+    const kickham = {
+      ...SPIRO_ORDER,
+      orderId: "other-order",
+      primaryAppointment: { photographer: { name: "John Kickham" } },
+    };
+    expect(toClevelandOrder(kickham)?.photographer).toBe("John Kickham");
   });
 });
