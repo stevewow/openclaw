@@ -480,7 +480,15 @@ describe("the Navigation editor", () => {
     const items = Array.from(document.querySelectorAll(".nav-edit-item")).map(
       (li) => (li as HTMLElement).dataset.item,
     );
-    expect(items).toEqual(["chat", "tasks", "reports", "leads", "resources", "account"]);
+    expect(items).toEqual([
+      "chat",
+      "tasks",
+      "reports",
+      "leads",
+      "listings",
+      "resources",
+      "account",
+    ]);
   });
 
   it("puts the menu back with Reset", async () => {

@@ -23,6 +23,7 @@ import { handleLeadAdminRequest } from "./lead-http.js";
 import { ensureLeadDigestScheduler } from "./lead-notify.js";
 import { ensurePlaybookSeed } from "./lead-playbooks-store.js";
 import { ensureTerritorySeed } from "./lead-territories.js";
+import { handleListingAdminRequest } from "./listing-http.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
 let _getResolvedAuth: (() => ResolvedGatewayAuth) | undefined;
@@ -1224,12 +1225,16 @@ export async function handleAdminHttpRequest(
                 subPath === "/lead-playbooks" ||
                 subPath.startsWith("/lead-playbooks/")
               ? ["leads"]
-              : // Authoring the knowledge base is one grant, read and write
-                // alike: everything under here edits or previews unpublished
-                // work. Clients read published articles on the public surface.
-                subPath === "/kb" || subPath.startsWith("/kb/")
-                ? ["knowledge-base"]
-                : null;
+              : // The prospecting queue is its own grant: the VA who researches
+                // new listings all day needs this and nothing else in Sales.
+                subPath === "/listings" || subPath.startsWith("/listings/")
+                ? ["listings"]
+                : // Authoring the knowledge base is one grant, read and write
+                  // alike: everything under here edits or previews unpublished
+                  // work. Clients read published articles on the public surface.
+                  subPath === "/kb" || subPath.startsWith("/kb/")
+                  ? ["knowledge-base"]
+                  : null;
     if (gatedFeatures) {
       let allowed = false;
       for (const feature of gatedFeatures) {
@@ -1252,6 +1257,11 @@ export async function handleAdminHttpRequest(
 
   // Leads: same arrangement — its own module, reached after the gate.
   if (await handleLeadAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
+    return true;
+  }
+
+  // The new-listing queue, which raises leads into the queue above.
+  if (await handleListingAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
     return true;
   }
 

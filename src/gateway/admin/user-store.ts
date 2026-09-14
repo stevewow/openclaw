@@ -851,6 +851,69 @@ type LeadsTable = {
   updated_at: number;
 };
 
+/**
+ * A listing the prospecting sweep found, and what a person did about it.
+ *
+ * Kept rather than shown straight from the feed because the queue is worked,
+ * not just read: a VA needs yesterday's rows to still be there, needs the ones
+ * already sent to stop coming back, and needs the ones they rejected to stay
+ * rejected. The feed is metered besides — re-fetching to redraw a page would
+ * spend credits to show what we already knew.
+ */
+type ListingsTable = {
+  id: string;
+  /** The feed's property id. UNIQUE: one house is one row however often it is swept. */
+  property_id: string;
+  listing_id: string | null;
+  /** Territory key, so a listing routes exactly the way a lead does. */
+  territory_key: string;
+  market_label: string;
+  status: string;
+  /** When the feed says it went on the market. */
+  listed_at: number | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  price: number | null;
+  beds: number | null;
+  baths: number | null;
+  sqft: number | null;
+  href: string | null;
+  photo_url: string | null;
+  agent_name: string | null;
+  agent_office: string | null;
+  agent_feed_id: string | null;
+  /**
+   * Whether we already know this agent, resolved once at sweep time against the
+   * cached Pipedrive directory. Stored rather than joined per read: the answer
+   * is what decides whether a VA opens the row at all.
+   */
+  known_person_id: number | null;
+  known_org_id: number | null;
+  /** new | sent | dismissed. What a person has done about it. */
+  queue_status: string;
+  /** The lead it became, when somebody sent it. */
+  lead_id: string | null;
+  dismissed_reason: string | null;
+  actioned_by: string | null;
+  actioned_at: number | null;
+  first_seen_at: number;
+  updated_at: number;
+};
+
+/** One press of Refresh: what it cost and what it found. */
+type ListingSweepsTable = {
+  id: string;
+  started_at: number;
+  finished_at: number | null;
+  markets: string;
+  found: number;
+  added: number;
+  credits_remaining: number | null;
+  error: string | null;
+};
+
 type LeadPlaybooksTable = {
   key: string;
   label: string;
@@ -970,6 +1033,8 @@ export type AdminDb = {
   admin_kb_article_notes: KbArticleNotesTable;
   admin_nav_config: NavConfigTable;
   admin_leads: LeadsTable;
+  admin_listings: ListingsTable;
+  admin_listing_sweeps: ListingSweepsTable;
   admin_lead_events: LeadEventsTable;
   admin_lead_playbooks: LeadPlaybooksTable;
   admin_lead_settings: LeadSettingsTable;
@@ -1812,6 +1877,54 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS admin_listings (
+      id TEXT PRIMARY KEY,
+      property_id TEXT UNIQUE NOT NULL,
+      listing_id TEXT,
+      territory_key TEXT NOT NULL,
+      market_label TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'for_sale',
+      listed_at INTEGER,
+      address TEXT,
+      city TEXT,
+      state TEXT,
+      zip TEXT,
+      price INTEGER,
+      beds REAL,
+      baths REAL,
+      sqft INTEGER,
+      href TEXT,
+      photo_url TEXT,
+      agent_name TEXT,
+      agent_office TEXT,
+      agent_feed_id TEXT,
+      known_person_id INTEGER,
+      known_org_id INTEGER,
+      queue_status TEXT NOT NULL DEFAULT 'new'
+        CHECK(queue_status IN ('new','sent','dismissed')),
+      lead_id TEXT,
+      dismissed_reason TEXT,
+      actioned_by TEXT,
+      actioned_at INTEGER,
+      first_seen_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_listings_queue ON admin_listings(queue_status);
+    CREATE INDEX IF NOT EXISTS admin_listings_territory ON admin_listings(territory_key);
+    CREATE INDEX IF NOT EXISTS admin_listings_listed ON admin_listings(listed_at);
+
+    CREATE TABLE IF NOT EXISTS admin_listing_sweeps (
+      id TEXT PRIMARY KEY,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      markets TEXT NOT NULL DEFAULT '[]',
+      found INTEGER NOT NULL DEFAULT 0,
+      added INTEGER NOT NULL DEFAULT 0,
+      credits_remaining INTEGER,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS admin_listing_sweeps_started ON admin_listing_sweeps(started_at);
+
     CREATE INDEX IF NOT EXISTS admin_leads_status ON admin_leads(status);
     CREATE INDEX IF NOT EXISTS admin_leads_territory ON admin_leads(territory_key);
     CREATE INDEX IF NOT EXISTS admin_leads_created ON admin_leads(created_at);

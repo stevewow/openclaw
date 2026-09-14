@@ -25,6 +25,12 @@ import {
   LEADS_MARKUP,
   LEADS_MODALS,
 } from "./leads-ui.js";
+import {
+  LISTING_SEND_MODAL,
+  LISTINGS_COMPONENT_JS,
+  LISTINGS_CSS,
+  LISTINGS_MARKUP,
+} from "./listings-ui.js";
 import { MARKET_COMPONENT_JS, MARKET_CSS } from "./market-ui.js";
 import { MY_WORK_COMPONENT_JS, MY_WORK_CSS } from "./my-work-ui.js";
 import {
@@ -518,6 +524,7 @@ ${TASK_LIST_CSS}
 ${KB_CSS}
 ${KB_SEARCHES_CSS}
 ${LEADS_CSS}
+${LISTINGS_CSS}
 ${FEEDBACK_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
@@ -1355,6 +1362,7 @@ ${HUB_BASE_CSS}
 ${KB_MARKUP}
 ${KB_SEARCHES_MARKUP}
 ${LEADS_MARKUP}
+${LISTINGS_MARKUP}
 ${LEAD_PLAYBOOKS_MARKUP}
 ${FEEDBACK_MARKUP}
 
@@ -1705,6 +1713,7 @@ ${FEEDBACK_MARKUP}
 <!-- Folder Modal: create, rename or move a resource folder. -->
 ${KB_MODALS}
 ${LEADS_MODALS}
+${LISTING_SEND_MODAL}
 ${FEEDBACK_MODALS}
 
 <div id="folder-modal" class="modal-backdrop hidden">
@@ -2315,6 +2324,7 @@ ${FEEDBACK_MODALS}
     'pipedrive-cleanup': { el: 'page-pipedrive-cleanup', title: 'Pipedrive Cleanup', adminOnly: false, superAdminOnly: false, report: 'pipedrive-cleanup' },
     churn: { el: 'page-churn', title: 'Churn & Retention', adminOnly: false, superAdminOnly: false, report: 'churn' },
     leads: { el: 'page-leads', title: 'Leads', adminOnly: false, superAdminOnly: false, feature: 'leads' },
+    listings: { el: 'page-listings', title: 'New Listings', adminOnly: false, superAdminOnly: false, feature: 'listings' },
     // Same grant opens both, but editing the routing table is an admin's: the
     // server refuses the writes either way, and this keeps the nav honest.
     'lead-routing': { el: 'page-lead-routing', title: 'Lead Routing', adminOnly: true, superAdminOnly: false },
@@ -2449,6 +2459,7 @@ ${FEEDBACK_MODALS}
         if (wantedLead) openLeadModal(wantedLead);
       });
     }
+    if (page === 'listings') loadListings();
     if (page === 'lead-routing') loadLeadRouting();
     if (page === 'lead-playbooks') loadLeadPlaybooks();
     if (page === 'tickets') loadTickets();
@@ -3721,6 +3732,7 @@ ${TASK_LIST_COMPONENT_JS}
 ${KB_COMPONENT_JS}
 ${KB_SEARCHES_COMPONENT_JS}
 ${LEADS_COMPONENT_JS}
+${LISTINGS_COMPONENT_JS}
 ${FEEDBACK_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}

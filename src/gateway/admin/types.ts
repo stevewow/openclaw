@@ -46,6 +46,10 @@ export const PORTAL_FEATURES = [
   // lets someone add resources and tend the ones they added, nothing else.
   { value: "resource-upload", label: "Upload Resources (add & manage own)" },
   { value: "leads", label: "Leads" },
+  // The prospecting queue: houses that just went on the market, for whoever
+  // researches them. Granted apart from Leads — a VA works this list all day
+  // without needing the rest of the sales section.
+  { value: "listings", label: "New Listings" },
   { value: "tickets", label: "Tickets" },
   { value: "ticket-departments", label: "Ticket Departments" },
   { value: "ticket-categories", label: "Ticket Request Types" },

@@ -31,7 +31,12 @@ export function isLeadStatus(value: unknown): value is LeadStatus {
   return typeof value === "string" && (LEAD_STATUSES as string[]).includes(value);
 }
 
-export type LeadSource = "framer" | "manual";
+/**
+ * Where a lead came from. "listing" is one the prospecting queue raised from a
+ * house that went on the market — a lead nobody asked us for, which is worth
+ * telling apart from the two that came to us.
+ */
+export type LeadSource = "framer" | "manual" | "listing";
 
 export type LeadEventKind = "created" | "note" | "status_change" | "dispatch" | "assignment";
 
@@ -136,7 +141,7 @@ function rowToLead(row: LeadRow): Lead {
   return {
     id: row.id,
     number: row.number,
-    source: row.source === "manual" ? "manual" : "framer",
+    source: row.source === "manual" || row.source === "listing" ? row.source : "framer",
     formName: row.form_name,
     submissionId: row.submission_id,
     name: row.name,
