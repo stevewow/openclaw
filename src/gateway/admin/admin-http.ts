@@ -18,6 +18,8 @@ import {
   listAttachmentsForOwners,
   resolveAttachmentFilePath,
 } from "./attachment-store.js";
+import { handleBrokerageAdminRequest } from "./brokerage-http.js";
+import { ensureBrokerageOrderScheduler } from "./brokerage-orders.js";
 import { handleKbAdminRequest } from "./kb-http.js";
 import { handleLeadAdminRequest } from "./lead-http.js";
 import { ensureLeadDigestScheduler } from "./lead-notify.js";
@@ -569,6 +571,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   ensurePhotographersScheduler();
   ensurePipedriveContactsScheduler();
   ensureLeadDigestScheduler();
+  ensureBrokerageOrderScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -1229,12 +1232,14 @@ export async function handleAdminHttpRequest(
                 // new listings all day needs this and nothing else in Sales.
                 subPath === "/listings" || subPath.startsWith("/listings/")
                 ? ["listings"]
-                : // Authoring the knowledge base is one grant, read and write
-                  // alike: everything under here edits or previews unpublished
-                  // work. Clients read published articles on the public surface.
-                  subPath === "/kb" || subPath.startsWith("/kb/")
-                  ? ["knowledge-base"]
-                  : null;
+                : subPath === "/brokerages" || subPath.startsWith("/brokerages/")
+                  ? ["brokerages"]
+                  : // Authoring the knowledge base is one grant, read and write
+                    // alike: everything under here edits or previews unpublished
+                    // work. Clients read published articles on the public surface.
+                    subPath === "/kb" || subPath.startsWith("/kb/")
+                    ? ["knowledge-base"]
+                    : null;
     if (gatedFeatures) {
       let allowed = false;
       for (const feature of gatedFeatures) {
@@ -1262,6 +1267,11 @@ export async function handleAdminHttpRequest(
 
   // The new-listing queue, which raises leads into the queue above.
   if (await handleListingAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
+    return true;
+  }
+
+  // Brokerage partnerships: agreements, targets, order pages and their documents.
+  if (await handleBrokerageAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
     return true;
   }
 

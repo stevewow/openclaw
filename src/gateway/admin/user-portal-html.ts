@@ -9,6 +9,12 @@ import {
   LOGIN_HEADING,
   LOGIN_SUBTITLE,
 } from "./brand.js";
+import {
+  BROKERAGES_COMPONENT_JS,
+  BROKERAGES_CSS,
+  BROKERAGES_MODALS,
+  BROKERAGES_PORTAL_MARKUP,
+} from "./brokerages-ui.js";
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import {
   LEADS_COMPONENT_JS,
@@ -201,6 +207,7 @@ ${MY_WORK_CSS}
 ${MARKET_CSS}
 ${LEADS_CSS}
 ${LISTINGS_CSS}
+${BROKERAGES_CSS}
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
   /* Client tags, matching the dashboard's Focus report. */
@@ -412,6 +419,7 @@ ${HUB_BASE_CSS}
 
 ${LEADS_PORTAL_MARKUP}
 ${LISTINGS_PORTAL_MARKUP}
+${BROKERAGES_PORTAL_MARKUP}
 
     <!-- Reports -->
     <div id="page-reports" class="page">
@@ -532,6 +540,7 @@ ${LISTINGS_PORTAL_MARKUP}
 
 ${LEADS_PORTAL_MODALS}
 ${LISTING_SEND_MODAL}
+${BROKERAGES_MODALS}
 
 <!-- Project modal -->
 <div id="pt-project-modal" class="modal-backdrop hidden">
@@ -679,6 +688,7 @@ ${MY_WORK_COMPONENT_JS}
 ${MARKET_COMPONENT_JS}
 ${LEADS_COMPONENT_JS}
 ${LISTINGS_COMPONENT_JS}
+${BROKERAGES_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -1560,6 +1570,7 @@ ${LISTINGS_COMPONENT_JS}
     // '#leads?lead=<id>' opens that lead, the same deep link the dispatch
     // emails send to the dashboard.
     if (page === 'listings') loadListings();
+    if (page === 'brokerages') loadBrokerages();
     if (page === 'leads') {
       var wantedLead = new URLSearchParams((location.hash.split('?')[1] || '')).get('lead');
       loadLeads().then(function(){ if (wantedLead) openLeadModal(wantedLead); });

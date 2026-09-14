@@ -1010,6 +1010,79 @@ type LeadTerritoriesTable = {
   updated_at: number;
 };
 
+type BrokerageOrderPagesTable = {
+  id: string;
+  name: string;
+  url: string | null;
+  notes: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type BrokerageAgreementsTable = {
+  id: string;
+  name: string;
+  /** target | negotiating | active | expired */
+  stage: string;
+  market: string | null;
+  owner_name: string | null;
+  order_page_id: string | null;
+  /** YYYY-MM-DD */
+  signed_on: string | null;
+  renews_on: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  terms: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type BrokerageCompaniesTable = {
+  agreement_id: string;
+  company_id: string;
+  company_name: string;
+  service_area: string | null;
+  added_at: number;
+};
+
+type BrokerageDocumentsTable = {
+  id: string;
+  agreement_id: string;
+  title: string | null;
+  filename: string;
+  /** Stored filename under the admin attachment root. */
+  stored_path: string;
+  mime_type: string;
+  byte_size: number;
+  uploaded_by: string | null;
+  created_at: number;
+};
+
+type BrokerageCompanyMonthsTable = {
+  year: number;
+  month: number;
+  company_id: string;
+  company_name: string;
+  /** Orders placed that month, cancelled ones excluded. */
+  orders: number;
+  revenue_cents: number;
+  cancelled: number;
+};
+
+type BrokerageOrderSyncTable = {
+  id: string;
+  year: number;
+  covered_to: string | null;
+  orders_read: number;
+  /** Set only by a read that finished. */
+  refreshed_at: number | null;
+  attempted_at: number;
+  error: string | null;
+};
+
 type LeadDigestLogTable = {
   /** YYYY-MM-DD in the digest timezone. Primary key, so a day sends once. */
   day: string;
@@ -1081,6 +1154,12 @@ export type AdminDb = {
   admin_listing_sweeps: ListingSweepsTable;
   admin_listing_spiro_orders: ListingSpiroOrdersTable;
   admin_listing_spiro_sync: ListingSpiroSyncTable;
+  admin_brokerage_order_pages: BrokerageOrderPagesTable;
+  admin_brokerage_agreements: BrokerageAgreementsTable;
+  admin_brokerage_companies: BrokerageCompaniesTable;
+  admin_brokerage_documents: BrokerageDocumentsTable;
+  admin_brokerage_company_months: BrokerageCompanyMonthsTable;
+  admin_brokerage_order_sync: BrokerageOrderSyncTable;
   admin_lead_events: LeadEventsTable;
   admin_lead_playbooks: LeadPlaybooksTable;
   admin_lead_settings: LeadSettingsTable;
@@ -1999,6 +2078,80 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       covered_from INTEGER NOT NULL,
       covered_to INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+
+    -- Brokerage partnerships. Order pages are a short picked list because Spiro
+    -- has no field for them; companies are the Spiro companies an agreement
+    -- covers; documents' bytes live under admin-attachments.
+    CREATE TABLE IF NOT EXISTS admin_brokerage_order_pages (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      url TEXT,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_brokerage_agreements (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      stage TEXT NOT NULL DEFAULT 'target'
+        CHECK(stage IN ('target','negotiating','active','expired')),
+      market TEXT,
+      owner_name TEXT,
+      order_page_id TEXT REFERENCES admin_brokerage_order_pages(id) ON DELETE SET NULL,
+      signed_on TEXT,
+      renews_on TEXT,
+      contact_name TEXT,
+      contact_email TEXT,
+      contact_phone TEXT,
+      terms TEXT,
+      notes TEXT,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_brokerage_companies (
+      agreement_id TEXT NOT NULL REFERENCES admin_brokerage_agreements(id) ON DELETE CASCADE,
+      company_id TEXT NOT NULL,
+      company_name TEXT NOT NULL,
+      service_area TEXT,
+      added_at INTEGER NOT NULL,
+      PRIMARY KEY (agreement_id, company_id)
+    );
+    CREATE INDEX IF NOT EXISTS admin_brokerage_companies_company
+      ON admin_brokerage_companies(company_id);
+    CREATE TABLE IF NOT EXISTS admin_brokerage_documents (
+      id TEXT PRIMARY KEY,
+      agreement_id TEXT NOT NULL REFERENCES admin_brokerage_agreements(id) ON DELETE CASCADE,
+      title TEXT,
+      filename TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      byte_size INTEGER NOT NULL,
+      uploaded_by TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_brokerage_documents_agreement
+      ON admin_brokerage_documents(agreement_id);
+    -- Rebuilt whole for the year by each finished Spiro read.
+    CREATE TABLE IF NOT EXISTS admin_brokerage_company_months (
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      company_id TEXT NOT NULL,
+      company_name TEXT NOT NULL,
+      orders INTEGER NOT NULL,
+      revenue_cents INTEGER NOT NULL,
+      cancelled INTEGER NOT NULL,
+      PRIMARY KEY (year, month, company_id)
+    );
+    CREATE TABLE IF NOT EXISTS admin_brokerage_order_sync (
+      id TEXT PRIMARY KEY,
+      year INTEGER NOT NULL,
+      covered_to TEXT,
+      orders_read INTEGER NOT NULL DEFAULT 0,
+      refreshed_at INTEGER,
+      attempted_at INTEGER NOT NULL,
+      error TEXT
     );
 
     CREATE INDEX IF NOT EXISTS admin_leads_status ON admin_leads(status);

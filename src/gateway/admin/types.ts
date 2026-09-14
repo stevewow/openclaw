@@ -50,6 +50,9 @@ export const PORTAL_FEATURES = [
   // researches them. Granted apart from Leads — a VA works this list all day
   // without needing the rest of the sales section.
   { value: "listings", label: "New Listings" },
+  // Agreements with brokerages and the targets for the next ones, with their
+  // contracts. Whoever holds it keeps the whole section.
+  { value: "brokerages", label: "Brokerage Partnerships" },
   { value: "tickets", label: "Tickets" },
   { value: "ticket-departments", label: "Ticket Departments" },
   { value: "ticket-categories", label: "Ticket Request Types" },

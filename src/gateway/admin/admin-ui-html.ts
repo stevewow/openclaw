@@ -10,6 +10,12 @@ import {
   LOGIN_SUBTITLE,
 } from "./brand.js";
 import {
+  BROKERAGES_COMPONENT_JS,
+  BROKERAGES_CSS,
+  BROKERAGES_MARKUP,
+  BROKERAGES_MODALS,
+} from "./brokerages-ui.js";
+import {
   FEEDBACK_COMPONENT_JS,
   FEEDBACK_CSS,
   FEEDBACK_MARKUP,
@@ -525,6 +531,7 @@ ${KB_CSS}
 ${KB_SEARCHES_CSS}
 ${LEADS_CSS}
 ${LISTINGS_CSS}
+${BROKERAGES_CSS}
 ${FEEDBACK_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
@@ -1363,6 +1370,7 @@ ${KB_MARKUP}
 ${KB_SEARCHES_MARKUP}
 ${LEADS_MARKUP}
 ${LISTINGS_MARKUP}
+${BROKERAGES_MARKUP}
 ${LEAD_PLAYBOOKS_MARKUP}
 ${FEEDBACK_MARKUP}
 
@@ -1714,6 +1722,7 @@ ${FEEDBACK_MARKUP}
 ${KB_MODALS}
 ${LEADS_MODALS}
 ${LISTING_SEND_MODAL}
+${BROKERAGES_MODALS}
 ${FEEDBACK_MODALS}
 
 <div id="folder-modal" class="modal-backdrop hidden">
@@ -2325,6 +2334,7 @@ ${FEEDBACK_MODALS}
     churn: { el: 'page-churn', title: 'Churn & Retention', adminOnly: false, superAdminOnly: false, report: 'churn' },
     leads: { el: 'page-leads', title: 'Leads', adminOnly: false, superAdminOnly: false, feature: 'leads' },
     listings: { el: 'page-listings', title: 'New Listings', adminOnly: false, superAdminOnly: false, feature: 'listings' },
+    brokerages: { el: 'page-brokerages', title: 'Brokerage Partnerships', adminOnly: false, superAdminOnly: false, feature: 'brokerages' },
     // Same grant opens both, but editing the routing table is an admin's: the
     // server refuses the writes either way, and this keeps the nav honest.
     'lead-routing': { el: 'page-lead-routing', title: 'Lead Routing', adminOnly: true, superAdminOnly: false },
@@ -2460,6 +2470,7 @@ ${FEEDBACK_MODALS}
       });
     }
     if (page === 'listings') loadListings();
+    if (page === 'brokerages') loadBrokerages();
     if (page === 'lead-routing') loadLeadRouting();
     if (page === 'lead-playbooks') loadLeadPlaybooks();
     if (page === 'tickets') loadTickets();
@@ -3733,6 +3744,7 @@ ${KB_COMPONENT_JS}
 ${KB_SEARCHES_COMPONENT_JS}
 ${LEADS_COMPONENT_JS}
 ${LISTINGS_COMPONENT_JS}
+${BROKERAGES_COMPONENT_JS}
 ${FEEDBACK_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}
