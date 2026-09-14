@@ -891,6 +891,16 @@ type ListingsTable = {
    */
   known_person_id: number | null;
   known_org_id: number | null;
+  /**
+   * Our own Spiro order at this address in the last 90 days, when there is one.
+   * Re-resolved on every check while the row is open, so a cancellation or an
+   * order aging out clears it; frozen once somebody has acted on the row.
+   */
+  spiro_order_id: string | null;
+  spiro_tracking_code: string | null;
+  spiro_order_status: string | null;
+  spiro_ordered_at: number | null;
+  spiro_order_agent: string | null;
   /** new | sent | dismissed. What a person has done about it. */
   queue_status: string;
   /** The lead it became, when somebody sent it. */
@@ -900,6 +910,27 @@ type ListingsTable = {
   actioned_at: number | null;
   first_seen_at: number;
   updated_at: number;
+};
+
+/**
+ * Our Spiro orders from the last 90 days, by street, for the listing queue's
+ * "already our order" check. A cache, not a record: rows past 90 days are
+ * pruned on every refresh, and all of it can be rebuilt from Spiro.
+ */
+type ListingSpiroOrdersTable = {
+  order_id: string;
+  /** Normalized house number and street — see streetKey in listing-spiro-orders.ts. */
+  street_key: string;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  status: string;
+  tracking_code: string | null;
+  agent_name: string | null;
+  company_name: string | null;
+  submitted_at: number;
+  cached_at: number;
 };
 
 /** One press of Refresh: what it cost and what it found. */
@@ -1035,6 +1066,7 @@ export type AdminDb = {
   admin_leads: LeadsTable;
   admin_listings: ListingsTable;
   admin_listing_sweeps: ListingSweepsTable;
+  admin_listing_spiro_orders: ListingSpiroOrdersTable;
   admin_lead_events: LeadEventsTable;
   admin_lead_playbooks: LeadPlaybooksTable;
   admin_lead_settings: LeadSettingsTable;
@@ -1900,6 +1932,11 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       agent_feed_id TEXT,
       known_person_id INTEGER,
       known_org_id INTEGER,
+      spiro_order_id TEXT,
+      spiro_tracking_code TEXT,
+      spiro_order_status TEXT,
+      spiro_ordered_at INTEGER,
+      spiro_order_agent TEXT,
       queue_status TEXT NOT NULL DEFAULT 'new'
         CHECK(queue_status IN ('new','sent','dismissed')),
       lead_id TEXT,
@@ -1924,6 +1961,25 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       error TEXT
     );
     CREATE INDEX IF NOT EXISTS admin_listing_sweeps_started ON admin_listing_sweeps(started_at);
+
+    CREATE TABLE IF NOT EXISTS admin_listing_spiro_orders (
+      order_id TEXT PRIMARY KEY,
+      street_key TEXT NOT NULL,
+      street TEXT,
+      city TEXT,
+      state TEXT,
+      zip TEXT,
+      status TEXT NOT NULL,
+      tracking_code TEXT,
+      agent_name TEXT,
+      company_name TEXT,
+      submitted_at INTEGER NOT NULL,
+      cached_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_listing_spiro_orders_street
+      ON admin_listing_spiro_orders(street_key);
+    CREATE INDEX IF NOT EXISTS admin_listing_spiro_orders_submitted
+      ON admin_listing_spiro_orders(submitted_at);
 
     CREATE INDEX IF NOT EXISTS admin_leads_status ON admin_leads(status);
     CREATE INDEX IF NOT EXISTS admin_leads_territory ON admin_leads(territory_key);
@@ -2091,6 +2147,24 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     ] as const) {
       if (!leadColumns.some((c) => c.name === name)) {
         db.exec(`ALTER TABLE admin_leads ADD COLUMN ${name} ${type}`);
+      }
+    }
+  }
+  // The Spiro cross-check shipped after the listing queue did. All nullable:
+  // no order is the normal case, and the next check fills in the rest.
+  const listingColumns = db.prepare("PRAGMA table_info(admin_listings)").all() as Array<{
+    name: string;
+  }>;
+  if (listingColumns.length > 0) {
+    for (const [name, type] of [
+      ["spiro_order_id", "TEXT"],
+      ["spiro_tracking_code", "TEXT"],
+      ["spiro_order_status", "TEXT"],
+      ["spiro_ordered_at", "INTEGER"],
+      ["spiro_order_agent", "TEXT"],
+    ] as const) {
+      if (!listingColumns.some((c) => c.name === name)) {
+        db.exec(`ALTER TABLE admin_listings ADD COLUMN ${name} ${type}`);
       }
     }
   }

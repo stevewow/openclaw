@@ -42,6 +42,11 @@ function feedRow(over: Record<string, unknown> = {}): Record<string, unknown> {
   };
 }
 
+/** Spiro answering with no orders, so a sweep here never reaches the network. */
+async function noSpiroOrders(): Promise<unknown> {
+  return { content: [{ type: "text", text: JSON.stringify({ data: [], meta: {} }) }] };
+}
+
 describe("reading a listing off the feed", () => {
   it("keeps what a person deciding whether to call actually needs", () => {
     const listing = parseListing(feedRow());
@@ -136,6 +141,7 @@ describe("the listing queue", () => {
   it("files what is new and says what it cost", async () => {
     const result = await store.sweepListings(MARKETS, {
       now,
+      spiroCall: noSpiroOrders,
       fetchMarket: async (market) => ({
         listings: [listingAt(`p-${market.key}-1`, "2026-09-14T15:00:00Z")],
         creditsRemaining: 240,
@@ -157,6 +163,7 @@ describe("the listing queue", () => {
 
     const again = await store.sweepListings(MARKETS, {
       now: now + 60_000,
+      spiroCall: noSpiroOrders,
       fetchMarket: async (market) => ({
         // The same two houses, plus one genuinely new one.
         listings: [
@@ -179,6 +186,7 @@ describe("the listing queue", () => {
   it("carries on when one market fails, and stops when the credits do", async () => {
     const partial = await store.sweepListings(MARKETS, {
       now: now + 120_000,
+      spiroCall: noSpiroOrders,
       fetchMarket: async (market) => {
         if (market.key === "findlay") {
           throw new Error("RealtyAPI error: 500");
@@ -194,6 +202,7 @@ describe("the listing queue", () => {
     const tried: string[] = [];
     const broke = await store.sweepListings(MARKETS, {
       now: now + 180_000,
+      spiroCall: noSpiroOrders,
       fetchMarket: async (market) => {
         tried.push(market.key);
         throw new Error("RealtyAPI credits exhausted");
@@ -207,9 +216,12 @@ describe("the listing queue", () => {
     const all = await store.listListings({ queueStatus: "all" });
     const summary = store.summarizeListings(all);
     expect(summary.total).toBe(all.length);
-    expect(summary.newCount + summary.sentCount + summary.dismissedCount).toBe(all.length);
-    // Nothing was matched against a CRM directory in this test database, so
-    // every open row counts as an agent we do not know.
+    expect(
+      summary.newCount + summary.ourOrderCount + summary.sentCount + summary.dismissedCount,
+    ).toBe(all.length);
+    // Nothing was matched against a CRM directory or a Spiro order in this test
+    // database, so every open row counts as an agent we do not know.
+    expect(summary.ourOrderCount).toBe(0);
     expect(summary.unknownAgents).toBe(summary.newCount);
   });
 

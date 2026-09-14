@@ -12,6 +12,12 @@
 import crypto from "node:crypto";
 import type { FeedListing, ListingMarket } from "./listing-feed.js";
 import { fetchNewListings, type ListingFeedDeps, withinWindow } from "./listing-feed.js";
+import {
+  checkListingsAgainstSpiro,
+  listingOrderUrl,
+  type SpiroCheckResult,
+  type SpiroOrderCall,
+} from "./listing-spiro-orders.js";
 import { loadContactIndex, lookupContact } from "./pipedrive-contacts-store.js";
 import { getAdminDb } from "./user-store.js";
 
@@ -40,6 +46,13 @@ export type Listing = {
   agentFeedId: string | null;
   knownPersonId: number | null;
   knownOrgId: number | null;
+  /** Our own Spiro order at this address in the last 90 days, if any. */
+  spiroOrderId: string | null;
+  spiroOrderUrl: string | null;
+  spiroTrackingCode: string | null;
+  spiroOrderStatus: string | null;
+  spiroOrderedAt: number | null;
+  spiroOrderAgent: string | null;
   queueStatus: ListingQueueStatus;
   leadId: string | null;
   dismissedReason: string | null;
@@ -72,6 +85,11 @@ type ListingRow = {
   agent_feed_id: string | null;
   known_person_id: number | null;
   known_org_id: number | null;
+  spiro_order_id: string | null;
+  spiro_tracking_code: string | null;
+  spiro_order_status: string | null;
+  spiro_ordered_at: number | null;
+  spiro_order_agent: string | null;
   queue_status: string;
   lead_id: string | null;
   dismissed_reason: string | null;
@@ -109,6 +127,12 @@ function rowToListing(row: ListingRow): Listing {
     agentFeedId: row.agent_feed_id,
     knownPersonId: row.known_person_id,
     knownOrgId: row.known_org_id,
+    spiroOrderId: row.spiro_order_id,
+    spiroOrderUrl: listingOrderUrl(row.spiro_order_id),
+    spiroTrackingCode: row.spiro_tracking_code,
+    spiroOrderStatus: row.spiro_order_status,
+    spiroOrderedAt: row.spiro_ordered_at,
+    spiroOrderAgent: row.spiro_order_agent,
     queueStatus: isQueueStatus(row.queue_status) ? row.queue_status : "new",
     leadId: row.lead_id,
     dismissedReason: row.dismissed_reason,
@@ -120,7 +144,11 @@ function rowToListing(row: ListingRow): Listing {
 }
 
 export type ListingFilter = {
-  queueStatus?: ListingQueueStatus | "all" | "open";
+  /**
+   * `new` is the worklist: open and not one of our own orders. `ours` is the
+   * open rows that are. `open` is both.
+   */
+  queueStatus?: ListingQueueStatus | "all" | "open" | "ours";
   territoryKey?: string;
   /** Only listings that went on the market inside this many hours. */
   hours?: number;
@@ -133,6 +161,10 @@ export async function listListings(filter: ListingFilter = {}): Promise<Listing[
   const status = filter.queueStatus ?? "new";
   if (status === "open") {
     q = q.where("queue_status", "=", "new");
+  } else if (status === "new") {
+    q = q.where("queue_status", "=", "new").where("spiro_order_id", "is", null);
+  } else if (status === "ours") {
+    q = q.where("queue_status", "=", "new").where("spiro_order_id", "is not", null);
   } else if (status !== "all") {
     q = q.where("queue_status", "=", status);
   }
@@ -171,20 +203,28 @@ export async function getListing(id: string): Promise<Listing | null> {
 
 export type ListingSummary = {
   total: number;
+  /** Open and worth working: not one of our own orders. */
   newCount: number;
+  /** Open, but the house is already one of our Spiro orders. */
+  ourOrderCount: number;
   sentCount: number;
   dismissedCount: number;
-  /** How many nobody has seen that we do not already have in the CRM. */
+  /** How many worth working we do not already have in the CRM. */
   unknownAgents: number;
 };
 
 export function summarizeListings(listings: readonly Listing[]): ListingSummary {
   let newCount = 0;
+  let ourOrderCount = 0;
   let sentCount = 0;
   let dismissedCount = 0;
   let unknownAgents = 0;
   for (const listing of listings) {
     if (listing.queueStatus === "new") {
+      if (listing.spiroOrderId) {
+        ourOrderCount++;
+        continue;
+      }
       newCount++;
       if (!listing.knownPersonId) {
         unknownAgents++;
@@ -195,7 +235,14 @@ export function summarizeListings(listings: readonly Listing[]): ListingSummary 
       dismissedCount++;
     }
   }
-  return { total: listings.length, newCount, sentCount, dismissedCount, unknownAgents };
+  return {
+    total: listings.length,
+    newCount,
+    ourOrderCount,
+    sentCount,
+    dismissedCount,
+    unknownAgents,
+  };
 }
 
 export type SweepResult = {
@@ -204,6 +251,8 @@ export type SweepResult = {
   added: number;
   creditsRemaining: number | null;
   errors: Array<{ market: string; error: string }>;
+  /** The cross-check against our own Spiro orders, run after every sweep. */
+  spiro: SpiroCheckResult;
 };
 
 export type SweepDeps = ListingFeedDeps & {
@@ -214,6 +263,8 @@ export type SweepDeps = ListingFeedDeps & {
     listings: FeedListing[];
     creditsRemaining: number | null;
   }>;
+  /** Injected in tests so the Spiro check never reaches the network. */
+  spiroCall?: SpiroOrderCall;
 };
 
 /**
@@ -226,7 +277,9 @@ export type SweepDeps = ListingFeedDeps & {
  *
  * One market failing does not fail the sweep. A market with no credits left or
  * a name the feed cannot resolve is reported beside the ones that worked,
- * because eight markets minus one is still a morning's work.
+ * because eight markets minus one is still a morning's work. Spiro failing does
+ * not fail it either: the listings are in, and the flags fall back to the
+ * orders already held.
  */
 export async function sweepListings(
   markets: readonly ListingMarket[],
@@ -312,6 +365,11 @@ export async function sweepListings(
             agent_feed_id: listing.agentFeedId,
             known_person_id: known?.pipedriveId ?? null,
             known_org_id: office?.pipedriveId ?? null,
+            spiro_order_id: null,
+            spiro_tracking_code: null,
+            spiro_order_status: null,
+            spiro_ordered_at: null,
+            spiro_order_agent: null,
             queue_status: "new",
             lead_id: null,
             dismissed_reason: null,
@@ -334,6 +392,10 @@ export async function sweepListings(
     }
   }
 
+  // Before anyone sees the new rows: a house we already have an order for is
+  // not a prospect, and the time to say so is before a VA starts researching it.
+  const spiro = await checkListingsAgainstSpiro({ call: deps.spiroCall, now });
+
   await db
     .updateTable("admin_listing_sweeps")
     .set({
@@ -346,7 +408,7 @@ export async function sweepListings(
     .where("id", "=", sweepId)
     .execute();
 
-  return { markets: markets.map((m) => m.key), found, added, creditsRemaining, errors };
+  return { markets: markets.map((m) => m.key), found, added, creditsRemaining, errors, spiro };
 }
 
 export type LastSweep = {

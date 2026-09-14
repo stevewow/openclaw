@@ -23,15 +23,26 @@ import type { FeedListing } from "./listing-feed.js";
 let server: Server;
 let base: string;
 let asAdmin = true;
+/** What Spiro answers with. Empty unless a test is about the Spiro check. */
+let spiroOrders: unknown[] = [];
+
+async function spiroCall(): Promise<unknown> {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ data: spiroOrders, meta: {} }) }],
+  };
+}
 
 beforeAll(async () => {
   server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? "/", "http://localhost");
-      const handled = await handleListingAdminRequest(url.pathname, req, res, {
-        actorName: "Dana",
-        isAdmin: asAdmin,
-      });
+      const handled = await handleListingAdminRequest(
+        url.pathname,
+        req,
+        res,
+        { actorName: "Dana", isAdmin: asAdmin },
+        { sweep: { spiroCall } },
+      );
       if (!handled) {
         res.statusCode = 404;
         res.end("not found");
@@ -90,6 +101,7 @@ function feedListing(id: string): FeedListing {
 async function seed(id: string): Promise<string> {
   await listings.sweepListings([{ key: "findlay", label: "Findlay", query: "Findlay, OH" }], {
     fetchMarket: async () => ({ listings: [feedListing(id)], creditsRemaining: 200 }),
+    spiroCall,
   });
   const all = await listings.listListings({ queueStatus: "all" });
   return all.find((l) => l.propertyId === id)!.id;
@@ -106,6 +118,8 @@ describe("the new-listing queue", () => {
     expect(res.data.marketCount).toBe(8);
     expect(res.data).toHaveProperty("feedConfigured");
     expect(res.data).toHaveProperty("lastSweep");
+    expect(res.data.spiroOrders).toMatchObject({ orders: 0 });
+    expect(res.data.summary).toMatchObject({ ourOrderCount: 0 });
   });
 
   it("will not let a non-admin spend credits", async () => {
@@ -173,6 +187,46 @@ describe("the new-listing queue", () => {
 
     const back = await call("PUT", `/listings/${id}/restore`);
     expect((back.data.listing as Record<string, unknown>).queueStatus).toBe("new");
+  });
+
+  it("lets anyone working the queue check it against our Spiro orders", async () => {
+    const id = await seed("p-6");
+    spiroOrders = [
+      {
+        orderId: "55555555-5555-4555-8555-555555555555",
+        trackingCode: "abc123",
+        status: "delivered",
+        dateSubmitted: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        property: {
+          address: {
+            streetAddress: "139 Oakland Avenue",
+            city: "Findlay",
+            stateOrProvince: "OH",
+            postalCode: "45840",
+          },
+        },
+        client: { agentName: "Scott Fader", companyName: "Joseph Walter Realty, LLC" },
+      },
+    ];
+    // Not an admin: the check spends no feed credits.
+    asAdmin = false;
+    const res = await call("POST", "/listings/spiro-check", {});
+    asAdmin = true;
+    spiroOrders = [];
+    expect(res.status).toBe(200);
+    expect(res.data.ok).toBe(true);
+    expect((res.data.result as Record<string, unknown>).flagged).toBeGreaterThan(0);
+    expect(res.data.spiroOrders).toMatchObject({ orders: 1 });
+
+    const ours = await call("GET", "/listings?status=ours");
+    const rows = ours.data.listings as Array<Record<string, unknown>>;
+    expect(rows.map((l) => l.id)).toContain(id);
+    // Off the worklist, and counted where the tiles can see it from any tab.
+    const toWork = await call("GET", "/listings?status=new");
+    expect((toWork.data.listings as Array<Record<string, unknown>>).map((l) => l.id)).not.toContain(
+      id,
+    );
+    expect((toWork.data.summary as Record<string, number>).ourOrderCount).toBe(rows.length);
   });
 
   it("answers for a listing nobody has", async () => {

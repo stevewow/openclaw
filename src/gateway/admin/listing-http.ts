@@ -2,10 +2,11 @@
 //
 // Auth and the `listings` feature gate run in admin-http.ts before anything
 // here. What is decided here is what a viewer may do once inside: anybody who
-// can see the queue can work it — research a row, send it, set it aside —
-// because that is the job the section exists for. Only sweeping is an admin's,
-// since a sweep spends metered credits and a queue page that anyone can reload
-// into an empty balance is not a queue anyone can rely on.
+// can see the queue can work it — research a row, send it, set it aside, check
+// it against our Spiro orders — because that is the job the section exists for.
+// Only sweeping is an admin's, since a sweep spends metered credits and a queue
+// page that anyone can reload into an empty balance is not a queue anyone can
+// rely on.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
@@ -17,12 +18,12 @@ import { createLead, getLead } from "./lead-store.js";
 import { getTerritory, listTerritories } from "./lead-territories.js";
 import { readFeedApiKey } from "./listing-feed.js";
 import { listingMarkets } from "./listing-markets.js";
+import { checkListingsAgainstSpiro, getSpiroOrderCacheStatus } from "./listing-spiro-orders.js";
 import {
   dismissListing,
   getLastSweep,
   getListing,
   type ListingFilter,
-  type ListingQueueStatus,
   listListings,
   markListingSent,
   restoreListing,
@@ -43,31 +44,34 @@ function str(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+const QUEUE_STATUSES = ["all", "open", "new", "ours", "sent", "dismissed"] as const;
+
+function queueStatusParam(value: string | null): NonNullable<ListingFilter["queueStatus"]> {
+  return QUEUE_STATUSES.find((status) => status === value) ?? "new";
+}
+
 /** What the page draws itself from, in one round trip. */
 async function respondWithQueue(res: ServerResponse, url: URL): Promise<void> {
-  const statusParam = url.searchParams.get("status");
   const filter: ListingFilter = {
-    queueStatus:
-      statusParam === "all" ||
-      statusParam === "open" ||
-      statusParam === "new" ||
-      statusParam === "sent" ||
-      statusParam === "dismissed"
-        ? (statusParam as ListingQueueStatus | "all" | "open")
-        : "new",
+    queueStatus: queueStatusParam(url.searchParams.get("status")),
     territoryKey: url.searchParams.get("territory") ?? undefined,
     hours: Number.parseInt(url.searchParams.get("hours") ?? "", 10) || undefined,
     q: url.searchParams.get("q") ?? undefined,
   };
   const listings = await listListings(filter);
+  // Counted across every status under the same market, window and search, so
+  // the tiles read the same whichever tab is open.
+  const counted =
+    filter.queueStatus === "all" ? listings : await listListings({ ...filter, queueStatus: "all" });
   sendJson(res, 200, {
     listings,
-    summary: summarizeListings(listings),
+    summary: summarizeListings(counted),
     territories: await listTerritories(),
     // What a sweep would cost, so the button can say so before it is pressed.
     marketCount: listingMarkets().length,
     lastSweep: await getLastSweep(),
     feedConfigured: Boolean(readFeedApiKey()),
+    spiroOrders: await getSpiroOrderCacheStatus(),
     playbooks: (await listPlaybooks())
       .filter((playbook) => playbook.active)
       .map((playbook) => ({ key: playbook.key, label: playbook.label })),
@@ -122,6 +126,19 @@ export async function handleListingAdminRequest(
       windowHours: Number.isFinite(hours) && hours > 0 ? hours : undefined,
     });
     sendJson(res, 200, { ok: result.errors.length === 0, result, lastSweep: await getLastSweep() });
+    return true;
+  }
+
+  // Re-check the open rows against our own Spiro orders. Spends no feed
+  // credits, so anyone working the queue may run it — an order booked at ten
+  // should come off the list before the VA gets to that house at eleven.
+  if (subPath === "/listings/spiro-check" && method === "POST") {
+    const result = await checkListingsAgainstSpiro({ call: deps.sweep?.spiroCall });
+    sendJson(res, 200, {
+      ok: result.error === null,
+      result,
+      spiroOrders: await getSpiroOrderCacheStatus(),
+    });
     return true;
   }
 
