@@ -34,6 +34,11 @@ const LEADS = [
     fields: [{ label: "Listings per year", value: "24" }],
     notifiedAt: 1_756_000_000_000,
     notifyError: null,
+    crmPersonId: 49_456,
+    crmOrgId: 3_968,
+    crmActivityId: 324_148,
+    crmSyncedAt: 1_756_000_000_000,
+    crmError: null,
     createdAt: 1_756_000_000_000,
     updatedAt: 1_756_000_000_000,
   },
@@ -56,6 +61,11 @@ const LEADS = [
     fields: [],
     notifiedAt: null,
     notifyError: "no territory matched and no fallback address",
+    crmPersonId: null,
+    crmOrgId: null,
+    crmActivityId: null,
+    crmSyncedAt: null,
+    crmError: "Pipedrive API error: 401",
     createdAt: 1_756_000_000_000,
     updatedAt: 1_756_000_000_000,
   },
@@ -108,6 +118,11 @@ const QUEUE_RESPONSE = {
     { key: "lost", label: "Lost" },
   ],
   territories: TERRITORIES,
+  playbooks: [
+    { key: "getting_ready_guide", label: "Getting Ready Guide" },
+    { key: "listing_presentation", label: "Listing Presentation Template" },
+  ],
+  crmBaseUrl: "https://example.pipedrive.com",
 };
 
 const EVENTS = [
@@ -343,6 +358,76 @@ describe("the lead queue in the dashboard", () => {
     ).toBe(true);
   });
 
+  it("says which leads reached the CRM, and links the ones that did", async () => {
+    const { document, click } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="leads"]'));
+
+    const rows = Array.from(document.querySelectorAll("#ld-rows tr"));
+    const filed = rows[0].querySelector(".ld-crm-ok a") as HTMLAnchorElement | null;
+    expect(filed?.textContent).toBe("Filed");
+    expect(filed?.getAttribute("href")).toBe("https://example.pipedrive.com/person/49456");
+    // The one that failed says so, and says why on hover rather than in the row.
+    expect(rows[1].textContent).toContain("Failed");
+    expect(rows[1].querySelector(".ld-undelivered")?.getAttribute("title")).toBe(
+      "Pipedrive API error: 401",
+    );
+  });
+
+  it("opens a filed lead with its CRM records and offers to file it again", async () => {
+    const { document, click } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="leads"]'));
+    await click(document.querySelector("#ld-rows tr .ld-open"));
+
+    const facts = document.getElementById("ld-modal-facts")?.innerHTML ?? "";
+    expect(facts).toContain("Pipedrive");
+    expect(facts).toContain("https://example.pipedrive.com/person/49456");
+    expect(facts).toContain("https://example.pipedrive.com/organization/3968");
+    // Pressing it again would make a second follow-up, so the label admits it.
+    expect(document.getElementById("ld-modal-crm")?.textContent).toBe("File in Pipedrive again");
+  });
+
+  it("files a lead in the CRM on request", async () => {
+    const { document, click, calls } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="leads"]'));
+    await click(document.querySelector("#ld-rows tr .ld-open"));
+    await click(document.getElementById("ld-modal-crm"));
+
+    expect(calls.some((c) => c.method === "POST" && c.path === "/leads/lead-1/crm-sync")).toBe(
+      true,
+    );
+  });
+
+  it("takes a lead over the phone, with what they asked for", async () => {
+    const { dom, document, click, calls } = await bootAdmin();
+    await click(document.querySelector('#sidebar-nav .nav-link[data-page="leads"]'));
+    await click(document.getElementById("ld-new"));
+
+    const type = document.getElementById("ld-new-playbook") as HTMLSelectElement;
+    // The picker is filled from the sources the queue response named.
+    expect(Array.from(type.options).map((o) => o.value)).toEqual([
+      "",
+      "getting_ready_guide",
+      "listing_presentation",
+    ]);
+    (document.getElementById("ld-new-name") as HTMLInputElement).value = "Marie Dunn";
+    (document.getElementById("ld-new-phone") as HTMLInputElement).value = "(419) 555-0143";
+    (document.getElementById("ld-new-company") as HTMLInputElement).value = "Howard Hanna";
+    (document.getElementById("ld-new-territory") as HTMLSelectElement).value = "lima";
+    type.value = "getting_ready_guide";
+    await click(document.getElementById("ld-new-save"));
+
+    const posted = calls.find((c) => c.method === "POST" && c.path === "/leads");
+    expect(posted?.body).toMatchObject({
+      name: "Marie Dunn",
+      phone: "(419) 555-0143",
+      company: "Howard Hanna",
+      territoryKey: "lima",
+      playbookKey: "getting_ready_guide",
+    });
+    expect(document.getElementById("ld-new-modal")?.classList.contains("hidden")).toBe(true);
+    expect(dom.window.document.title).toBeTruthy();
+  });
+
   it("sends the dispatch again on request", async () => {
     const { document, click, calls } = await bootAdmin();
     await click(document.querySelector('#sidebar-nav .nav-link[data-page="leads"]'));
@@ -490,8 +575,11 @@ describe("the lead queue in the portal", () => {
     expect(USER_PORTAL_HTML).toContain('id="page-leads"');
     expect(USER_PORTAL_HTML).toContain('id="ld-rows"');
     expect(USER_PORTAL_HTML).toContain('id="ld-modal"');
-    // Adding leads by hand and editing the routing table are the admin's.
-    expect(USER_PORTAL_HTML).not.toContain('id="ld-new"');
+    // A VA taking a lead over the phone works in the portal, so the form is
+    // here too; the routing table stays the admin's.
+    expect(USER_PORTAL_HTML).toContain('id="ld-new"');
+    expect(USER_PORTAL_HTML).toContain('id="ld-new-modal"');
+    expect(USER_PORTAL_HTML).toContain('id="ld-new-playbook"');
     expect(USER_PORTAL_HTML).not.toContain('id="page-lead-routing"');
     expect(USER_PORTAL_HTML).not.toContain('id="ld-terr-rows"');
   });

@@ -33,6 +33,8 @@ export const LEADS_CSS = `
   /* An unrouted lead is the one row that needs the eye, so it gets the warning. */
   .ld-unrouted { color: #b45309; font-weight: 700; }
   .ld-undelivered { color: #b91c1c; font-weight: 600; font-size: 0.72rem; }
+  .ld-crm-ok a { color: #15803d; font-weight: 600; font-size: 0.78rem; text-decoration: none; }
+  .ld-crm-ok a:hover { text-decoration: underline; }
 
   .ld-facts { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 0.35rem 0.9rem; font-size: 0.82rem; margin-bottom: 1rem; }
   .ld-facts dt { color: var(--text-muted); white-space: nowrap; }
@@ -88,9 +90,10 @@ export const LEADS_CSS = `
  * a granted teammate works the queue they were given.
  */
 export function leadsQueueMarkup(opts: { canManage: boolean }): string {
-  const addButton = opts.canManage
-    ? `<button type="button" class="btn btn-primary" id="ld-new">＋ Add a lead</button>`
-    : "";
+  // Adding a lead is not an admin's job — it is the job of whoever is on the
+  // phone. Anyone who can see the queue can add to it, which is what the route
+  // behind this button already allows; only the routing table is an admin's.
+  const addButton = `<button type="button" class="btn btn-primary" id="ld-new">＋ Add a lead</button>`;
   const routingNote = opts.canManage
     ? `<a href="#lead-routing" data-page="lead-routing">Lead Routing</a> decides who that is.`
     : `Who that is comes from the market's owner in the Hub's routing table.`;
@@ -100,8 +103,9 @@ export function leadsQueueMarkup(opts: { canManage: boolean }): string {
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;margin-bottom:0.35rem">Leads</div>
               <p class="text-muted" style="font-size:0.85rem;margin:0">
-                Every enquiry the website forms send, in one place. Each one is emailed to whoever owns
-                that market the moment it arrives — ${routingNote}
+                Every enquiry the website forms send and every one taken over the phone, in one place.
+                Each is emailed to whoever owns that market the moment it arrives, and filed in Pipedrive
+                with the first follow-up already on their list — ${routingNote}
               </p>
             </div>
             ${addButton}
@@ -128,8 +132,8 @@ export function leadsQueueMarkup(opts: { canManage: boolean }): string {
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Lead</th><th>Market</th><th>Owner</th><th>Received</th><th>Status</th><th style="width:1%"></th></tr></thead>
-              <tbody id="ld-rows"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
+              <thead><tr><th>Lead</th><th>Market</th><th>Owner</th><th>Received</th><th>Status</th><th>Pipedrive</th><th style="width:1%"></th></tr></thead>
+              <tbody id="ld-rows"><tr><td colspan="7" class="empty-state">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>`;
@@ -240,6 +244,7 @@ export const LEAD_DETAIL_MODAL = `
         <select id="ld-modal-territory"></select>
       </div>
       <button type="button" class="btn btn-ghost" id="ld-modal-resend">Resend email</button>
+      <button type="button" class="btn btn-ghost" id="ld-modal-crm">File in Pipedrive</button>
     </div>
     <div class="form-group">
       <label for="ld-modal-note">Add a note</label>
@@ -304,9 +309,14 @@ export const LEAD_PLAYBOOK_MODAL = `
   </div>
 </div>`;
 
-/** Everything an admin can do beyond working the queue. */
-export const LEADS_MODALS = `${LEAD_DETAIL_MODAL}
-${LEAD_PLAYBOOK_MODAL}
+/**
+ * Taking a lead over the phone.
+ *
+ * Its own const because both surfaces show it: a VA working the portal is the
+ * person most likely to be typing one of these in, and the route behind it has
+ * never been an admin's.
+ */
+export const LEAD_NEW_MODAL = `
 <div id="ld-new-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:520px">
     <div class="modal-title">Add a lead</div>
@@ -315,14 +325,24 @@ ${LEAD_PLAYBOOK_MODAL}
     <div class="form-group"><label for="ld-new-phone">Phone</label><input id="ld-new-phone" type="tel" /></div>
     <div class="form-group"><label for="ld-new-company">Brokerage</label><input id="ld-new-company" type="text" /></div>
     <div class="form-group"><label for="ld-new-territory">Market</label><select id="ld-new-territory"></select></div>
+    <div class="form-group">
+      <label for="ld-new-playbook">What they want</label>
+      <select id="ld-new-playbook"></select>
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">Decides the cadence the owner is handed. Leave it on “Not sure” if they just asked about us.</p>
+    </div>
     <div class="form-group"><label for="ld-new-message">Notes</label><textarea id="ld-new-message" rows="3"></textarea></div>
-    <p class="text-muted" style="font-size:0.78rem">An email or a phone number is required. Nothing is emailed automatically — use <strong>Resend email</strong> on the lead if the owner should hear about it.</p>
+    <p class="text-muted" style="font-size:0.78rem">An email or a phone number is required. The contact and their brokerage are filed in Pipedrive and the first follow-up lands on the market owner's list. No email is sent — use <strong>Resend email</strong> on the lead if the owner should also hear about it.</p>
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" id="ld-new-cancel">Cancel</button>
       <button type="button" class="btn btn-primary" id="ld-new-save">Add lead</button>
     </div>
   </div>
-</div>
+</div>`;
+
+/** Everything an admin can do beyond working the queue. */
+export const LEADS_MODALS = `${LEAD_DETAIL_MODAL}
+${LEAD_PLAYBOOK_MODAL}
+${LEAD_NEW_MODAL}
 
 <div id="ld-terr-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:520px">
@@ -343,13 +363,19 @@ ${LEAD_PLAYBOOK_MODAL}
   </div>
 </div>`;
 
-/** The portal opens leads and works them; it does not create or re-route them. */
-export const LEADS_PORTAL_MODALS = LEAD_DETAIL_MODAL;
+/**
+ * The portal opens leads, works them, and adds them. It does not re-route them:
+ * the routing table is the one lead surface that stays an admin's.
+ */
+export const LEADS_PORTAL_MODALS = `${LEAD_DETAIL_MODAL}
+${LEAD_NEW_MODAL}`;
 
 export const LEADS_COMPONENT_JS = `
   var ldLeads = [];
   var ldStatuses = [];
   var ldTerritories = [];
+  var ldPlaybooks = [];
+  var ldCrmBase = '';
   var ldSummary = null;
   var ldOpenId = null;
   var ldSearchTimer = null;
@@ -375,6 +401,23 @@ export const LEADS_COMPONENT_JS = `
     return l.name || l.email || l.company || l.number;
   }
 
+  function ldCrmLink(kind, id, text){
+    if(!ldCrmBase || !id) return esc(text);
+    return '<a href="' + esc(ldCrmBase) + '/' + kind + '/' + encodeURIComponent(id) +
+      '" target="_blank" rel="noopener">' + esc(text) + '</a>';
+  }
+
+  /**
+   * What the CRM made of this lead. Three states worth telling apart: filed,
+   * refused (with the reason, and a retry inside the lead), and not yet tried —
+   * which is what a lead from before the sync existed looks like.
+   */
+  function ldCrmCell(l){
+    if(l.crmPersonId) return '<span class="ld-crm-ok">' + ldCrmLink('person', l.crmPersonId, 'Filed') + '</span>';
+    if(l.crmError) return '<span class="ld-undelivered" title="' + esc(l.crmError) + '">Failed</span>';
+    return '<span class="ld-sub">—</span>';
+  }
+
   function ldTerritoryLabel(key){
     for (var i=0;i<ldTerritories.length;i++){ if(ldTerritories[i].key === key) return ldTerritories[i].label; }
     return null;
@@ -396,13 +439,15 @@ export const LEADS_COMPONENT_JS = `
     if(q) qs.push('q=' + encodeURIComponent(q));
     var r = await api('GET','/leads' + (qs.length ? '?' + qs.join('&') : ''));
     if(!r.ok){
-      document.getElementById('ld-rows').innerHTML = '<tr><td colspan="6" class="empty-state">Could not load leads.</td></tr>';
+      document.getElementById('ld-rows').innerHTML = '<tr><td colspan="7" class="empty-state">Could not load leads.</td></tr>';
       return;
     }
     ldLeads = (r.data && r.data.leads) || [];
     ldSummary = (r.data && r.data.summary) || null;
     ldStatuses = (r.data && r.data.statuses) || [];
     ldTerritories = (r.data && r.data.territories) || [];
+    ldPlaybooks = (r.data && r.data.playbooks) || [];
+    ldCrmBase = (r.data && r.data.crmBaseUrl) || '';
     ldFillFilters();
     renderLeadStats();
     renderLeadRows();
@@ -449,7 +494,7 @@ export const LEADS_COMPONENT_JS = `
     document.getElementById('ld-count').textContent =
       ldLeads.length + (ldLeads.length === 1 ? ' lead' : ' leads');
     if(ldLeads.length === 0){
-      body.innerHTML = '<tr><td colspan="6" class="empty-state">No leads match that.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="empty-state">No leads match that.</td></tr>';
       return;
     }
     var html = '';
@@ -467,6 +512,7 @@ export const LEADS_COMPONENT_JS = `
         '<td>' + owner + '</td>' +
         '<td>' + esc(ldWhen(l.createdAt)) + '</td>' +
         '<td><span class="ld-chip ld-chip-' + esc(l.status) + '">' + esc(ldStatusLabel(l.status)) + '</span></td>' +
+        '<td>' + ldCrmCell(l) + '</td>' +
         '<td><button class="btn btn-sm btn-ghost ld-open">Open</button></td>' +
       '</tr>';
     });
@@ -512,6 +558,13 @@ export const LEADS_COMPONENT_JS = `
     fact('Emailed', l.notifiedAt
       ? esc(ldWhenLong(l.notifiedAt))
       : '<span class="ld-undelivered">' + esc(l.notifyError || 'not sent') + '</span>');
+    fact('Pipedrive', l.crmPersonId
+      ? ldCrmLink('person', l.crmPersonId, 'Contact') +
+        (l.crmOrgId ? ' · ' + ldCrmLink('organization', l.crmOrgId, 'Brokerage') : '') +
+        '<span class="ld-sub">filed ' + esc(ldWhenLong(l.crmSyncedAt)) + '</span>'
+      : (l.crmError
+          ? '<span class="ld-undelivered">' + esc(l.crmError) + '</span>'
+          : '<span class="ld-sub">not filed yet</span>'));
     if(l.formName) fact('Form', esc(l.formName));
     if(l.pageUrl) fact('Page', '<a href="' + esc(l.pageUrl) + '" target="_blank" rel="noopener">' + esc(l.pageUrl) + '</a>');
     (l.fields || []).forEach(function(f){ fact(f.label, esc(f.value)); });
@@ -529,6 +582,8 @@ export const LEADS_COMPONENT_JS = `
           esc(t.label) + (t.ownerName ? ' — ' + esc(t.ownerName) : '') + '</option>';
       }).join('');
     document.getElementById('ld-modal-note').value = '';
+    document.getElementById('ld-modal-crm').textContent =
+      l.crmPersonId ? 'File in Pipedrive again' : 'File in Pipedrive';
     document.getElementById('ld-modal').classList.remove('hidden');
 
     var r = await api('GET','/leads/' + encodeURIComponent(id));
@@ -584,6 +639,23 @@ export const LEADS_COMPONENT_JS = `
     await ldAfterWrite(r);
   }
 
+  /**
+   * Push again. Offered for a lead that failed, and for one that predates the
+   * sync; pressing it on a filed lead makes a second activity, which is why the
+   * label says "again" and the confirm says what it will do.
+   */
+  async function fileLeadInCrm(){
+    if(!ldOpenId) return;
+    var l = ldLeadById(ldOpenId);
+    if(l && l.crmPersonId &&
+       !confirm('This lead is already in Pipedrive. File it again and the owner gets a second follow-up.')) return;
+    var r = await api('POST','/leads/' + encodeURIComponent(ldOpenId) + '/crm-sync');
+    if(!r.ok || (r.data && r.data.ok === false)){
+      alert('Pipedrive refused it: ' + ((r.data && r.data.detail) || 'no reason given.'));
+    }
+    await ldAfterWrite(r);
+  }
+
   async function removeLead(){
     if(!ldOpenId) return;
     if(!confirm('Delete this lead and its activity? This cannot be undone.')) return;
@@ -600,6 +672,10 @@ export const LEADS_COMPONENT_JS = `
       '<option value="">Unrouted</option>' + ldTerritories.map(function(t){
         return '<option value="' + esc(t.key) + '">' + esc(t.label) + (t.ownerName ? ' — ' + esc(t.ownerName) : '') + '</option>';
       }).join('');
+    document.getElementById('ld-new-playbook').innerHTML =
+      '<option value="">Not sure</option>' + ldPlaybooks.map(function(pb){
+        return '<option value="' + esc(pb.key) + '">' + esc(pb.label) + '</option>';
+      }).join('');
     document.getElementById('ld-new-modal').classList.remove('hidden');
   }
 
@@ -610,6 +686,7 @@ export const LEADS_COMPONENT_JS = `
       phone: document.getElementById('ld-new-phone').value.trim(),
       company: document.getElementById('ld-new-company').value.trim(),
       territoryKey: document.getElementById('ld-new-territory').value || null,
+      playbookKey: document.getElementById('ld-new-playbook').value || null,
       message: document.getElementById('ld-new-message').value.trim()
     };
     if(!payload.email && !payload.phone){
@@ -899,6 +976,7 @@ export const LEADS_COMPONENT_JS = `
   ldOn('ld-modal-resend', 'click', resendLead);
   ldOn('ld-modal-delete', 'click', removeLead);
   ldOn('ld-modal-close', 'click', closeLeadModal);
+  ldOn('ld-modal-crm', 'click', fileLeadInCrm);
   ldOn('ld-new', 'click', openNewLead);
   ldOn('ld-new-cancel', 'click', function(){
     document.getElementById('ld-new-modal').classList.add('hidden');

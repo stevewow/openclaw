@@ -102,6 +102,45 @@ describe("the lead queue API", () => {
     expect(events.at(-1)?.body).toContain("by hand");
   });
 
+  it("files a lead taken by hand under the source the caller chose", async () => {
+    const res = await call("POST", "/leads", {
+      name: "Asked For Pricing",
+      phone: "6145550112",
+      territoryKey: "columbus",
+      playbookKey: "getting_ready_guide",
+    });
+    expect(res.status).toBe(201);
+    expect((res.data.lead as { playbookKey: string }).playbookKey).toBe("getting_ready_guide");
+
+    // A source nobody has is no source, not a stored string: the cadence is
+    // read back out of this later.
+    const unknown = await call("POST", "/leads", {
+      name: "Made Up",
+      phone: "6145550113",
+      playbookKey: "no_such_source",
+    });
+    expect((unknown.data.lead as { playbookKey: string | null }).playbookKey).toBeNull();
+  });
+
+  it("hands the page the sources to file under and where the CRM lives", async () => {
+    const res = await call("GET", "/leads");
+    expect((res.data.playbooks as Array<{ key: string }>).map((p) => p.key)).toContain(
+      "getting_ready_guide",
+    );
+    expect(res.data.crmBaseUrl).toMatch(/^https:\/\//);
+  });
+
+  it("says why a lead could not be filed in the CRM rather than claiming it was", async () => {
+    const created = await call("POST", "/leads", { name: "Unfiled", phone: "6145550114" });
+    const lead = created.data.lead as { id: string };
+    // No Pipedrive token in a test install, which is a configuration state and
+    // is reported as one.
+    const res = await call("POST", `/leads/${lead.id}/crm-sync`);
+    expect(res.status).toBe(502);
+    expect(res.data.ok).toBe(false);
+    expect(String(res.data.detail)).toContain("Pipedrive");
+  });
+
   it("insists on a way to reach the person", async () => {
     const res = await call("POST", "/leads", { name: "No Contact" });
     expect(res.status).toBe(400);

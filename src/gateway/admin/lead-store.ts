@@ -67,6 +67,12 @@ export type Lead = {
   playbookKey: string | null;
   notifiedAt: number | null;
   notifyError: string | null;
+  /** What it became in Pipedrive, once it was pushed there. */
+  crmPersonId: number | null;
+  crmOrgId: number | null;
+  crmActivityId: number | null;
+  crmSyncedAt: number | null;
+  crmError: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -95,6 +101,11 @@ type LeadRow = {
   playbook_key: string | null;
   notified_at: number | null;
   notify_error: string | null;
+  crm_person_id: number | null;
+  crm_org_id: number | null;
+  crm_activity_id: number | null;
+  crm_synced_at: number | null;
+  crm_error: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -143,6 +154,11 @@ function rowToLead(row: LeadRow): Lead {
     playbookKey: row.playbook_key,
     notifiedAt: row.notified_at,
     notifyError: row.notify_error,
+    crmPersonId: row.crm_person_id,
+    crmOrgId: row.crm_org_id,
+    crmActivityId: row.crm_activity_id,
+    crmSyncedAt: row.crm_synced_at,
+    crmError: row.crm_error,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -219,6 +235,11 @@ export async function createLead(params: CreateLeadParams): Promise<Lead> {
         playbook_key: params.playbookKey ?? null,
         notified_at: null,
         notify_error: null,
+        crm_person_id: null,
+        crm_org_id: null,
+        crm_activity_id: null,
+        crm_synced_at: null,
+        crm_error: null,
         created_at: now,
         updated_at: now,
       })
@@ -501,6 +522,59 @@ export async function recordLeadDispatch(
     kind: "dispatch",
     authorName: null,
     body: result.ok ? `Emailed to ${result.to}` : `Email failed: ${result.error.slice(0, 200)}`,
+  });
+}
+
+/**
+ * Record what the CRM push did.
+ *
+ * A success clears any previous error, so a lead that failed once and was
+ * retried reads as synced rather than keeping a stale complaint beside its ids.
+ * The trail line is filed as a dispatch: this is the lead going out to where it
+ * gets worked, the same as the email is.
+ */
+export async function recordLeadCrmSync(
+  id: string,
+  result:
+    | {
+        ok: true;
+        personId: number;
+        organizationId: number | null;
+        activityId: number;
+        ownerName: string | null;
+        personCreated: boolean;
+        organizationCreated: boolean;
+        at: number;
+      }
+    | { ok: false; error: string; at: number },
+): Promise<void> {
+  const db = getAdminDb();
+  const now = Date.now();
+  await db
+    .updateTable("admin_leads")
+    .set(
+      result.ok
+        ? {
+            crm_person_id: result.personId,
+            crm_org_id: result.organizationId,
+            crm_activity_id: result.activityId,
+            crm_synced_at: result.at,
+            crm_error: null,
+            updated_at: now,
+          }
+        : { crm_error: result.error.slice(0, 500), updated_at: now },
+    )
+    .where("id", "=", id)
+    .execute();
+  await addLeadEvent({
+    leadId: id,
+    kind: "dispatch",
+    authorName: null,
+    body: result.ok
+      ? `Added to Pipedrive — ${result.personCreated ? "new contact" : "matched an existing contact"}${
+          result.organizationCreated ? ", new brokerage" : ""
+        }, follow-up assigned to ${result.ownerName ?? "nobody (no Pipedrive user for that market)"}`
+      : `Pipedrive sync failed: ${result.error.slice(0, 200)}`,
   });
 }
 

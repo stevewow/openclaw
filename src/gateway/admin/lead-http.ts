@@ -9,6 +9,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
 import { sendJson } from "../http-common.js";
+import { crmBaseUrl, syncLeadToCrm, syncLeadToCrmInBackground } from "./lead-crm.js";
 import { renderLeadEmailText } from "./lead-email-render.js";
 import { dispatchLead } from "./lead-notify.js";
 import {
@@ -125,6 +126,11 @@ function previewLead(): Lead {
     playbookKey: "preview",
     notifiedAt: null,
     notifyError: null,
+    crmPersonId: null,
+    crmOrgId: null,
+    crmActivityId: null,
+    crmSyncedAt: null,
+    crmError: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -200,6 +206,14 @@ async function respondWithQueue(res: ServerResponse, url: URL): Promise<void> {
     summary: summarizeLeads(leads),
     statuses: LEAD_STATUSES.map((key) => ({ key, label: LEAD_STATUS_LABELS[key] })),
     territories: await listTerritories(),
+    // The sources a lead can be filed under, for the "what did they want"
+    // picker on a lead taken by hand. A website lead matches its own.
+    playbooks: (await listPlaybooks())
+      .filter((playbook) => playbook.active)
+      .map((playbook) => ({ key: playbook.key, label: playbook.label })),
+    // So a synced lead can link to the record it made. Served rather than built
+    // in the page: the company's Pipedrive address is configuration.
+    crmBaseUrl: crmBaseUrl(),
   });
 }
 
@@ -455,9 +469,15 @@ export async function handleLeadAdminRequest(
     }
     const territoryKey = str(data.territoryKey);
     const territory = territoryKey ? await getTerritory(territoryKey) : null;
+    // What they asked for decides the cadence the owner is handed, and a lead
+    // taken over the phone has no form name to match on — so the person taking
+    // it says which it is.
+    const playbookKey = str(data.playbookKey);
+    const playbook = playbookKey ? await getPlaybook(playbookKey) : null;
     const lead = await createLead({
       source: "manual",
       formName: null,
+      playbookKey: playbook?.key ?? null,
       name: str(data.name),
       email,
       phone,
@@ -475,7 +495,10 @@ export async function handleLeadAdminRequest(
       body: "Added by hand in the Hub",
     });
     // A lead typed in by someone who is already looking at the Hub does not
-    // email itself: they decide whether the owner needs telling.
+    // email itself: they decide whether the owner needs telling. It does go to
+    // the CRM, because that is the point of typing it in — the VA's job ends at
+    // the form, and the owner finds the call already on their list.
+    syncLeadToCrmInBackground(lead, { playbook });
     sendJson(res, 201, { lead });
     return true;
   }
@@ -566,6 +589,19 @@ export async function handleLeadAdminRequest(
     }
     await addLeadEvent({ leadId: id, kind: "note", authorName: ctx.actorName, body: note });
     sendJson(res, 201, { events: await listLeadEvents(id) });
+    return true;
+  }
+
+  // Push to the CRM again — after the token was fixed, or a market was routed.
+  if (action === "crm-sync" && method === "POST") {
+    const result = await syncLeadToCrm(lead, { force: true });
+    const updated = await getLead(id);
+    sendJson(res, result.ok ? 200 : 502, {
+      ok: result.ok,
+      detail: result.ok ? null : result.error,
+      lead: updated,
+      events: await listLeadEvents(id),
+    });
     return true;
   }
 

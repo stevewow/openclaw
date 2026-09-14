@@ -278,3 +278,160 @@ export async function addActivity(params: AddActivityParams): Promise<unknown> {
     done: params.done,
   });
 }
+
+// ── Creating records ────────────────────────────────────────────────────────
+//
+// The lead queue is the only caller: a lead arrives, and the person and their
+// brokerage have to exist in the CRM before an activity can be hung on them.
+// Nothing here updates an existing record — a lead may not overwrite what a rep
+// typed — so the surface is find-or-create and no more.
+
+export type ListUsersResult = Array<{
+  id: number;
+  name: string;
+  email: string;
+  activeFlag: boolean;
+}>;
+
+/** Everyone in the account, so an email address can be turned into an owner. */
+export async function listUsers(): Promise<ListUsersResult> {
+  const data = await pipedriveGet("/users");
+  if (!Array.isArray(data)) {
+    return [];
+  }
+  return data.flatMap((raw) => {
+    const row = raw as Record<string, unknown>;
+    const id = row.id;
+    const email = row.email;
+    if (typeof id !== "number" || typeof email !== "string") {
+      return [];
+    }
+    return [
+      {
+        id,
+        name: typeof row.name === "string" ? row.name : email,
+        email,
+        activeFlag: row.active_flag === true,
+      },
+    ];
+  });
+}
+
+export type SearchHit = { id: number; name: string };
+
+/**
+ * Read a `/…/search` envelope down to ids and names.
+ *
+ * The envelope nests the record under `item` beside a relevance score; the
+ * score is dropped because the caller matches on the name itself rather than
+ * trusting Pipedrive's ranking (see `lead-crm.ts`).
+ */
+function searchHits(data: unknown): SearchHit[] {
+  const items = (data as { items?: unknown })?.items;
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.flatMap((entry) => {
+    const item = (entry as { item?: unknown })?.item as Record<string, unknown> | undefined;
+    const id = item?.id;
+    const name = item?.name;
+    if (typeof id !== "number" || typeof name !== "string") {
+      return [];
+    }
+    return [{ id, name }];
+  });
+}
+
+export type SearchOrganizationsParams = { term: string; limit?: number };
+
+export async function searchOrganizations(params: SearchOrganizationsParams): Promise<SearchHit[]> {
+  const data = await pipedriveGet("/organizations/search", {
+    term: params.term,
+    fields: "name",
+    limit: params.limit ?? 20,
+  });
+  return searchHits(data);
+}
+
+export type SearchPersonHit = SearchHit & { primaryEmail: string | null };
+
+/** Persons matching a term, as ids and names — the shape find-or-create wants. */
+export async function findPersons(params: SearchPersonsParams): Promise<SearchPersonHit[]> {
+  const data = await pipedriveGet("/persons/search", {
+    term: params.term,
+    fields: params.fields ?? "email",
+    limit: params.limit ?? 20,
+  });
+  const items = (data as { items?: unknown })?.items;
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.flatMap((entry) => {
+    const item = (entry as { item?: unknown })?.item as Record<string, unknown> | undefined;
+    const id = item?.id;
+    const name = item?.name;
+    if (typeof id !== "number" || typeof name !== "string") {
+      return [];
+    }
+    const primary = item?.primary_email;
+    return [{ id, name, primaryEmail: typeof primary === "string" ? primary : null }];
+  });
+}
+
+function createdId(data: unknown): number {
+  const id = (data as { id?: unknown })?.id;
+  if (typeof id !== "number") {
+    throw new Error("Pipedrive did not return an id for the record it created.");
+  }
+  return id;
+}
+
+export type CreateOrganizationParams = { name: string; owner_id?: number };
+
+export async function createOrganization(params: CreateOrganizationParams): Promise<number> {
+  return createdId(
+    await pipedrivePost("/organizations", { name: params.name, owner_id: params.owner_id }),
+  );
+}
+
+export type CreatePersonParams = {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  org_id?: number;
+  owner_id?: number;
+};
+
+export async function createPerson(params: CreatePersonParams): Promise<number> {
+  return createdId(
+    await pipedrivePost("/persons", {
+      name: params.name,
+      // Both are lists of labelled values in Pipedrive, even when there is one.
+      email: params.email ? [{ value: params.email, primary: true, label: "work" }] : undefined,
+      phone: params.phone ? [{ value: params.phone, primary: true, label: "work" }] : undefined,
+      org_id: params.org_id,
+      owner_id: params.owner_id,
+    }),
+  );
+}
+
+/** Like `addActivity` but hands back the id, for recording on the lead. */
+export async function createActivity(
+  params: AddActivityParams & { org_id?: number },
+): Promise<number> {
+  return createdId(
+    await pipedrivePost("/activities", {
+      subject: params.subject,
+      type: params.type,
+      due_date: params.due_date,
+      due_time: params.due_time,
+      duration: params.duration,
+      person_id: params.person_id,
+      org_id: params.org_id,
+      deal_id: params.deal_id,
+      user_id: params.user_id,
+      note: params.note,
+      done: params.done,
+    }),
+  );
+}

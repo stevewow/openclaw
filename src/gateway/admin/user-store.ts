@@ -836,6 +836,17 @@ type LeadsTable = {
   notified_at: number | null;
   /** Why the dispatch email did not go out, so the queue shows it. */
   notify_error: string | null;
+  /**
+   * What the lead became in Pipedrive. Kept on the lead rather than looked up,
+   * because the queue lists a hundred leads at a time and the CRM is a network
+   * call: the ids are what the row's "Synced" badge links to.
+   */
+  crm_person_id: number | null;
+  crm_org_id: number | null;
+  crm_activity_id: number | null;
+  crm_synced_at: number | null;
+  /** Why the push did not land, so the lead offers a retry rather than lying. */
+  crm_error: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -1793,6 +1804,11 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       playbook_key TEXT,
       notified_at INTEGER,
       notify_error TEXT,
+      crm_person_id INTEGER,
+      crm_org_id INTEGER,
+      crm_activity_id INTEGER,
+      crm_synced_at INTEGER,
+      crm_error TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -1947,6 +1963,23 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
   }>;
   if (leadColumns.length > 0 && !leadColumns.some((c) => c.name === "playbook_key")) {
     db.exec("ALTER TABLE admin_leads ADD COLUMN playbook_key TEXT");
+  }
+  // The CRM push shipped after the queue did, so a live database has leads with
+  // no record of it. All nullable: the leads already in the queue were worked
+  // before there was a sync, and backfilling them would file year-old downloads
+  // as today's calls.
+  if (leadColumns.length > 0) {
+    for (const [name, type] of [
+      ["crm_person_id", "INTEGER"],
+      ["crm_org_id", "INTEGER"],
+      ["crm_activity_id", "INTEGER"],
+      ["crm_synced_at", "INTEGER"],
+      ["crm_error", "TEXT"],
+    ] as const) {
+      if (!leadColumns.some((c) => c.name === name)) {
+        db.exec(`ALTER TABLE admin_leads ADD COLUMN ${name} ${type}`);
+      }
+    }
   }
   const ticketColumns = db.prepare("PRAGMA table_info(admin_tickets)").all() as Array<{
     name: string;

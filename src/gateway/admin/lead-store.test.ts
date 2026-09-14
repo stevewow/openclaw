@@ -133,11 +133,12 @@ describe("lead store", () => {
   });
 
   it("counts the things worth chasing: unrouted, and never emailed", () => {
+    // Three leads' worth of the fields the summary actually reads.
     const summary = store.summarizeLeads([
       { status: "new", territoryKey: null, notifiedAt: null },
       { status: "new", territoryKey: "toledo", notifiedAt: 1 },
       { status: "won", territoryKey: "toledo", notifiedAt: 1 },
-    ] as Parameters<typeof store.summarizeLeads>[0]);
+    ] as unknown as Parameters<typeof store.summarizeLeads>[0]);
     expect(summary.total).toBe(3);
     expect(summary.unrouted).toBe(1);
     expect(summary.undelivered).toBe(1);

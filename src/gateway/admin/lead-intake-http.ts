@@ -12,6 +12,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sendJson, setDefaultSecurityHeaders } from "../http-common.js";
+import { syncLeadToCrm } from "./lead-crm.js";
 import { hasContact, parseLeadPayload, verifyFramerSignature } from "./lead-intake.js";
 import { dispatchLead } from "./lead-notify.js";
 import { listPlaybooks } from "./lead-playbooks-store.js";
@@ -137,6 +138,8 @@ export type LeadIntakeDeps = {
   logger?: { info: (m: string) => void; error: (m: string) => void };
   /** Injected in tests so a submission does not try to send mail. */
   dispatch?: (lead: Lead) => Promise<unknown>;
+  /** Injected in tests so a submission does not try to reach Pipedrive. */
+  syncToCrm?: (lead: Lead) => Promise<unknown>;
 };
 
 /**
@@ -272,6 +275,15 @@ export async function handleLeadIntakeRequest(
   const dispatch = deps.dispatch ?? ((l: Lead) => dispatchLead(l));
   void Promise.resolve(dispatch(lead)).catch((err: unknown) => {
     log.error(`dispatch failed for ${lead.number}: ${String(err)}`);
+  });
+
+  // And into the CRM, on the same terms and for the same reason: the owner
+  // works the lead in Pipedrive, so the contact and the first call should be
+  // waiting there by the time they open the email. Not awaited, never fatal —
+  // the outcome is recorded on the lead and the Hub offers a retry.
+  const toCrm = deps.syncToCrm ?? ((l: Lead) => syncLeadToCrm(l, { playbook }));
+  void Promise.resolve(toCrm(lead)).catch((err: unknown) => {
+    log.error(`Pipedrive sync failed for ${lead.number}: ${String(err)}`);
   });
 
   sendJson(res, 200, { ok: true, lead: lead.number });

@@ -16,6 +16,8 @@ let server: Server;
 let base: string;
 /** Leads dispatched during a test, instead of mail actually going out. */
 let dispatched: string[] = [];
+/** And the same for the CRM, instead of a submission reaching Pipedrive. */
+let filed: string[] = [];
 let env: NodeJS.ProcessEnv = {};
 
 beforeAll(async () => {
@@ -26,6 +28,9 @@ beforeAll(async () => {
         logger: { info: () => {}, error: () => {} },
         dispatch: async (lead) => {
           dispatched.push(lead.number);
+        },
+        syncToCrm: async (lead) => {
+          filed.push(lead.number);
         },
       });
       if (!handled) {
@@ -43,6 +48,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   dispatched = [];
+  filed = [];
   env = {};
   resetLeadIntakeRateLimit();
 });
@@ -90,6 +96,10 @@ describe("website form submissions", () => {
     expect(lead.ownerEmail).toBe("chris@example.com");
     expect(lead.fields).toEqual([{ label: "Listings per year", value: "24" }]);
     expect(dispatched).toEqual([lead.number]);
+    // Emailed to the owner and filed in the CRM are two deliveries of the same
+    // lead, and a website submission makes both without anyone pressing
+    // anything: the owner should find the call already on their list.
+    expect(filed).toEqual([lead.number]);
   });
 
   it("answers a retried submission with the lead it already made", async () => {
@@ -136,6 +146,7 @@ describe("website form submissions", () => {
     expect(res.status).toBe(200);
     expect(res.data.dropped).toBe("no_contact");
     expect(dispatched).toEqual([]);
+    expect(filed).toEqual([]);
   });
 
   it("rejects a bad signature when a signing secret is configured", async () => {
