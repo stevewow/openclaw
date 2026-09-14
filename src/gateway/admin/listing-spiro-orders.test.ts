@@ -180,6 +180,33 @@ describe("flagging listings that are already our orders", () => {
     return all.find((l) => l.propertyId === propertyId);
   }
 
+  it("starts a first read that broke partway over, instead of resuming from its newest order", async () => {
+    const broken = await spiro.checkListingsAgainstSpiro({
+      now: NOW - 60 * 60 * 1000,
+      retryDelaysMs: [0, 0],
+      call: async (_name, args) =>
+        args.page === 1
+          ? mcpPage([ORDERS[0]], true)
+          : { content: [{ type: "text", text: JSON.stringify({ message: "upstream timeout" }) }] },
+    });
+    // What came back is quoted, so the next failure can be diagnosed from the page.
+    expect(broken.error).toContain("upstream timeout");
+
+    const sinces: unknown[] = [];
+    const later = NOW - 30 * 60 * 1000;
+    await spiro.checkListingsAgainstSpiro({
+      now: later,
+      retryDelaysMs: [0, 0],
+      call: async (_name, args) => {
+        sinces.push(args.dateSubmittedFrom);
+        throw new Error("still down");
+      },
+    });
+    // One order from the top of the list is held, but the 90 days behind it
+    // were never read — resuming from that order would skip them for good.
+    expect(sinces[0]).toBe(new Date(later - 90 * DAY).toISOString());
+  });
+
   it("moves our own order off the worklist on the sweep that files it", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const result = await store.sweepListings(MARKETS, {
@@ -227,35 +254,57 @@ describe("flagging listings that are already our orders", () => {
         return args.page === 1 ? mcpPage([ORDERS[0]], true) : mcpPage([]);
       },
     });
-    // The newest order held was submitted 2026-09-10T17:19:51.388Z.
-    expect(calls[0]?.dateSubmittedFrom).toBe(
-      new Date(Date.UTC(2026, 8, 10, 17, 19, 51, 388) - DAY).toISOString(),
-    );
+    // The last read that finished ran at NOW; a day of overlap behind it.
+    expect(calls[0]?.dateSubmittedFrom).toBe(new Date(NOW - DAY).toISOString());
     expect(calls.map((c) => c.page)).toEqual([1, 2]);
     expect(result.flagged).toBe(1);
     // The four-month-old order was pruned rather than kept forever.
     expect((await spiro.getSpiroOrderCacheStatus(NOW)).orders).toBe(2);
   });
 
+  it("retries a page that fails once instead of abandoning the read", async () => {
+    let attempts = 0;
+    const result = await spiro.checkListingsAgainstSpiro({
+      now: NOW + 90 * 60 * 1000,
+      retryDelaysMs: [0, 0],
+      call: async () => {
+        attempts++;
+        if (attempts === 1) {
+          throw new Error("Spiro MCP error 502: bad gateway");
+        }
+        return mcpPage([ORDERS[0]]);
+      },
+    });
+    expect(result.error).toBeNull();
+    expect(attempts).toBe(2);
+    expect(result.flagged).toBe(1);
+  });
+
   it("keeps the flags it has when Spiro cannot be read", async () => {
+    let attempts = 0;
     const result = await store.sweepListings(MARKETS, {
       now: NOW + 2 * 60 * 60 * 1000,
       fetchMarket: async () => ({
         listings: [listing("p-later", "9 Birch Ln", "45409")],
         creditsRemaining: 199,
       }),
+      spiroRetryDelaysMs: [0, 0],
       spiroCall: async () => {
+        attempts++;
         throw new Error("Spiro MCP error 503: unavailable");
       },
     });
     expect(result.added).toBe(1);
     expect(result.spiro.error).toContain("503");
+    // Tried, and tried twice more, before giving the page up.
+    expect(attempts).toBe(3);
     expect((await byProperty("p-ours"))?.spiroOrderId).not.toBeNull();
   });
 
   it("treats a tool error as an error, not as an empty account", async () => {
     const result = await spiro.checkListingsAgainstSpiro({
       now: NOW + 3 * 60 * 60 * 1000,
+      retryDelaysMs: [0, 0],
       call: async () => ({ isError: true, content: [{ type: "text", text: "Unauthorized" }] }),
     });
     expect(result.error).toContain("Unauthorized");

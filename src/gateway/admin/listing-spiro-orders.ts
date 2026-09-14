@@ -10,8 +10,8 @@
 //
 // Cached rather than searched per listing. Spiro's API returns 100 orders a
 // page and the account takes ~4,600 a quarter, so a full read is ~47 calls.
-// After the first, a check reads only what was submitted since the newest order
-// already held, which is usually one page.
+// After the first, a check reads only what was submitted since the last read
+// that finished, which is usually one page.
 
 import { callTool } from "../../../extensions/spiro/api.js";
 import { spiroOrderUrl } from "./spiro-links.js";
@@ -191,14 +191,22 @@ function unwrapOrderPage(result: unknown): { orders: unknown[]; hasNextPage: boo
     try {
       payload = JSON.parse(text) as unknown;
     } catch {
-      throw new Error("Spiro order search did not answer with JSON");
+      throw new Error(`Spiro order search did not answer with JSON: ${quote(text)}`);
     }
   }
   const page = obj(payload);
   if (!page || !Array.isArray(page.data)) {
-    throw new Error("Spiro order search answered without an order list");
+    // Quoted, because the one time this happened live nothing recorded what
+    // Spiro sent instead, and it could not be reproduced afterwards.
+    throw new Error(`Spiro order search answered without an order list: ${quote(payload)}`);
   }
   return { orders: page.data, hasNextPage: obj(page.meta)?.hasNextPage === true };
+}
+
+/** The first 200 characters of whatever came back, for an error message. */
+function quote(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return (text ?? String(value)).slice(0, 200);
 }
 
 export type SpiroOrderRefresh = {
@@ -207,41 +215,77 @@ export type SpiroOrderRefresh = {
   since: string;
 };
 
+export type SpiroReadDeps = {
+  call?: SpiroOrderCall;
+  now?: number;
+  /** Pauses before each retry of a failed page; its length is the number of retries. */
+  retryDelaysMs?: readonly number[];
+};
+
+/**
+ * A page that fails is tried twice more before the read gives up. One page of
+ * the first live read came back malformed and the same page was fine moments
+ * later; a 47-page read should not be lost to one bad reply.
+ */
+const RETRY_DELAYS_MS: readonly number[] = [1000, 3000];
+
+const SYNC_ID = "orders";
+
+async function readPage(
+  call: SpiroOrderCall,
+  args: Record<string, unknown>,
+  retryDelaysMs: readonly number[],
+): Promise<{ orders: unknown[]; hasNextPage: boolean }> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[attempt - 1]));
+    }
+    try {
+      return unwrapOrderPage(await call("search_spiro_orders", args));
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 /**
  * Bring the cached orders up to date and drop the ones past 90 days.
  *
- * Reads from a day before the newest order held. Newest-first paging shifts
- * when an order lands mid-read, which repeats a row rather than skipping one,
- * and the day of overlap catches an order submitted while the last read was
- * running. Both are absorbed by the upsert — which is also what carries a
- * status change, such as a cancellation, onto an order already held.
+ * Resumes from a day before the last read that finished, and only when the
+ * reads that finished reach back across the whole window; otherwise it reads
+ * the whole window again. The newest order held proves nothing: a read that
+ * broke partway saved the newest orders first, and resuming from them would
+ * skip everything behind them for good.
+ *
+ * Newest-first paging shifts when an order lands mid-read, which repeats a row
+ * rather than skipping one, and the day of overlap catches an order submitted
+ * while the last read was running. Both are absorbed by the upsert — which is
+ * also what carries a status change, such as a cancellation, onto an order
+ * already held.
  */
-export async function refreshSpiroOrderCache(
-  deps: { call?: SpiroOrderCall; now?: number } = {},
-): Promise<SpiroOrderRefresh> {
+export async function refreshSpiroOrderCache(deps: SpiroReadDeps = {}): Promise<SpiroOrderRefresh> {
   const call = deps.call ?? callTool;
   const now = deps.now ?? Date.now();
+  const retryDelays = deps.retryDelaysMs ?? RETRY_DELAYS_MS;
   const db = getAdminDb();
   const floor = now - SPIRO_ORDER_LOOKBACK_DAYS * DAY_MS;
-  const newest = await db
-    .selectFrom("admin_listing_spiro_orders")
-    .select("submitted_at")
-    .orderBy("submitted_at", "desc")
-    .limit(1)
+  const sync = await db
+    .selectFrom("admin_listing_spiro_sync")
+    .selectAll()
+    .where("id", "=", SYNC_ID)
     .executeTakeFirst();
-  const since = new Date(
-    newest ? Math.max(floor, newest.submitted_at - DAY_MS) : floor,
-  ).toISOString();
+  const resumable = sync && sync.covered_from <= floor ? sync : null;
+  const sinceMs = resumable ? Math.max(floor, resumable.covered_to - DAY_MS) : floor;
+  const since = new Date(sinceMs).toISOString();
 
   let fetched = 0;
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const { orders, hasNextPage } = unwrapOrderPage(
-      await call("search_spiro_orders", {
-        dateSubmittedFrom: since,
-        sort: "-dateSubmitted",
-        page,
-        pageSize: PAGE_SIZE,
-      }),
+    const { orders, hasNextPage } = await readPage(
+      call,
+      { dateSubmittedFrom: since, sort: "-dateSubmitted", page, pageSize: PAGE_SIZE },
+      retryDelays,
     );
     fetched += orders.length;
     const parsed = new Map<string, SpiroOrderAddress>();
@@ -291,6 +335,17 @@ export async function refreshSpiroOrderCache(
       break;
     }
   }
+
+  // Only now is the range proven. A resumed read starts inside the range the
+  // last one proved, so the two join into one; a full read starts the range over.
+  const coveredFrom = resumable ? resumable.covered_from : sinceMs;
+  await db
+    .insertInto("admin_listing_spiro_sync")
+    .values({ id: SYNC_ID, covered_from: coveredFrom, covered_to: now, updated_at: now })
+    .onConflict((oc) =>
+      oc.column("id").doUpdateSet({ covered_from: coveredFrom, covered_to: now, updated_at: now }),
+    )
+    .execute();
 
   await db.deleteFrom("admin_listing_spiro_orders").where("submitted_at", "<", floor).execute();
   return { fetched, since };
@@ -373,7 +428,7 @@ export type SpiroCheckResult = {
 
 /** Read what is new in Spiro, then re-flag the queue. */
 export async function checkListingsAgainstSpiro(
-  deps: { call?: SpiroOrderCall; now?: number } = {},
+  deps: SpiroReadDeps = {},
 ): Promise<SpiroCheckResult> {
   let fetched = 0;
   let error: string | null = null;

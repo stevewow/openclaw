@@ -133,7 +133,10 @@ export async function handleListingAdminRequest(
   // credits, so anyone working the queue may run it — an order booked at ten
   // should come off the list before the VA gets to that house at eleven.
   if (subPath === "/listings/spiro-check" && method === "POST") {
-    const result = await checkListingsAgainstSpiro({ call: deps.sweep?.spiroCall });
+    const result = await checkListingsAgainstSpiro({
+      call: deps.sweep?.spiroCall,
+      retryDelaysMs: deps.sweep?.spiroRetryDelaysMs,
+    });
     sendJson(res, 200, {
       ok: result.error === null,
       result,

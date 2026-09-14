@@ -265,6 +265,8 @@ export type SweepDeps = ListingFeedDeps & {
   }>;
   /** Injected in tests so the Spiro check never reaches the network. */
   spiroCall?: SpiroOrderCall;
+  /** Pauses before retrying a failed Spiro page; zero in tests. */
+  spiroRetryDelaysMs?: readonly number[];
 };
 
 /**
@@ -394,7 +396,11 @@ export async function sweepListings(
 
   // Before anyone sees the new rows: a house we already have an order for is
   // not a prospect, and the time to say so is before a VA starts researching it.
-  const spiro = await checkListingsAgainstSpiro({ call: deps.spiroCall, now });
+  const spiro = await checkListingsAgainstSpiro({
+    call: deps.spiroCall,
+    now,
+    retryDelaysMs: deps.spiroRetryDelaysMs,
+  });
 
   await db
     .updateTable("admin_listing_sweeps")

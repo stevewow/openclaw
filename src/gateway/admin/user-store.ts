@@ -933,6 +933,19 @@ type ListingSpiroOrdersTable = {
   cached_at: number;
 };
 
+/**
+ * How much of the 90-day order window the cache is proven to hold: from
+ * `covered_from` to `covered_to`, both set only by reads that finished. One row,
+ * id "orders". Without it a read that broke partway — which saves the newest
+ * orders first — would look complete, and the weeks behind it would never be read.
+ */
+type ListingSpiroSyncTable = {
+  id: string;
+  covered_from: number;
+  covered_to: number;
+  updated_at: number;
+};
+
 /** One press of Refresh: what it cost and what it found. */
 type ListingSweepsTable = {
   id: string;
@@ -1067,6 +1080,7 @@ export type AdminDb = {
   admin_listings: ListingsTable;
   admin_listing_sweeps: ListingSweepsTable;
   admin_listing_spiro_orders: ListingSpiroOrdersTable;
+  admin_listing_spiro_sync: ListingSpiroSyncTable;
   admin_lead_events: LeadEventsTable;
   admin_lead_playbooks: LeadPlaybooksTable;
   admin_lead_settings: LeadSettingsTable;
@@ -1980,6 +1994,12 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       ON admin_listing_spiro_orders(street_key);
     CREATE INDEX IF NOT EXISTS admin_listing_spiro_orders_submitted
       ON admin_listing_spiro_orders(submitted_at);
+    CREATE TABLE IF NOT EXISTS admin_listing_spiro_sync (
+      id TEXT PRIMARY KEY,
+      covered_from INTEGER NOT NULL,
+      covered_to INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
 
     CREATE INDEX IF NOT EXISTS admin_leads_status ON admin_leads(status);
     CREATE INDEX IF NOT EXISTS admin_leads_territory ON admin_leads(territory_key);
