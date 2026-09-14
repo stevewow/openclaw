@@ -127,25 +127,39 @@ export const LISTING_SEND_MODAL = `
     <div class="modal-title">Send to the BDS</div>
     <p class="text-muted" style="font-size:0.82rem;margin:0 0 0.9rem" id="lst-modal-sub"></p>
     <p class="lst-ours-note hidden" style="margin:0 0 0.9rem" id="lst-modal-ours"></p>
-    <div class="form-group"><label for="lst-name">Agent</label><input id="lst-name" type="text" /></div>
-    <div class="form-group"><label for="lst-company">Brokerage</label><input id="lst-company" type="text" /></div>
+    <div class="form-group">
+      <label for="lst-name">Agent</label>
+      <input id="lst-name" type="text" />
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">The listing agent, filled in from the listing. Correct it if their name is spelled differently.</p>
+    </div>
+    <div class="form-group">
+      <label for="lst-company">Brokerage</label>
+      <input id="lst-company" type="text" />
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">Their office, filled in from the listing.</p>
+    </div>
     <div class="form-group">
       <label for="lst-email">Email</label>
-      <input id="lst-email" type="email" />
+      <input id="lst-email" type="email" placeholder="agent@brokerage.com" />
     </div>
     <div class="form-group">
       <label for="lst-phone">Phone</label>
-      <input id="lst-phone" type="tel" />
-      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">The listing feed never carries either one — this is the bit you look up. One of them is enough.</p>
+      <input id="lst-phone" type="tel" placeholder="(419) 555-0123" />
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">The listing never includes either one — look the agent up (brokerage site, Zillow or realtor.com profile) and add at least one.</p>
     </div>
-    <div class="form-group"><label for="lst-market">Market</label><select id="lst-market"></select></div>
+    <div class="form-group">
+      <label for="lst-market">Market</label>
+      <select id="lst-market"></select>
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">Decides which BDS gets the email. Already set from where the house is.</p>
+    </div>
     <div class="form-group">
       <label for="lst-playbook">What to open with</label>
       <select id="lst-playbook"></select>
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">The pitch and follow-up steps the BDS is handed. Leave it on “Not sure” if nothing stands out.</p>
     </div>
     <div class="form-group">
       <label for="lst-note">Anything you found</label>
       <textarea id="lst-note" rows="3" placeholder="Listed with photos already — phone shots. Worth a call."></textarea>
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">Optional. What made this one worth a call — the BDS sees it in their email and in Pipedrive.</p>
     </div>
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" id="lst-cancel">Cancel</button>

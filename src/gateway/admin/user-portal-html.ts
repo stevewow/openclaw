@@ -256,6 +256,11 @@ ${LISTINGS_CSS}
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem; z-index: 50; overflow-y: auto; }
   .modal-box { background: var(--surface); border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,0.25); width: 100%; max-width: 500px; padding: 1.5rem; }
   .modal-box h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; }
+  /* The sections shared with the dashboard (leads, listings) mark their popups up
+     the dashboard's way, as .modal and .modal-title. Without these the form sat
+     on the dark backdrop with no panel behind it, and its labels were unreadable. */
+  .modal { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,0.25); width: 100%; max-width: 500px; padding: 1.5rem; margin: auto; }
+  .modal-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; letter-spacing: -0.01em; }
   .modal-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 1.25rem; }
   .modal-actions .spacer { flex: 1; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
