@@ -59,7 +59,7 @@ export function listingsQueueMarkup(opts: { canSweep: boolean }): string {
             <div style="flex:1;min-width:min(16rem,100%)">
               <div style="font-weight:700;margin-bottom:0.35rem">New Listings</div>
               <p class="text-muted" style="font-size:0.85rem;margin:0">
-                Houses that went on the market in our eight markets in the last day, and who listed them.
+                Houses that went on the market in our markets in the last day, and who listed them.
                 Research one, and if the agent is worth a call send it to whoever owns that market — it
                 becomes a lead, they get the email, and the follow-up lands in Pipedrive. A house we already
                 have a Spiro order for from the last 90 days moves to Already our order, so nobody

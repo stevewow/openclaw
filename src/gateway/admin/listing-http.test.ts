@@ -114,8 +114,9 @@ describe("the new-listing queue", () => {
     expect(res.status).toBe(200);
     expect((res.data.listings as unknown[]).length).toBeGreaterThan(0);
     expect((res.data.territories as unknown[]).length).toBe(8);
-    // The page says what pressing Refresh will spend before it is pressed.
-    expect(res.data.marketCount).toBe(8);
+    // The page says what pressing Refresh will spend before it is pressed: the
+    // eight market-report regions plus Cleveland.
+    expect(res.data.marketCount).toBe(9);
     expect(res.data).toHaveProperty("feedConfigured");
     expect(res.data).toHaveProperty("lastSweep");
     expect(res.data.spiroOrders).toMatchObject({ orders: 0 });
