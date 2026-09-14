@@ -82,7 +82,7 @@ describe("the lead queue API", () => {
     expect((res.data.territories as unknown[]).length).toBe(8);
   });
 
-  it("takes a lead by hand and does not email anyone about it", async () => {
+  it("takes a lead by hand and tells the owner about it like any other", async () => {
     const res = await call("POST", "/leads", {
       name: "Phoned In",
       phone: "6145550111",
@@ -93,13 +93,35 @@ describe("the lead queue API", () => {
       id: string;
       source: string;
       ownerEmail: string;
-      notifiedAt: null;
+      notifyError: string | null;
     };
     expect(lead.source).toBe("manual");
     expect(lead.ownerEmail).toBe("chris@example.com");
-    expect(lead.notifiedAt).toBeNull();
+    // A lead over the phone is not a lesser lead: the dispatch runs. There is
+    // no mail provider in a test install, so what is proven here is that it was
+    // attempted and said so, rather than never having been tried.
+    expect(lead.notifyError).toBe("email not configured");
     const events = await store.listLeadEvents(lead.id);
-    expect(events.at(-1)?.body).toContain("by hand");
+    expect(events.map((e) => e.body).join(" ")).toContain("by hand");
+  });
+
+  it("carries the listing and where it was found onto the lead", async () => {
+    const res = await call("POST", "/leads", {
+      name: "Saw It On Zillow",
+      phone: "6145550115",
+      territoryKey: "columbus",
+      listingAddress: "123 Oak St, Findlay, OH",
+      listingUrl: "https://www.zillow.com/homedetails/123-oak",
+    });
+    expect(res.status).toBe(201);
+    expect((res.data.lead as { fields: Array<{ label: string; value: string }> }).fields).toEqual([
+      { label: "Listing address", value: "123 Oak St, Findlay, OH" },
+      { label: "Listing link", value: "https://www.zillow.com/homedetails/123-oak" },
+    ]);
+
+    // Both are optional, and an empty one is not filed as a blank answer.
+    const bare = await call("POST", "/leads", { name: "No Listing", phone: "6145550116" });
+    expect((bare.data.lead as { fields: unknown[] }).fields).toEqual([]);
   });
 
   it("files a lead taken by hand under the source the caller chose", async () => {

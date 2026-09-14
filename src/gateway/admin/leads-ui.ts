@@ -330,8 +330,17 @@ export const LEAD_NEW_MODAL = `
       <select id="ld-new-playbook"></select>
       <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">Decides the cadence the owner is handed. Leave it on “Not sure” if they just asked about us.</p>
     </div>
+    <div class="form-group">
+      <label for="ld-new-address">Listing address <span class="text-muted" style="font-weight:400">— optional</span></label>
+      <input id="ld-new-address" type="text" placeholder="123 Oak St, Findlay, OH" />
+    </div>
+    <div class="form-group">
+      <label for="ld-new-listing">Listing link <span class="text-muted" style="font-weight:400">— optional</span></label>
+      <input id="ld-new-listing" type="url" placeholder="https://www.zillow.com/homedetails/…" />
+      <p class="text-muted" style="font-size:0.75rem;margin-top:0.25rem">Where you found it — Zillow, realtor.com, the MLS sheet. It travels to the owner's email and the Pipedrive follow-up as a link.</p>
+    </div>
     <div class="form-group"><label for="ld-new-message">Notes</label><textarea id="ld-new-message" rows="3"></textarea></div>
-    <p class="text-muted" style="font-size:0.78rem">An email or a phone number is required. The contact and their brokerage are filed in Pipedrive and the first follow-up lands on the market owner's list. No email is sent — use <strong>Resend email</strong> on the lead if the owner should also hear about it.</p>
+    <p class="text-muted" style="font-size:0.78rem">An email or a phone number is required. The lead is emailed to whoever owns that market, and the contact and their brokerage are filed in Pipedrive with the first follow-up on the owner's list — the same as a lead from the website.</p>
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" id="ld-new-cancel">Cancel</button>
       <button type="button" class="btn btn-primary" id="ld-new-save">Add lead</button>
@@ -567,7 +576,15 @@ export const LEADS_COMPONENT_JS = `
           : '<span class="ld-sub">not filed yet</span>'));
     if(l.formName) fact('Form', esc(l.formName));
     if(l.pageUrl) fact('Page', '<a href="' + esc(l.pageUrl) + '" target="_blank" rel="noopener">' + esc(l.pageUrl) + '</a>');
-    (l.fields || []).forEach(function(f){ fact(f.label, esc(f.value)); });
+    (l.fields || []).forEach(function(f){
+      var v = (f.value || '').trim();
+      // indexOf, not a regex: this whole block lives inside a template literal,
+      // which eats the backslashes out of one and leaves a comment behind.
+      var isLink = v.indexOf('https://') === 0 || v.indexOf('http://') === 0;
+      fact(f.label, isLink
+        ? '<a href="' + esc(v) + '" target="_blank" rel="noopener">' + esc(v) + '</a>'
+        : esc(v));
+    });
     document.getElementById('ld-modal-facts').innerHTML = facts;
 
     document.getElementById('ld-modal-message-wrap').classList.toggle('hidden', !l.message);
@@ -665,7 +682,7 @@ export const LEADS_COMPONENT_JS = `
   }
 
   function openNewLead(){
-    ['ld-new-name','ld-new-email','ld-new-phone','ld-new-company','ld-new-message'].forEach(function(id){
+    ['ld-new-name','ld-new-email','ld-new-phone','ld-new-company','ld-new-address','ld-new-listing','ld-new-message'].forEach(function(id){
       document.getElementById(id).value = '';
     });
     document.getElementById('ld-new-territory').innerHTML =
@@ -687,6 +704,8 @@ export const LEADS_COMPONENT_JS = `
       company: document.getElementById('ld-new-company').value.trim(),
       territoryKey: document.getElementById('ld-new-territory').value || null,
       playbookKey: document.getElementById('ld-new-playbook').value || null,
+      listingAddress: document.getElementById('ld-new-address').value.trim(),
+      listingUrl: document.getElementById('ld-new-listing').value.trim(),
       message: document.getElementById('ld-new-message').value.trim()
     };
     if(!payload.email && !payload.phone){

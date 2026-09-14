@@ -76,7 +76,10 @@ export function leadDetailRows(lead: Lead): Row[] {
   push("Form", lead.formName);
   push("Page", lead.pageUrl, lead.pageUrl ?? undefined);
   for (const field of lead.fields) {
-    push(field.label, field.value);
+    // A listing link is the one answer worth making clickable: the owner opens
+    // it on a phone to see what they are calling about.
+    const value = field.value.trim();
+    push(field.label, field.value, /^https?:\/\/\S+$/i.test(value) ? value : undefined);
   }
   return rows;
 }

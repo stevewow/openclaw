@@ -35,11 +35,11 @@ import {
   type SearchPersonHit,
   searchOrganizations,
 } from "../../../extensions/pipedrive/api.js";
-import { adminBaseUrl } from "./brand.js";
 import { localDay, readLeadEmailSettings } from "./lead-notify.js";
 import { getPlaybook } from "./lead-playbooks-store.js";
 import type { LeadPlaybook } from "./lead-playbooks.js";
 import { type Lead, recordLeadCrmSync } from "./lead-store.js";
+import { escapeHtml } from "./ticket-email-render.js";
 
 /** What the push did, in the order it did it. Recorded on the lead's trail. */
 export type LeadCrmResult = {
@@ -301,53 +301,91 @@ export function activitySubject(lead: Lead, playbook: LeadPlaybook | null): stri
   return `${lead.number} ${who} — ${what}`;
 }
 
+/** A value that is a link becomes one; everything else is escaped text. */
+function noteValue(value: string): string {
+  const trimmed = value.trim();
+  if (/^https?:\/\/\S+$/i.test(trimmed)) {
+    return `<a href="${escapeHtml(trimmed)}">${escapeHtml(trimmed)}</a>`;
+  }
+  return escapeHtml(trimmed);
+}
+
+/** A block of `Label: value` lines, or nothing when it would be empty. */
+function noteFacts(rows: Array<[string, string]>): string {
+  if (rows.length === 0) {
+    return "";
+  }
+  return `<p>${rows
+    .map(([label, value]) => `<b>${escapeHtml(label)}:</b> ${noteValue(value)}`)
+    .join("<br />")}</p>`;
+}
+
 /**
  * The note the activity carries: why they are calling, what to say, and what
  * comes after. The whole cadence goes in here rather than becoming four dated
  * activities — the owner schedules the next touch when they have made the first,
  * and a list of tasks nobody completed is worse than one they will.
+ *
+ * Written as HTML, because that is what Pipedrive stores an activity note as:
+ * newlines are dropped on the way in, which turns a structured note into one
+ * unreadable paragraph. Paragraphs, bold, lists and links all survive, so the
+ * note is laid out the way the person reading it between showings needs it —
+ * who they are and how to reach them first, the script second, the cadence
+ * last. Every value is escaped: a brokerage name with an ampersand in it is
+ * common, and a lead is untrusted input besides.
+ *
+ * No link back to the Hub. The owner works the lead from this activity and from
+ * the CRM record it hangs on; a link into a dashboard they were not going to
+ * open is one more thing between reading the lead and calling it — the same
+ * reason the dispatch email dropped its own.
  */
-export function activityNote(
-  lead: Lead,
-  playbook: LeadPlaybook | null,
-  env: NodeJS.ProcessEnv,
-): string {
-  const lines: string[] = [];
+export function activityNote(lead: Lead, playbook: LeadPlaybook | null): string {
+  const out: string[] = [];
   const market = lead.marketRaw?.trim();
-  lines.push(
-    `${lead.source === "manual" ? "Lead added in the WOW Hub" : "Website lead"}${
-      market ? ` — ${market}` : ""
-    }.`,
-  );
+  const origin = lead.source === "manual" ? "Lead added in the WOW Hub" : "Website lead";
+  out.push(`<p><b>${escapeHtml(origin)}${market ? ` — ${escapeHtml(market)}` : ""}</b></p>`);
+
+  const facts: Array<[string, string]> = [];
   if (lead.company?.trim()) {
-    lines.push(`Brokerage: ${lead.company.trim()}`);
+    facts.push(["Brokerage", lead.company.trim()]);
   }
   if (lead.email?.trim()) {
-    lines.push(`Email: ${lead.email.trim()}`);
+    facts.push(["Email", lead.email.trim()]);
   }
   if (lead.phone?.trim()) {
-    lines.push(`Phone: ${lead.phone.trim()}`);
+    facts.push(["Phone", lead.phone.trim()]);
   }
-  if (lead.message?.trim()) {
-    lines.push("", "What they wrote:", lead.message.trim());
-  }
+  // Whatever else was asked — the listing and where it was found, on a lead
+  // taken by hand; the form's own questions on one from the website.
   for (const field of lead.fields) {
-    lines.push(`${field.label}: ${field.value}`);
-  }
-  if (playbook) {
-    lines.push("", `${playbook.label} — ${playbook.signal}`);
-    const firstName = lead.name?.trim().split(/\s+/)[0];
-    lines.push("", "Opener:", playbook.opener.replace(/\[Name\]/g, firstName || "there"));
-    lines.push("", "Once they engage:", playbook.softClose);
-    if (playbook.steps.length > 0) {
-      lines.push("", "Cadence:");
-      for (const step of playbook.steps) {
-        lines.push(`  ${step.step}. ${step.when} — ${step.action}`);
-      }
+    if (field.value.trim()) {
+      facts.push([field.label, field.value]);
     }
   }
-  lines.push("", `${adminBaseUrl(env)}/admin#leads`);
-  return lines.join("\n");
+  out.push(noteFacts(facts));
+
+  if (lead.message?.trim()) {
+    out.push(
+      `<p><b>What they wrote</b><br />${escapeHtml(lead.message.trim()).replace(/\n/g, "<br />")}</p>`,
+    );
+  }
+
+  if (playbook) {
+    out.push(`<p><b>${escapeHtml(playbook.label)}</b> — ${escapeHtml(playbook.signal)}</p>`);
+    const firstName = lead.name?.trim().split(/\s+/)[0];
+    out.push(
+      `<p><b>Opener</b><br />${escapeHtml(playbook.opener.replace(/\[Name\]/g, firstName || "there"))}</p>`,
+    );
+    out.push(`<p><b>Once they engage</b><br />${escapeHtml(playbook.softClose)}</p>`);
+    if (playbook.steps.length > 0) {
+      out.push(
+        `<p><b>Cadence</b></p><ol>${playbook.steps
+          .map((step) => `<li><b>${escapeHtml(step.when)}</b> — ${escapeHtml(step.action)}</li>`)
+          .join("")}</ol>`,
+      );
+    }
+  }
+  return out.filter(Boolean).join("");
 }
 
 /**
@@ -398,7 +436,7 @@ export async function syncLeadToCrm(
       person_id: person.id,
       org_id: org?.id,
       user_id: ownerId,
-      note: activityNote(lead, playbook, env),
+      note: activityNote(lead, playbook),
     });
     const result: LeadCrmResult = {
       personId: person.id,

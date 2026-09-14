@@ -123,10 +123,17 @@ describe("filing a lead in Pipedrive", () => {
     expect(activity.due_date).toBe("2026-09-14");
     expect(activity.subject).toContain(lead.number);
     expect(activity.subject).toContain("Getting Ready Guide");
-    // The whole cadence rides in the note rather than becoming more activities.
-    expect(String(activity.note)).toContain("Within 1 hour");
-    expect(String(activity.note)).toContain("Day 4");
-    expect(String(activity.note)).toContain("Hey Dana, Taylor with WOW Video Tours.");
+    // The whole cadence rides in the note rather than becoming more activities,
+    // and the note is HTML because that is what Pipedrive stores: newlines are
+    // dropped on the way in, which is what turned it into one run-on paragraph.
+    const note = String(activity.note);
+    expect(note).toContain("<li><b>Within 1 hour</b> — Call. Voicemail if no answer.</li>");
+    expect(note).toContain("<li><b>Day 4</b> — Email the opener in writing.</li>");
+    expect(note).toContain("<p><b>Opener</b><br />Hey Dana, Taylor with WOW Video Tours.</p>");
+    expect(note).toContain("<b>Phone:</b> (614) 555-0111");
+    // No link back to the Hub: the owner works this from the CRM.
+    expect(note).not.toContain("hub.wowvideotours.com");
+    expect(note).not.toContain("/admin#leads");
 
     const stored = await store.getLead(lead.id);
     expect(stored?.crmPersonId).toBe(901);
@@ -135,6 +142,41 @@ describe("filing a lead in Pipedrive", () => {
     expect(stored?.crmError).toBeNull();
     const trail = await store.listLeadEvents(lead.id);
     expect(trail.at(-1)?.body).toContain("Chris Voge");
+  });
+
+  it("lays the note out for someone reading it between showings", async () => {
+    const lead = await newLead({
+      message: "Two listings next week.\nCall after 4.",
+      fields: [
+        { label: "Listing address", value: "123 Oak St, Findlay, OH" },
+        { label: "Listing link", value: "https://www.zillow.com/homedetails/123-oak" },
+      ],
+    });
+    const { client, recorded } = makeClient();
+    await crm.syncLeadToCrm(lead, { client, playbook: PLAYBOOK });
+    const note = String(recorded.find((r) => r.call === "createActivity")?.params.note);
+
+    // Who and how to reach them first, the script second, the cadence last.
+    expect(note.indexOf("Brokerage:")).toBeLessThan(note.indexOf("What they wrote"));
+    expect(note.indexOf("What they wrote")).toBeLessThan(note.indexOf("Opener"));
+    expect(note.indexOf("Opener")).toBeLessThan(note.indexOf("Cadence"));
+    // The listing rides along, and the link is one.
+    expect(note).toContain("<b>Listing address:</b> 123 Oak St, Findlay, OH");
+    expect(note).toContain(
+      '<b>Listing link:</b> <a href="https://www.zillow.com/homedetails/123-oak">',
+    );
+    // A typed newline in what they wrote survives as a line break.
+    expect(note).toContain("Two listings next week.<br />Call after 4.");
+  });
+
+  it("escapes what the lead itself supplied", async () => {
+    const lead = await newLead({ company: "Comey & Shepherd", name: "<script>x</script> Dana" });
+    const { client, recorded } = makeClient();
+    await crm.syncLeadToCrm(lead, { client, playbook: PLAYBOOK });
+    const note = String(recorded.find((r) => r.call === "createActivity")?.params.note);
+
+    expect(note).toContain("Comey &amp; Shepherd");
+    expect(note).not.toContain("<script>");
   });
 
   it("opens on an email when that is what the playbook says", async () => {

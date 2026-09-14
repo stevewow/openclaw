@@ -474,7 +474,21 @@ export async function handleLeadAdminRequest(
     // it says which it is.
     const playbookKey = str(data.playbookKey);
     const playbook = playbookKey ? await getPlaybook(playbookKey) : null;
+    // The listing, when there is one. Kept as answers rather than columns: they
+    // are two more things somebody may know about a lead, and they travel to
+    // the owner's email and the CRM note by the same route every other answer
+    // a form asks already takes.
+    const extraFields: Array<{ label: string; value: string }> = [];
+    const listingAddress = str(data.listingAddress);
+    if (listingAddress) {
+      extraFields.push({ label: "Listing address", value: listingAddress });
+    }
+    const listingUrl = str(data.listingUrl);
+    if (listingUrl) {
+      extraFields.push({ label: "Listing link", value: listingUrl });
+    }
     const lead = await createLead({
+      fields: extraFields,
       source: "manual",
       formName: null,
       playbookKey: playbook?.key ?? null,
@@ -494,12 +508,17 @@ export async function handleLeadAdminRequest(
       authorName: ctx.actorName,
       body: "Added by hand in the Hub",
     });
-    // A lead typed in by someone who is already looking at the Hub does not
-    // email itself: they decide whether the owner needs telling. It does go to
-    // the CRM, because that is the point of typing it in — the VA's job ends at
-    // the form, and the owner finds the call already on their list.
+    // Emailed and filed exactly like one from the website. A lead taken over
+    // the phone is not a lesser lead, and the owner should hear about it the
+    // same way — the alternative was a lead sitting in the queue because the
+    // person who typed it in assumed it had gone somewhere.
+    //
+    // The email is awaited so the lead comes back saying whether it was sent;
+    // the CRM push is not, because it is several calls to Pipedrive and the
+    // form should close when the lead is saved. Its outcome lands on the lead.
     syncLeadToCrmInBackground(lead, { playbook });
-    sendJson(res, 201, { lead });
+    await dispatchLead(lead);
+    sendJson(res, 201, { lead: (await getLead(lead.id)) ?? lead });
     return true;
   }
 

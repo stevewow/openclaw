@@ -31,7 +31,10 @@ const LEADS = [
     ownerEmail: "chris@example.com",
     status: "new",
     pageUrl: null,
-    fields: [{ label: "Listings per year", value: "24" }],
+    fields: [
+      { label: "Listings per year", value: "24" },
+      { label: "Listing link", value: "https://www.zillow.com/homedetails/123-oak" },
+    ],
     notifiedAt: 1_756_000_000_000,
     notifyError: null,
     crmPersonId: 49_456,
@@ -384,6 +387,9 @@ describe("the lead queue in the dashboard", () => {
     expect(facts).toContain("https://example.pipedrive.com/organization/3968");
     // Pressing it again would make a second follow-up, so the label admits it.
     expect(document.getElementById("ld-modal-crm")?.textContent).toBe("File in Pipedrive again");
+    // An answer that is a link opens; one that is not stays text.
+    expect(facts).toContain('<a href="https://www.zillow.com/homedetails/123-oak"');
+    expect(facts).toContain("<dd>24</dd>");
   });
 
   it("files a lead in the CRM on request", async () => {
@@ -414,6 +420,11 @@ describe("the lead queue in the dashboard", () => {
     (document.getElementById("ld-new-company") as HTMLInputElement).value = "Howard Hanna";
     (document.getElementById("ld-new-territory") as HTMLSelectElement).value = "lima";
     type.value = "getting_ready_guide";
+    // The listing and where it was found are optional, and travel as answers.
+    (document.getElementById("ld-new-address") as HTMLInputElement).value =
+      "123 Oak St, Findlay, OH";
+    (document.getElementById("ld-new-listing") as HTMLInputElement).value =
+      "https://www.zillow.com/homedetails/123-oak";
     await click(document.getElementById("ld-new-save"));
 
     const posted = calls.find((c) => c.method === "POST" && c.path === "/leads");
@@ -423,6 +434,8 @@ describe("the lead queue in the dashboard", () => {
       company: "Howard Hanna",
       territoryKey: "lima",
       playbookKey: "getting_ready_guide",
+      listingAddress: "123 Oak St, Findlay, OH",
+      listingUrl: "https://www.zillow.com/homedetails/123-oak",
     });
     expect(document.getElementById("ld-new-modal")?.classList.contains("hidden")).toBe(true);
     expect(dom.window.document.title).toBeTruthy();
