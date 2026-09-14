@@ -161,6 +161,46 @@ describe("filing a lead in Pipedrive", () => {
     expect(recorded.find((r) => r.call === "createPerson")?.params.org_id).toBe(4_267);
   });
 
+  it("tries a shorter name when Pipedrive's search finds nothing at all", async () => {
+    const lead = await newLead({ company: "Farms and Estates Realty" });
+    const terms: string[] = [];
+    const { client, recorded } = makeClient({
+      // Pipedrive requires every word in the term to appear, so the full name
+      // returns nothing even though the brokerage is right there.
+      searchOrganizations: async (params) => {
+        terms.push(params.term);
+        return params.term === "Farms and Estates"
+          ? [{ id: 6_560, name: "Farms and Estates" }]
+          : [];
+      },
+    });
+    await crm.syncLeadToCrm(lead, { client, playbook: PLAYBOOK });
+
+    expect(terms).toEqual(["Farms and Estates Realty", "Farms and Estates"]);
+    expect(recorded.some((r) => r.call === "createOrganization")).toBe(false);
+    expect(recorded.find((r) => r.call === "createPerson")?.params.org_id).toBe(6_560);
+  });
+
+  it("gives up widening rather than searching for one word", async () => {
+    const lead = await newLead({ company: "Berkshire Hathaway the Westheimer Group" });
+    const terms: string[] = [];
+    const { client, recorded } = makeClient({
+      searchOrganizations: async (params) => {
+        terms.push(params.term);
+        return [];
+      },
+    });
+    await crm.syncLeadToCrm(lead, { client, playbook: PLAYBOOK });
+
+    // Two retries and no further: "Berkshire" alone would match eight other
+    // brokerages, and the whole point is not to guess.
+    expect(terms).toHaveLength(3);
+    expect(terms.at(-1)).toBe("Berkshire Hathaway the");
+    expect(recorded.find((r) => r.call === "createOrganization")?.params.name).toBe(
+      "Berkshire Hathaway the Westheimer Group",
+    );
+  });
+
   it("does not adopt a brokerage that merely ranks well", async () => {
     const lead = await newLead({ company: "Howard Hanna" });
     const { client, recorded } = makeClient({

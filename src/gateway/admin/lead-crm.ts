@@ -191,6 +191,32 @@ export async function resolveOwnerUser(
   return match ? { id: match.id, name: match.name } : null;
 }
 
+/** How many words to drop off the end of a brokerage name before giving up. */
+const ORG_SEARCH_RETRIES = 2;
+
+/**
+ * Everything Pipedrive knows that might be this brokerage.
+ *
+ * Pipedrive's search requires EVERY word in the term to appear, so a name with
+ * a team on the end of it finds nothing at all rather than finding the
+ * brokerage: searching "Farms and Estates Realty" against an account that holds
+ * "Farms and Estates" returns an empty list. So a search that finds nothing is
+ * tried again with the last word dropped, twice, which is the difference
+ * between matching that brokerage and filing a second one beside it. Only an
+ * empty result is retried — a search that found the wrong things has answered.
+ */
+async function searchOrgCandidates(client: LeadCrmClient, name: string): Promise<SearchHit[]> {
+  let words = name.split(/\s+/).filter(Boolean);
+  for (let attempt = 0; attempt <= ORG_SEARCH_RETRIES; attempt++) {
+    const hits = await client.searchOrganizations({ term: words.join(" "), limit: 20 });
+    if (hits.length > 0 || words.length <= 2) {
+      return hits;
+    }
+    words = words.slice(0, -1);
+  }
+  return [];
+}
+
 /** The brokerage, found by name or created. Null when the lead named none. */
 async function resolveOrganization(
   client: LeadCrmClient,
@@ -203,10 +229,12 @@ async function resolveOrganization(
   }
   const folded = foldOrgName(name);
   if (folded) {
-    const hits = await client.searchOrganizations({ term: name, limit: 20 });
+    const hits = await searchOrgCandidates(client, name);
     // Pipedrive ranks by its own relevance; we only accept a name that folds to
     // the same thing, because a near miss here is exactly how the duplicate
-    // organizations in the cleanup report were made.
+    // organizations in the cleanup report were made. That gate is what makes the
+    // widening search above safe: a broader net still lands nothing unless the
+    // name itself agrees.
     const exact = hits.find((hit) => foldOrgName(hit.name) === folded);
     if (exact) {
       return { id: exact.id, created: false };
