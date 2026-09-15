@@ -12,9 +12,9 @@ const { handleAdminHttpRequest } = await import("./admin-http.js");
 const userStore = await import("./user-store.js");
 
 /**
- * The sales dashboard through the real admin router: the grant opens the page,
- * goals and holidays stay an admin's, and what an admin saves is what the page
- * then counts against.
+ * The sales dashboard through the real admin router: the grant opens the page;
+ * markets, goals, new listings and holidays stay an admin's; and what an admin
+ * saves is what the page then counts against.
  */
 
 let server: Server;
@@ -81,7 +81,37 @@ afterAll(async () => {
   fs.rmSync(TMP_DIR, { recursive: true, force: true });
 });
 
-type MonthTotal = { goal: { units: number; revenueCents: number; unitsPerDay: number | null } };
+type Share = { listings: number | null; pct: number | null };
+type Row = {
+  key: string;
+  label: string;
+  actual: { units: number; revenueCents: number };
+  share: Share;
+};
+type Report = {
+  businessDays: { month: number };
+  mtd: {
+    rows: Row[];
+    total: Row & { goal: { units: number; revenueCents: number; unitsPerDay: number | null } };
+  };
+  ytd: { rows: Array<Row & { share: Share & { units: number } }>; total: Row };
+};
+type Comparison = {
+  throughDay: string;
+  complete: boolean;
+  mtd: { rows: Row[]; total: Row };
+  ytd: { rows: Row[]; total: Row };
+};
+
+async function dashboard(month: string): Promise<{
+  report: Report;
+  markets: unknown[];
+  compare: { mom: Comparison | null; yoy: Comparison | null };
+}> {
+  const res = await call("GET", `/sales-dashboard?month=${month}`, { token: grantedToken });
+  expect(res.status).toBe(200);
+  return res.json as never;
+}
 
 describe("sales dashboard routes", () => {
   it("opens only with the grant, and says who may edit", async () => {
@@ -89,14 +119,16 @@ describe("sales dashboard routes", () => {
     expect(
       (await call("GET", "/sales-dashboard/goals?year=2026", { token: plainToken })).status,
     ).toBe(403);
+    expect((await call("GET", "/sales-dashboard/markets", { token: plainToken })).status).toBe(403);
 
     const granted = await call("GET", "/sales-dashboard?month=2026-08", { token: grantedToken });
     expect(granted.status).toBe(200);
     expect(granted.json.canEdit).toBe(false);
     expect(granted.json.monthKey).toBe("2026-08");
-    expect((granted.json.report as { businessDays: { month: number } }).businessDays.month).toBe(
-      21,
-    );
+    expect((granted.json.report as Report).businessDays.month).toBe(21);
+    expect(granted.json.markets).toEqual([]);
+    // Nothing read from Spiro yet: nothing to compare with.
+    expect(granted.json.compare).toEqual({ mom: null, yoy: null });
 
     const admin = await call("GET", "/sales-dashboard", { token: superToken });
     expect(admin.status).toBe(200);
@@ -110,15 +142,55 @@ describe("sales dashboard routes", () => {
     }
   });
 
-  it("lets only an admin set goals, and counts against what was saved", async () => {
+  it("keeps one market list, which only an admin changes", async () => {
+    expect(
+      (
+        await call("POST", "/sales-dashboard/markets", {
+          token: grantedToken,
+          body: { label: "Charlotte" },
+        })
+      ).status,
+    ).toBe(403);
+    for (const label of ["Charlotte", "Findlay", "Lima"]) {
+      const added = await call("POST", "/sales-dashboard/markets", {
+        token: superToken,
+        body: { label },
+      });
+      expect(added.status).toBe(201);
+    }
+    for (const label of ["Fort Wayne, Indiana", "Other", "Unassigned", "total", ""]) {
+      const res = await call("POST", "/sales-dashboard/markets", {
+        token: superToken,
+        body: { label },
+      });
+      expect(res.status).toBe(400);
+    }
+
+    const listed = await call("GET", "/sales-dashboard/markets", { token: grantedToken });
+    expect(listed.status).toBe(200);
+    expect(listed.json.markets).toEqual([
+      { key: "charlotte", label: "Charlotte", removedFrom: null },
+      { key: "findlay", label: "Findlay", removedFrom: null },
+      { key: "lima", label: "Lima", removedFrom: null },
+    ]);
+    expect(listed.json.suggestions).toEqual([]);
+
+    // The same markets in every month, with nothing entered for any of them.
+    for (const month of ["2025-03", "2026-08", "2026-12"]) {
+      const { report } = await dashboard(month);
+      expect(report.mtd.rows.map((r) => r.label)).toEqual(["Charlotte", "Findlay", "Lima"]);
+    }
+  });
+
+  it("lets only an admin set goals, for markets on the list", async () => {
     const august = {
       year: 2026,
       month: 8,
       goals: [
         { marketLabel: "Charlotte", units: "243", revenue: "$77,928.24", asp: "320.78" },
-        { marketLabel: "Findlay", units: 25, revenue: 4952.1, asp: "" },
+        { marketKey: "findlay", units: 25, revenue: 4952.1, asp: "" },
         // Left blank: no goal.
-        { marketLabel: "Lima", units: "", revenue: "", asp: "" },
+        { marketKey: "lima", units: "", revenue: "", asp: "" },
         // The company goal, whatever label the page sends with it.
         { marketKey: "total", marketLabel: "anything", units: 1500, revenue: "", asp: "" },
       ],
@@ -156,23 +228,21 @@ describe("sales dashboard routes", () => {
       },
     ]);
 
-    const listed = await call("GET", "/sales-dashboard/goals?year=2026", { token: grantedToken });
-    expect(listed.status).toBe(200);
-    expect(listed.json.markets).toEqual([
-      { key: "charlotte", label: "Charlotte" },
-      { key: "findlay", label: "Findlay" },
-    ]);
-
-    const page = await call("GET", "/sales-dashboard?month=2026-08", { token: grantedToken });
-    const total = (page.json.report as { mtd: { total: MonthTotal } }).mtd.total;
+    const { report } = await dashboard("2026-08");
     // Units from the company goal; revenue, left blank there, from the markets.
-    expect(total.goal).toMatchObject({ units: 1500, revenueCents: 8288034, unitsPerDay: 72 });
+    expect(report.mtd.total.goal).toMatchObject({
+      units: 1500,
+      revenueCents: 8288034,
+      unitsPerDay: 72,
+    });
 
     for (const bad of [
       { marketLabel: "Lima", units: 2.5 },
       { marketLabel: "Lima", units: -1 },
       { marketLabel: "", units: 3 },
       { marketLabel: "Unassigned", units: 3 },
+      // Not on the market list.
+      { marketLabel: "Toledo", units: 3 },
     ]) {
       const res = await call("PUT", "/sales-dashboard/goals", {
         token: superToken,
@@ -187,20 +257,194 @@ describe("sales dashboard routes", () => {
         month: 8,
         goals: [
           { marketLabel: "Lima", units: 1 },
-          { marketLabel: "lima", units: 2 },
+          { marketKey: "lima", units: 2 },
         ],
       },
     });
     expect(twice.status).toBe(400);
 
-    // Saving a month replaces it whole.
-    const replaced = await call("PUT", "/sales-dashboard/goals", {
+    // Saving some markets leaves the others' goals as they were.
+    const partial = await call("PUT", "/sales-dashboard/goals", {
       token: superToken,
-      body: { year: 2026, month: 8, goals: [{ marketLabel: "Lima", units: 128 }] },
+      body: { year: 2026, month: 8, goals: [{ marketKey: "lima", units: 128 }] },
     });
-    expect((replaced.json.goals as Array<{ marketKey: string }>).map((g) => g.marketKey)).toEqual([
+    expect((partial.json.goals as Array<{ marketKey: string }>).map((g) => g.marketKey)).toEqual([
+      "charlotte",
+      "total",
+      "findlay",
       "lima",
     ]);
+  });
+
+  it("stops a market from a month on, and keeps the months before", async () => {
+    const stop = { removedFrom: "2026-09" };
+    expect(
+      (await call("PATCH", "/sales-dashboard/markets/findlay", { token: grantedToken, body: stop }))
+        .status,
+    ).toBe(403);
+    expect(
+      (
+        await call("PATCH", "/sales-dashboard/markets/findlay", {
+          token: superToken,
+          body: { removedFrom: "September" },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (await call("PATCH", "/sales-dashboard/markets/toledo", { token: superToken, body: stop }))
+        .status,
+    ).toBe(404);
+    const stopped = await call("PATCH", "/sales-dashboard/markets/findlay", {
+      token: superToken,
+      body: stop,
+    });
+    expect(stopped.status).toBe(200);
+    expect(stopped.json.market).toEqual({
+      key: "findlay",
+      label: "Findlay",
+      removedFrom: "2026-09",
+    });
+
+    expect((await dashboard("2026-08")).report.mtd.rows.map((r) => r.label)).toEqual([
+      "Charlotte",
+      "Findlay",
+      "Lima",
+    ]);
+    expect((await dashboard("2026-11")).report.mtd.rows.map((r) => r.label)).toEqual([
+      "Charlotte",
+      "Lima",
+    ]);
+    const september = await call("PUT", "/sales-dashboard/goals", {
+      token: superToken,
+      body: { year: 2026, month: 9, goals: [{ marketKey: "findlay", units: 25 }] },
+    });
+    expect(september.status).toBe(400);
+    const goals = await call("GET", "/sales-dashboard/goals?year=2026", { token: grantedToken });
+    expect((goals.json.goals as Array<{ marketKey: string }>).map((g) => g.marketKey)).toContain(
+      "findlay",
+    );
+
+    // Adding it again tracks it in every month again.
+    const back = await call("POST", "/sales-dashboard/markets", {
+      token: superToken,
+      body: { label: "Findlay" },
+    });
+    expect(back.json.market).toEqual({ key: "findlay", label: "Findlay", removedFrom: null });
+    expect((await dashboard("2026-11")).report.mtd.rows).toHaveLength(3);
+  });
+
+  it("keeps new listings an admin's, and turns them into market share and comparisons", async () => {
+    const db = userStore.getAdminDb();
+    const now = Date.now();
+    await db
+      .insertInto("admin_sales_sync")
+      .values({
+        id: "orders",
+        history_floor: "2025-01-01",
+        covered_from: "2025-01-01",
+        covered_to: "2026-09-14",
+        year_read_at: now,
+        refreshed_at: now,
+        attempted_at: now,
+        orders_read: 0,
+        error: null,
+      })
+      .execute();
+    await db
+      .insertInto("admin_sales_companies")
+      .values([
+        { company_id: "c-lima", name: "Lima Realty", service_area: "Lima, Ohio", checked_at: now },
+        {
+          company_id: "c-akron",
+          name: "Akron Realty",
+          service_area: "Akron, Ohio",
+          checked_at: now,
+        },
+      ])
+      .execute();
+    const order = (id: string, day: string, company: string, cents: number) => ({
+      order_id: id,
+      order_day: day,
+      agent_id: null,
+      agent_name: null,
+      company_id: company,
+      company_name: null,
+      status: "delivered",
+      total_cents: cents,
+    });
+    await db
+      .insertInto("admin_sales_orders")
+      .values([
+        order("a1", "2026-08-03", "c-lima", 20000),
+        order("a2", "2026-08-04", "c-lima", 20000),
+        order("a3", "2026-08-05", "c-lima", 20000),
+        order("a4", "2026-08-06", "c-lima", 20000),
+        order("a5", "2026-08-04", "c-akron", 10000),
+        order("j1", "2026-07-02", "c-lima", 20000),
+        order("j2", "2026-07-03", "c-lima", 20000),
+        order("y1", "2025-08-12", "c-lima", 15000),
+        order("y2", "2025-08-13", "c-lima", 15000),
+      ])
+      .execute();
+
+    const july = ["", "", "", "", "", "", "30", "40", "", "", "", ""];
+    const body = { year: 2026, rows: [{ marketKey: "lima", months: july }] };
+    expect(
+      (await call("PUT", "/sales-dashboard/listings", { token: grantedToken, body })).status,
+    ).toBe(403);
+    for (const rows of [
+      [{ marketKey: "toledo", months: july }],
+      [{ marketKey: "lima", months: july.slice(1) }],
+      [{ marketKey: "lima", months: ["2.5", ...july.slice(1)] }],
+      [{ marketKey: "lima", months: ["-3", ...july.slice(1)] }],
+    ]) {
+      const res = await call("PUT", "/sales-dashboard/listings", {
+        token: superToken,
+        body: { year: 2026, rows },
+      });
+      expect(res.status).toBe(400);
+    }
+    const saved = await call("PUT", "/sales-dashboard/listings", { token: superToken, body });
+    expect(saved.status).toBe(200);
+    expect(saved.json.listings).toEqual([
+      { month: 7, marketKey: "lima", listings: 30 },
+      { month: 8, marketKey: "lima", listings: 40 },
+    ]);
+    const listed = await call("GET", "/sales-dashboard/listings?year=2026", {
+      token: grantedToken,
+    });
+    expect(listed.json.listings).toEqual(saved.json.listings);
+
+    // Akron is not on the list, so it has a service-area suggestion and counts under Other.
+    const markets = await call("GET", "/sales-dashboard/markets", { token: grantedToken });
+    expect(markets.json.suggestions).toEqual([{ key: "akron", label: "Akron", orders: 1 }]);
+
+    const { report, compare } = await dashboard("2026-08");
+    const lima = report.mtd.rows.find((r) => r.key === "lima");
+    expect(lima?.actual.units).toBe(4);
+    expect(lima?.share).toEqual({ listings: 40, pct: 10 });
+    expect(report.mtd.rows.at(-1)).toMatchObject({ label: "Other markets", actual: { units: 1 } });
+    expect(report.mtd.total.actual.units).toBe(5);
+    // July and August: 6 units over 70 listings.
+    expect(report.ytd.rows.find((r) => r.key === "lima")?.share).toEqual({
+      listings: 70,
+      units: 6,
+      pct: 8.57,
+    });
+
+    // August is finished, so it compares with the whole of July and of August 2025.
+    expect(compare.mom?.throughDay).toBe("2026-07-31");
+    expect(compare.mom?.complete).toBe(true);
+    expect(compare.mom?.mtd.rows.find((r) => r.key === "lima")).toMatchObject({
+      actual: { units: 2 },
+      share: { listings: 30, pct: 6.67 },
+    });
+    expect(compare.yoy?.throughDay).toBe("2025-08-31");
+    expect(compare.yoy?.mtd.total.actual).toMatchObject({ units: 2, revenueCents: 30000 });
+    expect(compare.yoy?.ytd.total.actual.units).toBe(2);
+
+    // January 2025 is the first month kept: no year before it to compare with.
+    expect((await dashboard("2025-01")).compare).toMatchObject({ yoy: null });
   });
 
   it("keeps the holiday list an admin's, and takes holidays out of business days", async () => {
@@ -225,11 +469,8 @@ describe("sales dashboard routes", () => {
 
     const listed = await call("GET", "/sales-dashboard/holidays", { token: grantedToken });
     expect(listed.json.holidays).toEqual([thanksgiving]);
-    const november = await call("GET", "/sales-dashboard?month=2026-11", { token: grantedToken });
     // 21 weekdays in November 2026, less Thanksgiving.
-    expect((november.json.report as { businessDays: { month: number } }).businessDays.month).toBe(
-      20,
-    );
+    expect((await dashboard("2026-11")).report.businessDays.month).toBe(20);
 
     expect(
       (await call("DELETE", "/sales-dashboard/holidays/2026-11-26", { token: grantedToken }))

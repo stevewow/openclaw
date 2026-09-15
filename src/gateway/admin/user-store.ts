@@ -1145,6 +1145,25 @@ type SalesHolidaysTable = {
   created_at: number;
 };
 
+type SalesMarketsTable = {
+  market_key: string;
+  label: string;
+  /** YYYY-MM the market stops counting from; null while it is tracked. */
+  removed_from: string | null;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type SalesListingsTable = {
+  year: number;
+  month: number;
+  market_key: string;
+  listings: number;
+  updated_by: string | null;
+  updated_at: number;
+};
+
 type LeadDigestLogTable = {
   /** YYYY-MM-DD in the digest timezone. Primary key, so a day sends once. */
   day: string;
@@ -1228,6 +1247,8 @@ export type AdminDb = {
   admin_sales_sync: SalesSyncTable;
   admin_sales_goals: SalesGoalsTable;
   admin_sales_holidays: SalesHolidaysTable;
+  admin_sales_markets: SalesMarketsTable;
+  admin_sales_listings: SalesListingsTable;
   admin_lead_events: LeadEventsTable;
   admin_lead_playbooks: LeadPlaybooksTable;
   admin_lead_settings: LeadSettingsTable;
@@ -2277,6 +2298,27 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       label TEXT NOT NULL,
       created_by TEXT,
       created_at INTEGER NOT NULL
+    );
+    -- One market list for every month; a removed market stops counting from
+    -- removed_from (YYYY-MM) and keeps the months before it.
+    CREATE TABLE IF NOT EXISTS admin_sales_markets (
+      market_key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      removed_from TEXT,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    -- New listings per market per month, entered once published; market share
+    -- is the month's shoots over these.
+    CREATE TABLE IF NOT EXISTS admin_sales_listings (
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL CHECK(month BETWEEN 1 AND 12),
+      market_key TEXT NOT NULL,
+      listings INTEGER NOT NULL CHECK(listings >= 0),
+      updated_by TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (year, month, market_key)
     );
 
     CREATE INDEX IF NOT EXISTS admin_leads_status ON admin_leads(status);

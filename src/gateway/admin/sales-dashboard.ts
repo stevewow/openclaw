@@ -6,6 +6,10 @@
 // order's company — Spiro's service area on that company. Cancelled orders are
 // $0 in Spiro, so the $0 scrub drops them too.
 //
+// Markets are one list for every month (see sales-markets.ts). An order from a
+// market that is not tracked in its month counts under "Other markets", so the
+// company total is always every order.
+//
 // The sheet's arithmetic, kept exactly:
 //   units/day goal   unit goal ÷ business days in the month, rounded up
 //   end-of-month     month to date ÷ business days completed × business days
@@ -16,9 +20,17 @@
 // Year to date does the same for the year. Its goal to date is every earlier
 // month's goal plus this month's prorated by business days, so its percentage
 // means "on pace" on the 15th as much as on the 31st.
+//
+// Market share is units ÷ new listings for the same market and month. For the
+// year it adds up only the months that have listings entered, so a month still
+// waiting on its number does not drag the share down.
+//
+// Comparisons are the same report built for last month and for this month last
+// year, counted as far into their month as this one is, so the 14th is
+// compared with the 14th.
 
 import { accountToday } from "./brokerage-orders.js";
-import { regionKey, regionLabel } from "./focus-regions.js";
+import { regionKey } from "./focus-regions.js";
 import {
   addDays,
   businessDays,
@@ -29,28 +41,24 @@ import {
   monthStart,
 } from "./sales-calendar.js";
 import { classifyClients, type ClientEvent, type PaidOrder } from "./sales-clients.js";
+import {
+  amount,
+  listSalesListings,
+  listSalesMarkets,
+  marketActiveIn,
+  marketOf,
+  OTHER_MARKET,
+  SalesInputError,
+  type SalesListing,
+  type SalesMarket,
+  TOTAL_GOAL_KEY,
+  wholeIn,
+} from "./sales-markets.js";
 import { getSalesSync, type SalesSync } from "./sales-orders.js";
 import { getAdminDb } from "./user-store.js";
 
-export const UNASSIGNED_MARKET = "unassigned";
-/** The goal row for the company as a whole, rather than any one market. */
-export const TOTAL_GOAL_KEY = "total";
 const TOTAL_GOAL_LABEL = "Company total";
-
-export class SalesInputError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SalesInputError";
-  }
-}
-
-/** "Fort Wayne, Indiana" → fort wayne / Fort Wayne; no service area → Unassigned. */
-export function marketOf(serviceArea: string | null | undefined): { key: string; label: string } {
-  const key = regionKey(serviceArea);
-  return key
-    ? { key, label: regionLabel(serviceArea) }
-    : { key: UNASSIGNED_MARKET, label: "Unassigned" };
-}
+const OTHER_LABEL = "Other markets";
 
 // ── The report ──────────────────────────────────────────────────────────────
 
@@ -77,6 +85,9 @@ export type Trend = {
   revenuePct: number | null;
 };
 
+/** Null listings: none entered for the period. */
+export type Share = { listings: number | null; pct: number | null };
+
 export type MonthRow = {
   key: string;
   label: string;
@@ -85,6 +96,7 @@ export type MonthRow = {
   pct: { units: number | null; revenue: number | null; asp: number | null };
   newClients: NewClients | null;
   trend: Trend;
+  share: Share;
 };
 
 export type YearRow = {
@@ -96,6 +108,8 @@ export type YearRow = {
   pct: { units: number | null; revenue: number | null; asp: number | null };
   newClients: NewClients | null;
   trend: Trend;
+  /** Over the months with listings entered; `units` are those months' units. */
+  share: Share & { units: number };
 };
 
 export type SalesReport = {
@@ -116,9 +130,11 @@ export type SalesReportInput = {
   year: number;
   month: number;
   throughDay: string;
+  /** Market keys as Spiro gives them; the report decides which row each counts under. */
   orders: readonly ReportOrder[];
-  marketLabels: ReadonlyMap<string, string>;
+  markets: readonly SalesMarket[];
   goals: readonly SalesGoal[];
+  listings: readonly SalesListing[];
   holidays: ReadonlySet<string>;
   /** Null when the year is too early for the order history to judge. */
   clientEvents: readonly ClientEvent[] | null;
@@ -167,14 +183,14 @@ function bump(map: Map<string, Tally>, key: string, t: Tally, share = 1): void {
   }
 }
 
-function bumpClients(map: Map<string, NewClients>, event: ClientEvent): void {
-  const c = map.get(event.marketKey) ?? { first: 0, returning: 0 };
+function bumpClients(map: Map<string, NewClients>, key: string, event: ClientEvent): void {
+  const c = map.get(key) ?? { first: 0, returning: 0 };
   if (event.kind === "first") {
     c.first++;
   } else {
     c.returning++;
   }
-  map.set(event.marketKey, c);
+  map.set(key, c);
 }
 
 function trend(actual: Tally, done: number, days: number, goal: Tally): Trend {
@@ -200,18 +216,34 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
   const yearDone = businessDays(yStart, through, holidays);
   const monthShare = monthDays > 0 ? monthDone / monthDays : 0;
 
-  const labels = new Map(input.marketLabels);
+  const markets = new Map(input.markets.map((m) => [m.key, m]));
+  /** Whether a market is tracked in a month of this year. */
+  const trackedIn = (marketKey: string, m: number): boolean => {
+    const market = markets.get(marketKey);
+    return !!market && marketActiveIn(market, monthKey(year, m));
+  };
+  /** The row something dated `day` counts under. */
+  const rowOf = (marketKey: string, day: string): string =>
+    trackedIn(marketKey, Number(day.slice(5, 7))) ? marketKey : OTHER_MARKET;
+  const labelOf = (key: string): string => markets.get(key)?.label ?? OTHER_LABEL;
+
   const mtd = new Map<string, Tally>();
   const ytd = new Map<string, Tally>();
+  /** Units per row per month (index 1–12), for market share. */
+  const unitsByMonth = new Map<string, number[]>();
   for (const order of input.orders) {
     if (!(order.totalCents > 0) || order.day < yStart || order.day > through) {
       continue;
     }
+    const key = rowOf(order.marketKey, order.day);
     const one = { units: 1, revenueCents: order.totalCents };
-    bump(ytd, order.marketKey, one);
+    bump(ytd, key, one);
     if (order.day >= mStart) {
-      bump(mtd, order.marketKey, one);
+      bump(mtd, key, one);
     }
+    const units = unitsByMonth.get(key) ?? Array.from({ length: 13 }, () => 0);
+    units[Number(order.day.slice(5, 7))]++;
+    unitsByMonth.set(key, units);
   }
 
   const monthGoals = new Map<string, SalesGoal>();
@@ -224,8 +256,10 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
       totalGoalByMonth.set(goal.month, goal);
       continue;
     }
-    if (!labels.has(goal.marketKey)) {
-      labels.set(goal.marketKey, goal.marketLabel);
+    // A goal left behind by a market that has since stopped counting stays
+    // saved, but it is not a goal for a month the market is not in.
+    if (!trackedIn(goal.marketKey, goal.month)) {
+      continue;
     }
     const t = { units: goal.units, revenueCents: goal.revenueCents };
     bump(annual, goal.marketKey, t);
@@ -262,15 +296,44 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
     }
   }
 
+  /** New listings per market per month, through this month. */
+  const listings = new Map<string, Map<number, number>>();
+  for (const entry of input.listings) {
+    if (entry.month > month || !trackedIn(entry.marketKey, entry.month)) {
+      continue;
+    }
+    const byMonth = listings.get(entry.marketKey) ?? new Map<number, number>();
+    byMonth.set(entry.month, entry.listings);
+    listings.set(entry.marketKey, byMonth);
+  }
+  const shareInMonth = (key: string, units: number): Share => {
+    const entered = listings.get(key)?.get(month) ?? null;
+    return { listings: entered, pct: pct(units, entered) };
+  };
+  const shareInYear = (key: string): YearRow["share"] => {
+    const entered = listings.get(key);
+    if (!entered || entered.size === 0) {
+      return { listings: null, units: 0, pct: null };
+    }
+    let count = 0;
+    let units = 0;
+    for (const [m, n] of entered) {
+      count += n;
+      units += unitsByMonth.get(key)?.[m] ?? 0;
+    }
+    return { listings: count, units, pct: pct(units, count) };
+  };
+
   const monthClients = new Map<string, NewClients>();
   const yearClients = new Map<string, NewClients>();
   for (const event of input.clientEvents ?? []) {
     if (event.day < yStart || event.day > through) {
       continue;
     }
-    bumpClients(yearClients, event);
+    const key = rowOf(event.marketKey, event.day);
+    bumpClients(yearClients, key, event);
     if (event.day >= mStart) {
-      bumpClients(monthClients, event);
+      bumpClients(monthClients, key, event);
     }
   }
   const counted = input.clientEvents !== null;
@@ -282,6 +345,7 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
     goal: Tally,
     goalAspCents: number | null,
     clients: NewClients | null,
+    share: Share,
   ): MonthRow => ({
     key,
     label,
@@ -297,6 +361,7 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
     },
     newClients: clients,
     trend: trend(actual, monthDone, monthDays, goal),
+    share,
   });
   const yearRow = (
     key: string,
@@ -305,6 +370,7 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
     goalToDate: Tally,
     annualGoal: Tally,
     clients: NewClients | null,
+    share: YearRow["share"],
   ): YearRow => ({
     key,
     label,
@@ -318,46 +384,69 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
     },
     newClients: clients,
     trend: trend(actual, yearDone, yearDays, annualGoal),
+    share,
   });
 
-  // Every market with an order this year or a goal this year, Unassigned last.
-  const keys = [...new Set([...ytd.keys(), ...annual.keys()])].toSorted((a, b) => {
-    if (a === UNASSIGNED_MARKET || b === UNASSIGNED_MARKET) {
-      return a === UNASSIGNED_MARKET ? 1 : -1;
-    }
-    return (labels.get(a) ?? a).localeCompare(labels.get(b) ?? b);
-  });
+  // Rows: the markets tracked in the period, by name, then Other markets when
+  // any order landed there. A market stopped later in the year still has a
+  // year-to-date row for the months it counted.
+  const sortedKeys = (m: number): string[] =>
+    input.markets
+      .filter((market) => marketActiveIn(market, monthKey(year, m)))
+      .map((market) => market.key)
+      .toSorted((a, b) => labelOf(a).localeCompare(labelOf(b)));
+  const withOther = (keys: string[], tallies: Map<string, Tally>): string[] =>
+    tallies.has(OTHER_MARKET) ? [...keys, OTHER_MARKET] : keys;
 
   const mtdRows: MonthRow[] = [];
-  const ytdRows: YearRow[] = [];
   const mtdSum = { units: 0, revenueCents: 0 };
-  const ytdSum = { units: 0, revenueCents: 0 };
   const monthClientSum = { first: 0, returning: 0 };
-  const yearClientSum = { first: 0, returning: 0 };
-  for (const key of keys) {
-    const label = labels.get(key) ?? key;
+  const monthShareSum = { listings: 0, units: 0, any: false };
+  for (const key of withOther(sortedKeys(month), mtd)) {
     const goal = monthGoals.get(key);
     const goalTally = goal ? { units: goal.units, revenueCents: goal.revenueCents } : ZERO;
     const goalAsp = goal ? (goal.aspCents ?? averageCents(goalTally)) : null;
-    const mClients = counted ? (monthClients.get(key) ?? { first: 0, returning: 0 }) : null;
-    const yClients = counted ? (yearClients.get(key) ?? { first: 0, returning: 0 }) : null;
-    mtdRows.push(monthRow(key, label, mtd.get(key) ?? ZERO, goalTally, goalAsp, mClients));
+    const actual = mtd.get(key) ?? ZERO;
+    const clients = counted ? (monthClients.get(key) ?? { first: 0, returning: 0 }) : null;
+    const share = shareInMonth(key, actual.units);
+    mtdRows.push(monthRow(key, labelOf(key), actual, goalTally, goalAsp, clients, share));
+    addInto(mtdSum, actual);
+    monthClientSum.first += clients?.first ?? 0;
+    monthClientSum.returning += clients?.returning ?? 0;
+    if (share.listings !== null) {
+      monthShareSum.any = true;
+      monthShareSum.listings += share.listings;
+      monthShareSum.units += actual.units;
+    }
+  }
+
+  const ytdRows: YearRow[] = [];
+  const ytdSum = { units: 0, revenueCents: 0 };
+  const yearClientSum = { first: 0, returning: 0 };
+  const yearShareSum = { listings: 0, units: 0, any: false };
+  for (const key of withOther(sortedKeys(1), ytd)) {
+    const actual = ytd.get(key) ?? ZERO;
+    const clients = counted ? (yearClients.get(key) ?? { first: 0, returning: 0 }) : null;
+    const share = shareInYear(key);
     ytdRows.push(
       yearRow(
         key,
-        label,
-        ytd.get(key) ?? ZERO,
+        labelOf(key),
+        actual,
         toDate.get(key) ?? ZERO,
         annual.get(key) ?? ZERO,
-        yClients,
+        clients,
+        share,
       ),
     );
-    addInto(mtdSum, mtd.get(key) ?? ZERO);
-    addInto(ytdSum, ytd.get(key) ?? ZERO);
-    monthClientSum.first += mClients?.first ?? 0;
-    monthClientSum.returning += mClients?.returning ?? 0;
-    yearClientSum.first += yClients?.first ?? 0;
-    yearClientSum.returning += yClients?.returning ?? 0;
+    addInto(ytdSum, actual);
+    yearClientSum.first += clients?.first ?? 0;
+    yearClientSum.returning += clients?.returning ?? 0;
+    if (share.listings !== null) {
+      yearShareSum.any = true;
+      yearShareSum.listings += share.listings;
+      yearShareSum.units += share.units;
+    }
   }
   const thisMonth = companyGoal(month);
 
@@ -382,6 +471,12 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
         thisMonth.tally,
         thisMonth.aspCents,
         counted ? monthClientSum : null,
+        monthShareSum.any
+          ? {
+              listings: monthShareSum.listings,
+              pct: pct(monthShareSum.units, monthShareSum.listings),
+            }
+          : { listings: null, pct: null },
       ),
     },
     ytd: {
@@ -393,9 +488,69 @@ export function buildSalesReport(input: SalesReportInput): SalesReport {
         companyToDate,
         companyAnnual,
         counted ? yearClientSum : null,
+        yearShareSum.any
+          ? {
+              listings: yearShareSum.listings,
+              units: yearShareSum.units,
+              pct: pct(yearShareSum.units, yearShareSum.listings),
+            }
+          : { listings: null, units: 0, pct: null },
       ),
     },
     clientsPending: input.clientsPending,
+  };
+}
+
+// ── Comparisons ─────────────────────────────────────────────────────────────
+
+/**
+ * The day an earlier month is counted through to compare with `report`: as far
+ * into it as the report is into its own month. A finished month compares with
+ * the whole of the other; the 31st of a month compares with the last of a
+ * shorter one.
+ */
+export function comparableThrough(
+  report: Pick<SalesReport, "monthStart" | "monthEnd" | "throughDay">,
+  year: number,
+  month: number,
+): string {
+  const start = monthStart(year, month);
+  const end = monthEnd(year, month);
+  if (report.throughDay < report.monthStart) {
+    return addDays(start, -1);
+  }
+  if (report.throughDay >= report.monthEnd) {
+    return end;
+  }
+  return minYmd(addDays(start, Number(report.throughDay.slice(8, 10)) - 1), end);
+}
+
+export type CompareRow = {
+  key: string;
+  label: string;
+  actual: Measures;
+  newClients: NewClients | null;
+  share: Share;
+};
+
+export type SalesComparison = {
+  year: number;
+  month: number;
+  monthStart: string;
+  throughDay: string;
+  /** False while the Spiro read has not yet reached back to the start of the period. */
+  complete: boolean;
+  mtd: { rows: CompareRow[]; total: CompareRow };
+  ytd: { rows: CompareRow[]; total: CompareRow };
+};
+
+function compareRow(row: MonthRow | YearRow): CompareRow {
+  return {
+    key: row.key,
+    label: row.label,
+    actual: row.actual,
+    newClients: row.newClients,
+    share: { listings: row.share.listings, pct: row.share.pct },
   };
 }
 
@@ -407,6 +562,9 @@ export type SalesDashboard = {
   monthKey: string;
   /** The months the picker offers. */
   months: { min: string; max: string };
+  markets: SalesMarket[];
+  /** Null where the order cache does not reach back to the period. */
+  compare: { mom: SalesComparison | null; yoy: SalesComparison | null };
 };
 
 export async function getSalesDashboard(params: {
@@ -414,12 +572,14 @@ export async function getSalesDashboard(params: {
   month: number;
   now?: number;
 }): Promise<SalesDashboard> {
+  const { year, month } = params;
   const now = params.now ?? Date.now();
   const yesterday = addDays(accountToday(now), -1);
   const sync = await getSalesSync();
   const floor = sync.historyFloor;
-  const yStart = `${params.year}-01-01`;
-  const through = minYmd(yesterday, monthEnd(params.year, params.month));
+  // Last year too, for the comparisons.
+  const earliest = `${year - 1}-01-01`;
+  const through = minYmd(yesterday, monthEnd(year, month));
   const db = getAdminDb();
 
   const rows = await db
@@ -427,54 +587,93 @@ export async function getSalesDashboard(params: {
     .leftJoin("admin_sales_companies as c", "c.company_id", "o.company_id")
     .select(["o.order_day", "o.agent_id", "o.total_cents", "c.service_area"])
     .where("o.total_cents", ">", 0)
-    .where("o.order_day", ">=", floor ? minYmd(floor, yStart) : yStart)
+    .where("o.order_day", ">=", floor ? minYmd(floor, earliest) : earliest)
     .where("o.order_day", "<=", through)
     .execute();
-  const labels = new Map<string, string>();
   const orders: ReportOrder[] = [];
   const paid: PaidOrder[] = [];
   for (const row of rows) {
     const market = marketOf(row.service_area);
-    labels.set(market.key, market.label);
     orders.push({ day: row.order_day, marketKey: market.key, totalCents: row.total_cents });
     if (row.agent_id) {
       paid.push({ agentId: row.agent_id, day: row.order_day, marketKey: market.key });
     }
   }
+  const markets = await listSalesMarkets();
+  const holidays = new Set((await listSalesHolidays()).map((h) => h.day));
 
   // "Returning after 12 months" needs the twelve months before every order it
-  // judges, so new clients start the year after the cache's floor.
-  let clientEvents: ClientEvent[] | null = null;
-  let clientsPending = 0;
-  if (floor && params.year > Number(floor.slice(0, 4))) {
-    const history = await db
+  // judges, so new clients start the year after the cache's floor. An agent's
+  // new-client order depends only on orders before it, so one pass per year up
+  // to the last day counted serves every period in that year.
+  const floorYear = floor ? Number(floor.slice(0, 4)) : null;
+  let priorPaid: Promise<Map<string, boolean>> | undefined;
+  const clientsFor = async (y: number) => {
+    if (floorYear === null || y <= floorYear) {
+      return null;
+    }
+    priorPaid ??= db
       .selectFrom("admin_sales_agent_history")
       .select(["agent_id", "had_paid"])
-      .execute();
-    const prior = new Map(history.map((h) => [h.agent_id, h.had_paid === 1]));
-    const result = classifyClients(paid, prior, { from: yStart, to: through });
-    clientEvents = result.events;
-    clientsPending = result.pendingAgents.length;
-  }
+      .execute()
+      .then((history) => new Map(history.map((h) => [h.agent_id, h.had_paid === 1])));
+    return classifyClients(paid, await priorPaid, {
+      from: `${y}-01-01`,
+      to: minYmd(through, `${y}-12-31`),
+    });
+  };
 
-  const report = buildSalesReport({
-    year: params.year,
-    month: params.month,
-    throughDay: through,
-    orders,
-    marketLabels: labels,
-    goals: await listSalesGoals(params.year),
-    holidays: new Set((await listSalesHolidays()).map((h) => h.day)),
-    clientEvents,
-    clientsPending,
-  });
+  const reportFor = async (y: number, m: number, throughDay: string): Promise<SalesReport> => {
+    const clients = await clientsFor(y);
+    return buildSalesReport({
+      year: y,
+      month: m,
+      throughDay,
+      orders,
+      markets,
+      goals: await listSalesGoals(y),
+      listings: await listSalesListings(y),
+      holidays,
+      clientEvents: clients?.events ?? null,
+      clientsPending: clients?.pendingAgents.length ?? 0,
+    });
+  };
+  const report = await reportFor(year, month, through);
+
+  /** `periodStart` is the earliest day the comparison reads: its month, or its year to date. */
+  const comparison = async (
+    y: number,
+    m: number,
+    periodStart: string,
+  ): Promise<SalesComparison | null> => {
+    if (!floor || periodStart < floor) {
+      return null;
+    }
+    const prior = await reportFor(y, m, comparableThrough(report, y, m));
+    return {
+      year: y,
+      month: m,
+      monthStart: prior.monthStart,
+      throughDay: prior.throughDay,
+      complete: sync.coveredFrom !== null && sync.coveredFrom <= periodStart,
+      mtd: { rows: prior.mtd.rows.map(compareRow), total: compareRow(prior.mtd.total) },
+      ytd: { rows: prior.ytd.rows.map(compareRow), total: compareRow(prior.ytd.total) },
+    };
+  };
+  const lastMonth = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
+
   return {
     report,
     sync,
-    monthKey: monthKey(params.year, params.month),
+    monthKey: monthKey(year, month),
     months: {
       min: `${floor ? floor.slice(0, 4) : yesterday.slice(0, 4)}-01`,
       max: yesterday.slice(0, 7),
+    },
+    markets,
+    compare: {
+      mom: await comparison(lastMonth.y, lastMonth.m, monthStart(lastMonth.y, lastMonth.m)),
+      yoy: await comparison(year - 1, month, `${year - 1}-01-01`),
     },
   };
 }
@@ -499,62 +698,11 @@ export async function listSalesGoals(year: number): Promise<SalesGoal[]> {
   }));
 }
 
-function wholeIn(value: unknown, min: number, max: number, what: string): number {
-  const n =
-    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-  if (!Number.isInteger(n) || n < min || n > max) {
-    throw new SalesInputError(`${what} must be a whole number from ${min} to ${max}.`);
-  }
-  return n;
-}
-
-/** A non-negative amount; blank reads as nothing entered. Accepts "$1,234.50". */
-function amount(value: unknown, what: string): number | null {
-  if (value === null || value === undefined || (typeof value === "string" && !value.trim())) {
-    return null;
-  }
-  const n =
-    typeof value === "number"
-      ? value
-      : typeof value === "string"
-        ? Number(value.replace(/[$,\s]/g, ""))
-        : Number.NaN;
-  if (!Number.isFinite(n) || n < 0 || n > 1_000_000_000) {
-    throw new SalesInputError(`${what} must be a number of zero or more.`);
-  }
-  return n;
-}
-
-/** The markets the goal editor offers: any with an order since last year, or a goal this year. */
-export async function listSalesMarkets(
-  year: number,
-): Promise<Array<{ key: string; label: string }>> {
-  const areas = await getAdminDb()
-    .selectFrom("admin_sales_orders as o")
-    .innerJoin("admin_sales_companies as c", "c.company_id", "o.company_id")
-    .select("c.service_area")
-    .distinct()
-    .where("c.service_area", "is not", null)
-    .where("o.order_day", ">=", `${year - 1}-01-01`)
-    .execute();
-  const out = new Map<string, string>();
-  for (const a of areas) {
-    const market = marketOf(a.service_area);
-    if (market.key !== UNASSIGNED_MARKET) {
-      out.set(market.key, market.label);
-    }
-  }
-  for (const goal of await listSalesGoals(year)) {
-    if (goal.marketKey !== TOTAL_GOAL_KEY) {
-      out.set(goal.marketKey, out.get(goal.marketKey) ?? goal.marketLabel);
-    }
-  }
-  return [...out.entries()]
-    .map(([key, label]) => ({ key, label }))
-    .toSorted((a, b) => a.label.localeCompare(b.label));
-}
-
-/** Replace one month's goals with the ones given. A row left blank is no goal. */
+/**
+ * Save one month's goals for the markets given; a row left blank clears that
+ * market's goal. Markets not in the list sent keep what they had, so a goal
+ * saved before a market stopped counting is still there.
+ */
 export async function saveSalesGoals(
   input: Record<string, unknown>,
   actorName: string,
@@ -565,35 +713,46 @@ export async function saveSalesGoals(
   if (!Array.isArray(input.goals) || input.goals.length > 100) {
     throw new SalesInputError("goals must be a list of up to 100 markets.");
   }
-  const entries = new Map<
-    string,
-    {
-      year: number;
-      month: number;
-      market_key: string;
-      market_label: string;
-      units: number;
-      revenue_cents: number;
-      asp_cents: number | null;
-      updated_by: string;
-      updated_at: number;
-    }
-  >();
+  const known = new Map((await listSalesMarkets()).map((m) => [m.key, m]));
+  const touched = new Set<string>();
+  const entries: Array<{
+    year: number;
+    month: number;
+    market_key: string;
+    market_label: string;
+    units: number;
+    revenue_cents: number;
+    asp_cents: number | null;
+    updated_by: string;
+    updated_at: number;
+  }> = [];
   for (const raw of input.goals) {
     const goal = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-    const isTotal = goal.marketKey === TOTAL_GOAL_KEY;
-    const label = isTotal
-      ? TOTAL_GOAL_LABEL
-      : typeof goal.marketLabel === "string"
-        ? goal.marketLabel.trim()
-        : "";
-    const key = isTotal ? TOTAL_GOAL_KEY : regionKey(label);
-    if (!label || label.length > 60 || !key) {
-      throw new SalesInputError("Every goal needs a market name of up to 60 characters.");
+    let key: string;
+    let label: string;
+    if (goal.marketKey === TOTAL_GOAL_KEY) {
+      key = TOTAL_GOAL_KEY;
+      label = TOTAL_GOAL_LABEL;
+    } else {
+      const named = typeof goal.marketLabel === "string" ? goal.marketLabel.trim() : "";
+      const market = known.get(
+        typeof goal.marketKey === "string" ? goal.marketKey : regionKey(named),
+      );
+      if (!market) {
+        throw new SalesInputError(
+          `"${named || String(goal.marketKey)}" is not on the market list. Add it under Markets first.`,
+        );
+      }
+      if (!marketActiveIn(market, monthKey(year, month))) {
+        throw new SalesInputError(`${market.label} is not tracked in ${monthKey(year, month)}.`);
+      }
+      key = market.key;
+      label = market.label;
     }
-    if (!isTotal && (key === TOTAL_GOAL_KEY || key === UNASSIGNED_MARKET)) {
-      throw new SalesInputError(`"${label}" is not a market name that can hold a goal.`);
+    if (touched.has(key)) {
+      throw new SalesInputError(`${label} is listed twice.`);
     }
+    touched.add(key);
     const units = amount(goal.units, `${label} units`);
     if (units !== null && !Number.isInteger(units)) {
       throw new SalesInputError(`${label} units must be a whole number.`);
@@ -603,10 +762,7 @@ export async function saveSalesGoals(
     if (units === null && revenue === null && asp === null) {
       continue;
     }
-    if (entries.has(key)) {
-      throw new SalesInputError(`${label} is listed twice.`);
-    }
-    entries.set(key, {
+    entries.push({
       year,
       month,
       market_key: key,
@@ -618,21 +774,21 @@ export async function saveSalesGoals(
       updated_at: now,
     });
   }
-  await getAdminDb()
-    .transaction()
-    .execute(async (trx) => {
-      await trx
-        .deleteFrom("admin_sales_goals")
-        .where("year", "=", year)
-        .where("month", "=", month)
-        .execute();
-      if (entries.size > 0) {
+  if (touched.size > 0) {
+    await getAdminDb()
+      .transaction()
+      .execute(async (trx) => {
         await trx
-          .insertInto("admin_sales_goals")
-          .values([...entries.values()])
+          .deleteFrom("admin_sales_goals")
+          .where("year", "=", year)
+          .where("month", "=", month)
+          .where("market_key", "in", [...touched])
           .execute();
-      }
-    });
+        if (entries.length > 0) {
+          await trx.insertInto("admin_sales_goals").values(entries).execute();
+        }
+      });
+  }
   return listSalesGoals(year);
 }
 

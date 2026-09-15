@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { businessDays, oneYearBefore } from "./sales-calendar.js";
 import { classifyClients, type PaidOrder } from "./sales-clients.js";
-import { buildSalesReport, type ReportOrder, type SalesGoal } from "./sales-dashboard.js";
+import {
+  buildSalesReport,
+  comparableThrough,
+  type ReportOrder,
+  type SalesGoal,
+} from "./sales-dashboard.js";
+import type { SalesMarket } from "./sales-markets.js";
 
 /**
  * The dashboard's arithmetic, pinned to the sheet it replaces. The August 2026
@@ -12,6 +18,10 @@ import { buildSalesReport, type ReportOrder, type SalesGoal } from "./sales-dash
 
 const NONE = new Set<string>();
 
+function market(label: string, removedFrom: string | null = null): SalesMarket {
+  return { key: label.toLowerCase(), label, removedFrom };
+}
+
 /** `count` orders summing exactly `dollars`, spread across August. */
 function orders(marketKey: string, count: number, dollars: number): ReportOrder[] {
   const totalCents = Math.round(dollars * 100);
@@ -21,6 +31,22 @@ function orders(marketKey: string, count: number, dollars: number): ReportOrder[
     marketKey,
     totalCents: i === count - 1 ? totalCents - each * (count - 1) : each,
   }));
+}
+
+/** `count` $200 orders on one day. */
+function onDay(count: number, day: string, marketKey: string): ReportOrder[] {
+  return Array.from({ length: count }, () => ({ day, marketKey, totalCents: 20000 }));
+}
+
+function goal(month: number, marketKey: string, units: number): SalesGoal {
+  return {
+    month,
+    marketKey,
+    marketLabel: marketKey,
+    units,
+    revenueCents: units * 20000,
+    aspCents: null,
+  };
 }
 
 // From the August 2026 sheet: goal units, goal revenue, goal ASP, actual units, actual revenue.
@@ -75,8 +101,9 @@ function augustInput(withCompanyGoal: boolean) {
     orders: AUGUST.flatMap(([label, , , , units, revenue]) =>
       orders(label.toLowerCase(), units, revenue),
     ),
-    marketLabels: new Map(AUGUST.map(([label]) => [label.toLowerCase(), label])),
+    markets: AUGUST.map(([label]) => market(label)),
     goals,
+    listings: [],
     holidays: NONE,
     clientEvents: null,
     clientsPending: 0,
@@ -138,35 +165,18 @@ describe("pace", () => {
       month: 9,
       throughDay: "2026-09-14",
       orders: [
-        ...Array.from({ length: 90 }, () => ({
-          day: "2026-09-10",
-          marketKey: "lima",
-          totalCents: 20000,
-        })),
+        ...onDay(90, "2026-09-10", "lima"),
         // After the day counted through: not in the month to date.
         { day: "2026-09-15", marketKey: "lima", totalCents: 20000 },
         // A $0 order is never a unit.
         { day: "2026-09-10", marketKey: "lima", totalCents: 0 },
       ],
-      marketLabels: new Map([["lima", "Lima"]]),
+      markets: [market("Lima")],
       goals: [
-        ...Array.from({ length: 8 }, (_, i) => ({
-          month: i + 1,
-          marketKey: "lima",
-          marketLabel: "Lima",
-          units: 100,
-          revenueCents: 2000000,
-          aspCents: null,
-        })),
-        {
-          month: 9,
-          marketKey: "lima",
-          marketLabel: "Lima",
-          units: 200,
-          revenueCents: 4000000,
-          aspCents: null,
-        },
+        ...Array.from({ length: 8 }, (_, i) => goal(i + 1, "lima", 100)),
+        goal(9, "lima", 200),
       ],
+      listings: [],
       holidays,
       clientEvents: null,
       clientsPending: 0,
@@ -185,34 +195,144 @@ describe("pace", () => {
     expect(ytd?.pct.units).toBe(10.16);
   });
 
-  it("puts markets without a service area last, and has no trend before a business day", () => {
+  it("has no trend before a business day", () => {
     const report = buildSalesReport({
       year: 2026,
       month: 11,
       throughDay: "2026-10-31",
-      orders: [{ day: "2026-10-02", marketKey: "unassigned", totalCents: 5000 }],
-      marketLabels: new Map([
-        ["unassigned", "Unassigned"],
-        ["toledo", "Toledo"],
-      ]),
-      goals: [
-        {
-          month: 11,
-          marketKey: "toledo",
-          marketLabel: "Toledo",
-          units: 10,
-          revenueCents: 100000,
-          aspCents: null,
-        },
+      orders: [],
+      markets: [market("Toledo")],
+      goals: [goal(11, "toledo", 10)],
+      listings: [],
+      holidays: NONE,
+      clientEvents: null,
+      clientsPending: 0,
+    });
+    expect(report.businessDays.monthCompleted).toBe(0);
+    expect(report.mtd.total.trend.units).toBeNull();
+    expect(report.mtd.total.newClients).toBeNull();
+  });
+});
+
+describe("markets", () => {
+  it("lists every tracked market, and puts untracked and unassigned orders under Other markets", () => {
+    const report = buildSalesReport({
+      year: 2026,
+      month: 10,
+      throughDay: "2026-10-31",
+      orders: [
+        { day: "2026-10-02", marketKey: "unassigned", totalCents: 5000 },
+        { day: "2026-10-03", marketKey: "akron", totalCents: 7000 },
+      ],
+      markets: [market("Toledo"), market("Charlotte")],
+      goals: [],
+      listings: [],
+      holidays: NONE,
+      clientEvents: null,
+      clientsPending: 0,
+    });
+    // Toledo and Charlotte have no orders or goals and are listed anyway.
+    expect(report.mtd.rows.map((r) => [r.label, r.actual.units])).toEqual([
+      ["Charlotte", 0],
+      ["Toledo", 0],
+      ["Other markets", 2],
+    ]);
+    expect(report.mtd.total.actual.revenueCents).toBe(12000);
+  });
+
+  it("keeps a stopped market in the months before it stopped, and counts it under Other after", () => {
+    const report = buildSalesReport({
+      year: 2026,
+      month: 10,
+      throughDay: "2026-10-31",
+      orders: [
+        { day: "2026-08-10", marketKey: "findlay", totalCents: 20000 },
+        { day: "2026-10-10", marketKey: "findlay", totalCents: 30000 },
+        { day: "2026-10-11", marketKey: "lima", totalCents: 25000 },
+      ],
+      markets: [market("Findlay", "2026-09"), market("Lima")],
+      goals: [goal(8, "findlay", 25), goal(10, "findlay", 25), goal(10, "lima", 100)],
+      listings: [],
+      holidays: NONE,
+      clientEvents: null,
+      clientsPending: 0,
+    });
+    expect(report.mtd.rows.map((r) => [r.label, r.actual.units])).toEqual([
+      ["Lima", 1],
+      ["Other markets", 1],
+    ]);
+    // October's Findlay goal is still saved, but Findlay is not in October.
+    expect(report.mtd.total.goal.units).toBe(100);
+    const findlay = report.ytd.rows.find((r) => r.key === "findlay");
+    expect(findlay?.actual.units).toBe(1);
+    expect(findlay?.annualGoal.units).toBe(25);
+    expect(report.ytd.rows.map((r) => r.label)).toEqual(["Findlay", "Lima", "Other markets"]);
+    expect(report.ytd.total.actual.units).toBe(3);
+  });
+});
+
+describe("market share", () => {
+  it("divides units by new listings, over only the months with listings for the year", () => {
+    const report = buildSalesReport({
+      year: 2026,
+      month: 9,
+      throughDay: "2026-09-30",
+      orders: [
+        ...onDay(30, "2026-07-15", "dayton"),
+        ...onDay(40, "2026-08-14", "dayton"),
+        ...onDay(50, "2026-09-15", "dayton"),
+        ...onDay(10, "2026-09-15", "lima"),
+      ],
+      markets: [market("Dayton"), market("Lima")],
+      goals: [],
+      listings: [
+        { month: 8, marketKey: "dayton", listings: 400 },
+        { month: 9, marketKey: "dayton", listings: 500 },
+        // A month the report has not reached yet.
+        { month: 10, marketKey: "dayton", listings: 450 },
       ],
       holidays: NONE,
       clientEvents: null,
       clientsPending: 0,
     });
-    expect(report.mtd.rows.map((r) => r.label)).toEqual(["Toledo", "Unassigned"]);
-    expect(report.businessDays.monthCompleted).toBe(0);
-    expect(report.mtd.total.trend.units).toBeNull();
-    expect(report.mtd.total.newClients).toBeNull();
+    expect(report.mtd.rows.find((r) => r.key === "dayton")?.share).toEqual({
+      listings: 500,
+      pct: 10,
+    });
+    // No listings for Lima: no share, and Lima's units stay out of the total's.
+    expect(report.mtd.rows.find((r) => r.key === "lima")?.share).toEqual({
+      listings: null,
+      pct: null,
+    });
+    expect(report.mtd.total.share).toEqual({ listings: 500, pct: 10 });
+    // July has no listings, so its 30 units are not in the year's share.
+    expect(report.ytd.rows.find((r) => r.key === "dayton")?.share).toEqual({
+      listings: 900,
+      units: 90,
+      pct: 10,
+    });
+    expect(report.ytd.total.share).toEqual({ listings: 900, units: 90, pct: 10 });
+  });
+});
+
+describe("comparisons", () => {
+  it("counts the earlier month as far into itself as this one is", () => {
+    const sept14 = { monthStart: "2026-09-01", monthEnd: "2026-09-30", throughDay: "2026-09-14" };
+    expect(comparableThrough(sept14, 2026, 8)).toBe("2026-08-14");
+    expect(comparableThrough(sept14, 2025, 9)).toBe("2025-09-14");
+    const march30 = { monthStart: "2026-03-01", monthEnd: "2026-03-31", throughDay: "2026-03-30" };
+    expect(comparableThrough(march30, 2026, 2)).toBe("2026-02-28");
+    // A finished month compares with the whole of the other.
+    const leapFebruary = {
+      monthStart: "2028-02-01",
+      monthEnd: "2028-02-29",
+      throughDay: "2028-02-29",
+    };
+    expect(comparableThrough(leapFebruary, 2028, 1)).toBe("2028-01-31");
+    expect(comparableThrough(leapFebruary, 2027, 2)).toBe("2027-02-28");
+    // On the 1st nothing of the month is counted yet, so nothing of the other is either.
+    const firstDay = { monthStart: "2026-10-01", monthEnd: "2026-10-31", throughDay: "2026-09-30" };
+    expect(comparableThrough(firstDay, 2026, 9)).toBe("2026-08-31");
   });
 });
 

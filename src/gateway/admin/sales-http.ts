@@ -1,9 +1,10 @@
 // Admin routes for the sales dashboard, under /api/admin/sales-dashboard.
 //
 // Auth and the `sales-dashboard` feature gate run in admin-http.ts before
-// anything here. Whoever holds the grant may read the dashboard and ask for a
-// fresh Spiro read; goals and the holiday list are an admin's to change, since
-// they decide what every percentage on the page means.
+// anything here. Whoever holds the grant may read the dashboard, its markets and
+// listings, and ask for a fresh Spiro read. Markets, goals, new listings and
+// the holiday list are an admin's to change, since they decide what every
+// percentage on the page means.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody } from "../hooks.js";
@@ -16,17 +17,24 @@ import {
   getSalesDashboard,
   listSalesGoals,
   listSalesHolidays,
-  listSalesMarkets,
-  SalesInputError,
   saveSalesGoals,
 } from "./sales-dashboard.js";
+import {
+  addSalesMarket,
+  listSalesListings,
+  listSalesMarkets,
+  SalesInputError,
+  saveSalesListings,
+  setSalesMarketRemoval,
+  suggestSalesMarkets,
+} from "./sales-markets.js";
 import { getSalesSync, refreshSalesData, type SalesSweepDeps } from "./sales-orders.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
 
 export type SalesRequestContext = {
   actorName: string;
-  /** Only an admin may change goals or holidays. */
+  /** Only an admin may change markets, goals, listings or holidays. */
   isAdmin: boolean;
 };
 
@@ -62,6 +70,28 @@ async function guarded(res: ServerResponse, work: () => Promise<void>): Promise<
       return;
     }
     throw err;
+  }
+}
+
+function readYear(url: URL): number | null {
+  const year = Number(url.searchParams.get("year"));
+  return Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : null;
+}
+
+/** An admin-only write: 403 for anyone else, then the body, then the work. */
+async function adminWrite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: SalesRequestContext,
+  work: (data: Record<string, unknown>) => Promise<void>,
+): Promise<void> {
+  if (!ctx.isAdmin) {
+    sendJson(res, 403, { error: "forbidden" });
+    return;
+  }
+  const data = await readObject(req, res);
+  if (data) {
+    await guarded(res, () => work(data));
   }
 }
 
@@ -106,31 +136,89 @@ export async function handleSalesAdminRequest(
     return true;
   }
 
+  if (subPath === "/sales-dashboard/markets") {
+    if (method === "GET") {
+      const lastYear = Number(accountToday(now).slice(0, 4)) - 1;
+      sendJson(res, 200, {
+        markets: await listSalesMarkets(),
+        suggestions: await suggestSalesMarkets(`${lastYear}-01-01`),
+      });
+      return true;
+    }
+    if (method === "POST") {
+      await adminWrite(req, res, ctx, async (data) => {
+        const market = await addSalesMarket(data, ctx.actorName, now);
+        sendJson(res, 201, { market, markets: await listSalesMarkets() });
+      });
+      return true;
+    }
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return true;
+  }
+
+  const marketMatch = /^\/sales-dashboard\/markets\/([^/]+)$/.exec(subPath);
+  if (marketMatch) {
+    if (method !== "PATCH") {
+      sendJson(res, 405, { error: "method_not_allowed" });
+      return true;
+    }
+    await adminWrite(req, res, ctx, async (data) => {
+      const market = await setSalesMarketRemoval(
+        decodeURIComponent(marketMatch[1] ?? ""),
+        data,
+        now,
+      );
+      if (!market) {
+        sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+      sendJson(res, 200, { market, markets: await listSalesMarkets() });
+    });
+    return true;
+  }
+
   if (subPath === "/sales-dashboard/goals") {
     if (method === "GET") {
-      const year = Number(url.searchParams.get("year"));
-      if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      const year = readYear(url);
+      if (year === null) {
         sendJson(res, 400, { error: "year must be a four-digit year" });
         return true;
       }
       sendJson(res, 200, {
         year,
         goals: await listSalesGoals(year),
-        markets: await listSalesMarkets(year),
+        markets: await listSalesMarkets(),
       });
       return true;
     }
     if (method === "PUT") {
-      if (!ctx.isAdmin) {
-        sendJson(res, 403, { error: "forbidden" });
+      await adminWrite(req, res, ctx, async (data) => {
+        sendJson(res, 200, { goals: await saveSalesGoals(data, ctx.actorName, now) });
+      });
+      return true;
+    }
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return true;
+  }
+
+  if (subPath === "/sales-dashboard/listings") {
+    if (method === "GET") {
+      const year = readYear(url);
+      if (year === null) {
+        sendJson(res, 400, { error: "year must be a four-digit year" });
         return true;
       }
-      const data = await readObject(req, res);
-      if (data) {
-        await guarded(res, async () => {
-          sendJson(res, 200, { goals: await saveSalesGoals(data, ctx.actorName, now) });
-        });
-      }
+      sendJson(res, 200, {
+        year,
+        listings: await listSalesListings(year),
+        markets: await listSalesMarkets(),
+      });
+      return true;
+    }
+    if (method === "PUT") {
+      await adminWrite(req, res, ctx, async (data) => {
+        sendJson(res, 200, { listings: await saveSalesListings(data, ctx.actorName, now) });
+      });
       return true;
     }
     sendJson(res, 405, { error: "method_not_allowed" });
@@ -143,17 +231,10 @@ export async function handleSalesAdminRequest(
       return true;
     }
     if (method === "POST") {
-      if (!ctx.isAdmin) {
-        sendJson(res, 403, { error: "forbidden" });
-        return true;
-      }
-      const data = await readObject(req, res);
-      if (data) {
-        await guarded(res, async () => {
-          const holiday = await addSalesHoliday(data, ctx.actorName, now);
-          sendJson(res, 201, { holiday, holidays: await listSalesHolidays() });
-        });
-      }
+      await adminWrite(req, res, ctx, async (data) => {
+        const holiday = await addSalesHoliday(data, ctx.actorName, now);
+        sendJson(res, 201, { holiday, holidays: await listSalesHolidays() });
+      });
       return true;
     }
     sendJson(res, 405, { error: "method_not_allowed" });

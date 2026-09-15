@@ -8,6 +8,7 @@ process.env.OPENCLAW_STATE_DIR = TMP_DIR;
 
 const sales = await import("./sales-orders.js");
 const dashboard = await import("./sales-dashboard.js");
+const salesMarkets = await import("./sales-markets.js");
 const { callSpiro } = await import("./sales-spiro.js");
 const { getAdminDb } = await import("./user-store.js");
 
@@ -321,6 +322,10 @@ describe("reading orders", () => {
       { agentId: "agent-b", from: "2020-01-01", to: "2021-12-31", span: "year" },
     ]);
 
+    // Only markets on the list get a row of their own.
+    for (const label of ["Charlotte", "Cleveland"]) {
+      await salesMarkets.addSalesMarket({ label }, "test", NOW);
+    }
     const dash = await dashboard.getSalesDashboard({ year: 2026, month: 9, now: NOW });
     expect(dash.report.throughDay).toBe("2026-09-13");
     expect(dash.months).toEqual({ min: "2025-01", max: "2026-09" });
