@@ -26,6 +26,8 @@ import { ensureLeadDigestScheduler } from "./lead-notify.js";
 import { ensurePlaybookSeed } from "./lead-playbooks-store.js";
 import { ensureTerritorySeed } from "./lead-territories.js";
 import { handleListingAdminRequest } from "./listing-http.js";
+import { handleSalesAdminRequest } from "./sales-http.js";
+import { ensureSalesOrderScheduler } from "./sales-orders.js";
 import { USER_PORTAL_HTML } from "./user-portal-html.js";
 
 let _getResolvedAuth: (() => ResolvedGatewayAuth) | undefined;
@@ -572,6 +574,7 @@ export async function ensureAdminInitialized(): Promise<void> {
   ensurePipedriveContactsScheduler();
   ensureLeadDigestScheduler();
   ensureBrokerageOrderScheduler();
+  ensureSalesOrderScheduler();
 }
 
 export async function handleAdminHttpRequest(
@@ -1234,12 +1237,14 @@ export async function handleAdminHttpRequest(
                 ? ["listings"]
                 : subPath === "/brokerages" || subPath.startsWith("/brokerages/")
                   ? ["brokerages"]
-                  : // Authoring the knowledge base is one grant, read and write
-                    // alike: everything under here edits or previews unpublished
-                    // work. Clients read published articles on the public surface.
-                    subPath === "/kb" || subPath.startsWith("/kb/")
-                    ? ["knowledge-base"]
-                    : null;
+                  : subPath === "/sales-dashboard" || subPath.startsWith("/sales-dashboard/")
+                    ? ["sales-dashboard"]
+                    : // Authoring the knowledge base is one grant, read and write
+                      // alike: everything under here edits or previews unpublished
+                      // work. Clients read published articles on the public surface.
+                      subPath === "/kb" || subPath.startsWith("/kb/")
+                      ? ["knowledge-base"]
+                      : null;
     if (gatedFeatures) {
       let allowed = false;
       for (const feature of gatedFeatures) {
@@ -1272,6 +1277,11 @@ export async function handleAdminHttpRequest(
 
   // Brokerage partnerships: agreements, targets, order pages and their documents.
   if (await handleBrokerageAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
+    return true;
+  }
+
+  // Sales dashboard: goals against booked units, revenue and ASP per market.
+  if (await handleSalesAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
     return true;
   }
 

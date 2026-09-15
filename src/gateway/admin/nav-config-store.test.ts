@@ -67,6 +67,7 @@ describe("resolving a saved arrangement against the catalog", () => {
       "chat",
       "tasks",
       "reports",
+      "sales-dashboard",
       "leads",
       "listings",
       "brokerages",

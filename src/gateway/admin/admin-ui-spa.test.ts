@@ -484,6 +484,7 @@ describe("the Navigation editor", () => {
       "chat",
       "tasks",
       "reports",
+      "sales-dashboard",
       "leads",
       "listings",
       "brokerages",

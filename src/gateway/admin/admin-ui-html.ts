@@ -45,6 +45,12 @@ import {
   PROJECT_CALENDAR_MARKUP,
 } from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
+import {
+  SALES_DASHBOARD_COMPONENT_JS,
+  SALES_DASHBOARD_CSS,
+  SALES_DASHBOARD_MARKUP,
+  SALES_DASHBOARD_MODALS,
+} from "./sales-dashboard-ui.js";
 import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
 import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
 import { TASK_STATUS_COMPONENT_JS, TASK_STATUS_CSS } from "./task-status-ui.js";
@@ -532,6 +538,7 @@ ${KB_SEARCHES_CSS}
 ${LEADS_CSS}
 ${LISTINGS_CSS}
 ${BROKERAGES_CSS}
+${SALES_DASHBOARD_CSS}
 ${FEEDBACK_CSS}
 ${TASK_STATUS_CSS}
 ${MY_WORK_CSS}
@@ -1371,6 +1378,7 @@ ${KB_SEARCHES_MARKUP}
 ${LEADS_MARKUP}
 ${LISTINGS_MARKUP}
 ${BROKERAGES_MARKUP}
+${SALES_DASHBOARD_MARKUP}
 ${LEAD_PLAYBOOKS_MARKUP}
 ${FEEDBACK_MARKUP}
 
@@ -1723,6 +1731,7 @@ ${KB_MODALS}
 ${LEADS_MODALS}
 ${LISTING_SEND_MODAL}
 ${BROKERAGES_MODALS}
+${SALES_DASHBOARD_MODALS}
 ${FEEDBACK_MODALS}
 
 <div id="folder-modal" class="modal-backdrop hidden">
@@ -2335,6 +2344,7 @@ ${FEEDBACK_MODALS}
     leads: { el: 'page-leads', title: 'Leads', adminOnly: false, superAdminOnly: false, feature: 'leads' },
     listings: { el: 'page-listings', title: 'New Listings', adminOnly: false, superAdminOnly: false, feature: 'listings' },
     brokerages: { el: 'page-brokerages', title: 'Brokerage Partnerships', adminOnly: false, superAdminOnly: false, feature: 'brokerages' },
+    'sales-dashboard': { el: 'page-sales-dashboard', title: 'Sales Dashboard', adminOnly: false, superAdminOnly: false, feature: 'sales-dashboard' },
     // Same grant opens both, but editing the routing table is an admin's: the
     // server refuses the writes either way, and this keeps the nav honest.
     'lead-routing': { el: 'page-lead-routing', title: 'Lead Routing', adminOnly: true, superAdminOnly: false },
@@ -2471,6 +2481,7 @@ ${FEEDBACK_MODALS}
     }
     if (page === 'listings') loadListings();
     if (page === 'brokerages') loadBrokerages();
+    if (page === 'sales-dashboard') loadSalesDashboard();
     if (page === 'lead-routing') loadLeadRouting();
     if (page === 'lead-playbooks') loadLeadPlaybooks();
     if (page === 'tickets') loadTickets();
@@ -3745,6 +3756,7 @@ ${KB_SEARCHES_COMPONENT_JS}
 ${LEADS_COMPONENT_JS}
 ${LISTINGS_COMPONENT_JS}
 ${BROKERAGES_COMPONENT_JS}
+${SALES_DASHBOARD_COMPONENT_JS}
 ${FEEDBACK_COMPONENT_JS}
 ${TASK_STATUS_COMPONENT_JS}
 ${MY_WORK_COMPONENT_JS}

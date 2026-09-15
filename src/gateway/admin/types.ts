@@ -53,6 +53,9 @@ export const PORTAL_FEATURES = [
   // Agreements with brokerages and the targets for the next ones, with their
   // contracts. Whoever holds it keeps the whole section.
   { value: "brokerages", label: "Brokerage Partnerships" },
+  // Goals against booked units, revenue and ASP per market. Holding it opens
+  // the page; changing goals or holidays stays an admin's.
+  { value: "sales-dashboard", label: "Sales Dashboard" },
   { value: "tickets", label: "Tickets" },
   { value: "ticket-departments", label: "Ticket Departments" },
   { value: "ticket-categories", label: "Ticket Request Types" },

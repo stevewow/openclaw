@@ -1083,6 +1083,68 @@ type BrokerageOrderSyncTable = {
   error: string | null;
 };
 
+/** One Spiro order, under the day it was placed in the account's timezone. */
+type SalesOrdersTable = {
+  order_id: string;
+  order_day: string;
+  agent_id: string | null;
+  agent_name: string | null;
+  company_id: string | null;
+  company_name: string | null;
+  status: string;
+  total_cents: number;
+};
+
+/** A company's service area, which is the market its orders count toward. */
+type SalesCompaniesTable = {
+  company_id: string;
+  name: string | null;
+  service_area: string | null;
+  checked_at: number;
+};
+
+/** Whether an agent had a paid order before the order cache's floor. */
+type SalesAgentHistoryTable = {
+  agent_id: string;
+  floor: string;
+  had_paid: number;
+  checked_at: number;
+};
+
+type SalesSyncTable = {
+  id: string;
+  /** January 1 of the year before the first read; the cache reaches back to it. */
+  history_floor: string;
+  /** The unbroken span of days read to the end. */
+  covered_from: string | null;
+  covered_to: string | null;
+  year_read_at: number | null;
+  refreshed_at: number | null;
+  attempted_at: number | null;
+  orders_read: number;
+  error: string | null;
+};
+
+type SalesGoalsTable = {
+  year: number;
+  month: number;
+  market_key: string;
+  market_label: string;
+  units: number;
+  revenue_cents: number;
+  /** Null means revenue ÷ units. */
+  asp_cents: number | null;
+  updated_by: string | null;
+  updated_at: number;
+};
+
+type SalesHolidaysTable = {
+  day: string;
+  label: string;
+  created_by: string | null;
+  created_at: number;
+};
+
 type LeadDigestLogTable = {
   /** YYYY-MM-DD in the digest timezone. Primary key, so a day sends once. */
   day: string;
@@ -1160,6 +1222,12 @@ export type AdminDb = {
   admin_brokerage_documents: BrokerageDocumentsTable;
   admin_brokerage_company_months: BrokerageCompanyMonthsTable;
   admin_brokerage_order_sync: BrokerageOrderSyncTable;
+  admin_sales_orders: SalesOrdersTable;
+  admin_sales_companies: SalesCompaniesTable;
+  admin_sales_agent_history: SalesAgentHistoryTable;
+  admin_sales_sync: SalesSyncTable;
+  admin_sales_goals: SalesGoalsTable;
+  admin_sales_holidays: SalesHolidaysTable;
   admin_lead_events: LeadEventsTable;
   admin_lead_playbooks: LeadPlaybooksTable;
   admin_lead_settings: LeadSettingsTable;
@@ -2152,6 +2220,63 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       refreshed_at INTEGER,
       attempted_at INTEGER NOT NULL,
       error TEXT
+    );
+
+    -- Sales dashboard. Orders are every Spiro order from the floor on, replaced
+    -- a span of days at a time; companies give each its market; agent history
+    -- is the one fact per agent new clients need from before the floor.
+    CREATE TABLE IF NOT EXISTS admin_sales_orders (
+      order_id TEXT PRIMARY KEY,
+      order_day TEXT NOT NULL,
+      agent_id TEXT,
+      agent_name TEXT,
+      company_id TEXT,
+      company_name TEXT,
+      status TEXT NOT NULL,
+      total_cents INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_sales_orders_day ON admin_sales_orders(order_day);
+    CREATE INDEX IF NOT EXISTS admin_sales_orders_agent ON admin_sales_orders(agent_id, order_day);
+    CREATE TABLE IF NOT EXISTS admin_sales_companies (
+      company_id TEXT PRIMARY KEY,
+      name TEXT,
+      service_area TEXT,
+      checked_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_sales_agent_history (
+      agent_id TEXT PRIMARY KEY,
+      floor TEXT NOT NULL,
+      had_paid INTEGER NOT NULL,
+      checked_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS admin_sales_sync (
+      id TEXT PRIMARY KEY,
+      history_floor TEXT NOT NULL,
+      covered_from TEXT,
+      covered_to TEXT,
+      year_read_at INTEGER,
+      refreshed_at INTEGER,
+      attempted_at INTEGER,
+      orders_read INTEGER NOT NULL DEFAULT 0,
+      error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS admin_sales_goals (
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL CHECK(month BETWEEN 1 AND 12),
+      market_key TEXT NOT NULL,
+      market_label TEXT NOT NULL,
+      units INTEGER NOT NULL,
+      revenue_cents INTEGER NOT NULL,
+      asp_cents INTEGER,
+      updated_by TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (year, month, market_key)
+    );
+    CREATE TABLE IF NOT EXISTS admin_sales_holidays (
+      day TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      created_by TEXT,
+      created_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS admin_leads_status ON admin_leads(status);

@@ -36,6 +36,12 @@ import {
   PROJECT_CALENDAR_MARKUP,
 } from "./project-calendar-ui.js";
 import { REPORT_TABLE_COMPONENT_JS } from "./report-ui.js";
+import {
+  SALES_DASHBOARD_COMPONENT_JS,
+  SALES_DASHBOARD_CSS,
+  SALES_DASHBOARD_MODALS,
+  SALES_DASHBOARD_PORTAL_MARKUP,
+} from "./sales-dashboard-ui.js";
 import { TASK_FEED_COMPONENT_JS, TASK_FEED_CSS, TASK_FEED_MARKUP } from "./task-feed-ui.js";
 import { TASK_LIST_COMPONENT_JS, TASK_LIST_CSS, TASK_LIST_MARKUP } from "./task-list-ui.js";
 import { TASK_STATUS_COMPONENT_JS, TASK_STATUS_CSS } from "./task-status-ui.js";
@@ -208,6 +214,7 @@ ${MARKET_CSS}
 ${LEADS_CSS}
 ${LISTINGS_CSS}
 ${BROKERAGES_CSS}
+${SALES_DASHBOARD_CSS}
   .focus-up { color: #15803d; font-weight: 700; }
   .focus-down { color: #b91c1c; font-weight: 700; }
   /* Client tags, matching the dashboard's Focus report. */
@@ -420,6 +427,7 @@ ${HUB_BASE_CSS}
 ${LEADS_PORTAL_MARKUP}
 ${LISTINGS_PORTAL_MARKUP}
 ${BROKERAGES_PORTAL_MARKUP}
+${SALES_DASHBOARD_PORTAL_MARKUP}
 
     <!-- Reports -->
     <div id="page-reports" class="page">
@@ -541,6 +549,7 @@ ${BROKERAGES_PORTAL_MARKUP}
 ${LEADS_PORTAL_MODALS}
 ${LISTING_SEND_MODAL}
 ${BROKERAGES_MODALS}
+${SALES_DASHBOARD_MODALS}
 
 <!-- Project modal -->
 <div id="pt-project-modal" class="modal-backdrop hidden">
@@ -689,6 +698,7 @@ ${MARKET_COMPONENT_JS}
 ${LEADS_COMPONENT_JS}
 ${LISTINGS_COMPONENT_JS}
 ${BROKERAGES_COMPONENT_JS}
+${SALES_DASHBOARD_COMPONENT_JS}
   // ── Access helpers ──────────────────────────────────────────────────────────
   function userPermissions(){ return (currentUser && currentUser.permissions) || []; }
   function hasFeature(f){ return userPermissions().some(function(p){ return p.permissionType === 'feature' && p.value === f; }); }
@@ -1571,6 +1581,7 @@ ${BROKERAGES_COMPONENT_JS}
     // emails send to the dashboard.
     if (page === 'listings') loadListings();
     if (page === 'brokerages') loadBrokerages();
+    if (page === 'sales-dashboard') loadSalesDashboard();
     if (page === 'leads') {
       var wantedLead = new URLSearchParams((location.hash.split('?')[1] || '')).get('lead');
       loadLeads().then(function(){ if (wantedLead) openLeadModal(wantedLead); });
