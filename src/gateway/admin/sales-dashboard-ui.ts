@@ -8,7 +8,14 @@
 // regex escapes and no backslashes in its comments. It also must not contain a
 // dollar sign followed by an open brace.
 
-export const SALES_DASHBOARD_CSS = `
+import { SALES_EXPORT_COMPONENT_JS, SALES_EXPORT_CSS } from "./sales-export-ui.js";
+import {
+  SALES_TRENDS_COMPONENT_JS,
+  SALES_TRENDS_CSS,
+  SALES_TRENDS_MARKUP,
+} from "./sales-trends-ui.js";
+
+const SALES_DASHBOARD_CORE_CSS = `
   .sd-head { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
   .sd-head-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
   .sd-head-actions input[type=month], .sd-head-actions select { width: auto; max-width: 11rem; }
@@ -73,7 +80,20 @@ export const SALES_DASHBOARD_CSS = `
   .sd-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   .sd-error { color: var(--danger); font-size: 0.85rem; margin-top: 0.75rem; }
   .sd-ok { color: var(--success); font-size: 0.85rem; margin-top: 0.75rem; }
+  .sd-tabs { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 1rem; }
+  .sd-tablist { display: inline-flex; gap: 0.25rem; padding: 0.2rem; background: var(--surface2); border: 1px solid var(--hairline); border-radius: var(--radius-pill); }
+  .sd-tab { border: 1px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 0.85rem; font-weight: 600; padding: 0.35rem 1rem; border-radius: var(--radius-pill); }
+  .sd-tab:hover { color: var(--text); }
+  .sd-tab[aria-selected="true"] { background: var(--surface); border-color: var(--border); color: var(--text); box-shadow: var(--shadow); }
+  .sd-tabs-actions { margin-left: auto; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  /* A faint wash on every other column group, so a wide row reads straight across. */
+  table.sd-table col.sd-band { background: rgba(44, 44, 44, 0.03); }
+  /* The hovered row tints over whatever the cell already shows, sticky cells included. */
+  table.sd-table tbody tr:hover td { box-shadow: inset 0 0 0 100vmax rgba(44, 44, 44, 0.045); }
+  table.sd-table tbody tr:hover td.sd-market { box-shadow: inset -1px 0 0 var(--hairline), inset 0 0 0 100vmax rgba(44, 44, 44, 0.045); }
 `;
+
+export const SALES_DASHBOARD_CSS = SALES_DASHBOARD_CORE_CSS + SALES_TRENDS_CSS + SALES_EXPORT_CSS;
 
 const PACE_LEGEND = `<div class="sd-legend">
               <span class="sd-pace sd-pace-good"><span class="sd-pace-icon" aria-hidden="true">▲</span>On pace, 100% or more</span>
@@ -83,7 +103,8 @@ const PACE_LEGEND = `<div class="sd-legend">
 
 function salesPageMarkup(): string {
   return `
-        <div class="card">
+        <div class="sd-print-head" id="sd-print-head"></div>
+        <div class="card sd-head-card">
           <div class="sd-head">
             <div style="flex:1;min-width:min(16rem,100%)">
               <div style="font-weight:700;margin-bottom:0.35rem">Sales Dashboard</div>
@@ -112,6 +133,18 @@ function salesPageMarkup(): string {
           </div>
         </div>
 
+        <div class="sd-tabs">
+          <div class="sd-tablist" role="tablist" aria-label="Sales dashboard view">
+            <button type="button" role="tab" class="sd-tab" id="sd-tab-report" aria-selected="true" aria-controls="sd-view-report">Report</button>
+            <button type="button" role="tab" class="sd-tab" id="sd-tab-trends" aria-selected="false" aria-controls="sd-view-trends">Charts</button>
+          </div>
+          <div class="sd-tabs-actions">
+            <button type="button" class="btn btn-sm btn-ghost" id="sd-export" title="Download what this tab shows as a CSV file for Excel or Google Sheets">Export CSV</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="sd-print" title="Print this tab, or save it as a PDF">Print</button>
+          </div>
+        </div>
+
+        <div id="sd-view-report">
         <div class="sd-kpis" id="sd-kpis"></div>
 
         <div class="card sd-card hidden" id="sd-cmp-card">
@@ -152,7 +185,9 @@ function salesPageMarkup(): string {
           </div>
           <div class="sd-table-wrap"><table class="sd-table" id="sd-ytd"></table></div>
           <div class="sd-card-foot">Goal to date is every earlier month's goal plus this month's, prorated by business days completed. Year-end trend carries the pace so far to the last business day of the year, against the year's goal. Market share counts only the months with new listings entered.</div>
-        </div>`;
+        </div>
+        </div>
+${SALES_TRENDS_MARKUP}`;
 }
 
 export const SALES_DASHBOARD_MARKUP = `
@@ -251,7 +286,7 @@ export const SALES_DASHBOARD_MODALS = `
   </div>
 </div>`;
 
-export const SALES_DASHBOARD_COMPONENT_JS = `
+const SALES_DASHBOARD_CORE_JS = `
   var sdData = null;
   var sdGoalRows = [];
   var sdGoalTotal = { units: '', revenue: '', asp: '' };
@@ -343,6 +378,7 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
     sdRenderCompare();
     sdRenderTables();
     sdSchedulePoll();
+    sdApplyView();
   }
 
   // While a read runs, look again now and then so the page fills in without a reload.
@@ -468,7 +504,7 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
     });
     var all = list.concat([total]);
     var groups = ['Units', 'Revenue', 'ASP', 'New clients', 'Market share'];
-    var head = '<thead><tr><th rowspan="2" class="sd-market-head">Market</th>' +
+    var head = sdCols([1, 3, 3, 3, 3, 3]) + '<thead><tr><th rowspan="2" class="sd-market-head">Market</th>' +
       groups.map(function(g){ return '<th colspan="3" class="sd-group sd-sep">' + esc(g) + '</th>'; }).join('') + '</tr><tr>' +
       groups.map(function(){ return '<th class="num sd-sep">Now</th><th class="num">Then</th><th class="num">Change</th>'; }).join('') + '</tr></thead>';
     return head + '<tbody>' + all.map(function(row, i){
@@ -519,6 +555,13 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
 
   function sdTotalClass(i, all){ return i === all.length - 1 ? ' class="sd-total"' : ''; }
 
+  // Column groups for a table, the Market column first: every other group gets the faint band.
+  function sdCols(spans){
+    return '<colgroup>' + spans.map(function(n, i){
+      return '<col span="' + n + '"' + (i % 2 === 1 ? ' class="sd-band"' : '') + '>';
+    }).join('') + '</colgroup>';
+  }
+
   function sdRenderTables(){
     var r = sdData.report;
     sdEl('sd-mtd-title').textContent = sdMonthName(sdData.monthKey) + ' · month to date';
@@ -543,7 +586,7 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
     }
 
     var month = r.mtd.rows.concat([r.mtd.total]);
-    sdEl('sd-mtd').innerHTML =
+    sdEl('sd-mtd').innerHTML = sdCols([1, 4, 3, 3, 2, 2]) +
       '<thead><tr><th rowspan="2" class="sd-market-head">Market</th><th colspan="4" class="sd-group sd-sep">Units</th><th colspan="3" class="sd-group sd-sep">Revenue</th>' +
       '<th colspan="3" class="sd-group sd-sep">ASP</th><th colspan="2" class="sd-group sd-sep">New clients</th><th colspan="2" class="sd-group sd-sep">Market share</th></tr>' +
       '<tr><th class="num sd-sep">Actual</th><th class="num">Goal</th><th class="num">% to goal</th><th class="num">Per-day goal</th>' +
@@ -562,7 +605,7 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
           sdCell(sdNum(row.share.listings), 'sd-sep') + sdCell(sdPct(row.share.pct)) + '</tr>';
       }).join('') + '</tbody>';
 
-    sdEl('sd-eom').innerHTML =
+    sdEl('sd-eom').innerHTML = sdCols([1, 2, 2, 1]) +
       '<thead><tr><th class="sd-market-head">Market</th><th class="num sd-sep">Units</th><th class="num">Units %</th><th class="num sd-sep">Revenue</th>' +
       '<th class="num">Revenue %</th><th class="num sd-sep">ASP</th></tr></thead><tbody>' +
       month.map(function(row, i){
@@ -573,7 +616,7 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
       }).join('') + '</tbody>';
 
     var year = r.ytd.rows.concat([r.ytd.total]);
-    sdEl('sd-ytd').innerHTML =
+    sdEl('sd-ytd').innerHTML = sdCols([1, 5, 5, 2, 2, 2]) +
       '<thead><tr><th rowspan="2" class="sd-market-head">Market</th><th colspan="5" class="sd-group sd-sep">Units</th><th colspan="5" class="sd-group sd-sep">Revenue</th>' +
       '<th colspan="2" class="sd-group sd-sep">ASP</th><th colspan="2" class="sd-group sd-sep">New clients</th><th colspan="2" class="sd-group sd-sep">Market share</th></tr>' +
       '<tr><th class="num sd-sep">Actual</th><th class="num">Goal to date</th><th class="num">% to goal</th><th class="num">Year-end trend</th><th class="num">% of year goal</th>' +
@@ -941,3 +984,6 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
   sdOn('sd-holiday-add', 'click', sdAddHoliday);
   sdCloser('sd-holidays-close', 'sd-holidays-modal');
 `;
+
+export const SALES_DASHBOARD_COMPONENT_JS =
+  SALES_DASHBOARD_CORE_JS + SALES_TRENDS_COMPONENT_JS + SALES_EXPORT_COMPONENT_JS;

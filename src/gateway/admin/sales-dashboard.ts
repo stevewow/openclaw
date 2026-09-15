@@ -571,19 +571,26 @@ export type SalesDashboard = {
   compare: { mom: SalesComparison | null; yoy: SalesComparison | null };
 };
 
-export async function getSalesDashboard(params: {
-  year: number;
-  month: number;
-  now?: number;
-}): Promise<SalesDashboard> {
-  const { year, month } = params;
-  const now = params.now ?? Date.now();
-  const yesterday = addDays(accountToday(now), -1);
+/** What every report over the order cache shares, loaded once for any number of periods. */
+export type SalesContext = {
+  sync: SalesSync;
+  markets: SalesMarket[];
+  /** The first month the order cache can show. */
+  firstMonth: string;
+  /** A month's report, counted through a day no later than the context was loaded through. */
+  reportFor: (year: number, month: number, throughDay: string) => Promise<SalesReport>;
+};
+
+/** Completed orders from `earliest` through `through`, and the facts every report on them needs. */
+export async function loadSalesContext(params: {
+  earliest: string;
+  through: string;
+  now: number;
+}): Promise<SalesContext> {
+  const { earliest, through } = params;
+  const yesterday = addDays(accountToday(params.now), -1);
   const sync = await getSalesSync();
   const floor = sync.historyFloor;
-  // Last year too, for the comparisons.
-  const earliest = `${year - 1}-01-01`;
-  const through = minYmd(yesterday, monthEnd(year, month));
   const db = getAdminDb();
 
   // Each order's shoot day: the day of its first completed appointment.
@@ -623,37 +630,81 @@ export async function getSalesDashboard(params: {
   // to the last day counted serves every period in that year.
   const floorYear = floor ? Number(floor.slice(0, 4)) : null;
   let priorPaid: Promise<Map<string, boolean>> | undefined;
-  const clientsFor = async (y: number) => {
-    if (floorYear === null || y <= floorYear) {
-      return null;
+  const clientsByYear = new Map<number, Promise<ReturnType<typeof classifyClients> | null>>();
+  const clientsFor = (y: number) => {
+    let clients = clientsByYear.get(y);
+    if (!clients) {
+      clients =
+        floorYear === null || y <= floorYear
+          ? Promise.resolve(null)
+          : (async () => {
+              priorPaid ??= db
+                .selectFrom("admin_sales_client_history")
+                .select(["agent_id", "had_completed"])
+                .execute()
+                .then(
+                  (history) => new Map(history.map((h) => [h.agent_id, h.had_completed === 1])),
+                );
+              return classifyClients(paid, await priorPaid, {
+                from: `${y}-01-01`,
+                to: minYmd(through, `${y}-12-31`),
+              });
+            })();
+      clientsByYear.set(y, clients);
     }
-    priorPaid ??= db
-      .selectFrom("admin_sales_client_history")
-      .select(["agent_id", "had_completed"])
-      .execute()
-      .then((history) => new Map(history.map((h) => [h.agent_id, h.had_completed === 1])));
-    return classifyClients(paid, await priorPaid, {
-      from: `${y}-01-01`,
-      to: minYmd(through, `${y}-12-31`),
-    });
+    return clients;
   };
+  // A chart asks for many months of the same year; read each year's goals and listings once.
+  const goalsByYear = new Map<number, Promise<SalesGoal[]>>();
+  const listingsByYear = new Map<number, Promise<SalesListing[]>>();
 
   const reportFor = async (y: number, m: number, throughDay: string): Promise<SalesReport> => {
     const clients = await clientsFor(y);
+    let goals = goalsByYear.get(y);
+    if (!goals) {
+      goals = listSalesGoals(y);
+      goalsByYear.set(y, goals);
+    }
+    let listings = listingsByYear.get(y);
+    if (!listings) {
+      listings = listSalesListings(y);
+      listingsByYear.set(y, listings);
+    }
     return buildSalesReport({
       year: y,
       month: m,
       throughDay,
       orders,
       markets,
-      goals: await listSalesGoals(y),
-      listings: await listSalesListings(y),
+      goals: await goals,
+      listings: await listings,
       holidays,
       clientEvents: clients?.events ?? null,
       clientsPending: clients?.pendingAgents.length ?? 0,
     });
   };
-  const report = await reportFor(year, month, through);
+  return {
+    sync,
+    markets,
+    firstMonth: `${floor ? floor.slice(0, 4) : yesterday.slice(0, 4)}-01`,
+    reportFor,
+  };
+}
+
+export async function getSalesDashboard(params: {
+  year: number;
+  month: number;
+  now?: number;
+}): Promise<SalesDashboard> {
+  const { year, month } = params;
+  const now = params.now ?? Date.now();
+  const yesterday = addDays(accountToday(now), -1);
+  const through = minYmd(yesterday, monthEnd(year, month));
+  // Last year too, for the comparisons.
+  const ctx = await loadSalesContext({ earliest: `${year - 1}-01-01`, through, now });
+  const { sync } = ctx;
+  const floor = sync.historyFloor;
+  const report = await ctx.reportFor(year, month, through);
 
   /** `periodStart` is the earliest day the comparison reads: its month, or its year to date. */
   const comparison = async (
@@ -664,7 +715,7 @@ export async function getSalesDashboard(params: {
     if (!floor || periodStart < floor) {
       return null;
     }
-    const prior = await reportFor(y, m, comparableThrough(report, y, m));
+    const prior = await ctx.reportFor(y, m, comparableThrough(report, y, m));
     return {
       year: y,
       month: m,
@@ -685,11 +736,8 @@ export async function getSalesDashboard(params: {
     report,
     sync,
     monthKey: monthKey(year, month),
-    months: {
-      min: `${floor ? floor.slice(0, 4) : yesterday.slice(0, 4)}-01`,
-      max: yesterday.slice(0, 7),
-    },
-    markets,
+    months: { min: ctx.firstMonth, max: yesterday.slice(0, 7) },
+    markets: ctx.markets,
     compare: {
       mom: await comparison(lastMonth.y, lastMonth.m, monthStart(lastMonth.y, lastMonth.m)),
       yoy: await comparison(year - 1, month, `${year - 1}-01-01`),

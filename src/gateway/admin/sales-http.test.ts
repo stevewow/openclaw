@@ -478,6 +478,41 @@ describe("sales dashboard routes", () => {
     expect((await dashboard("2025-01")).compare).toMatchObject({ yoy: null });
   });
 
+  it("gives each month's figures for the charts, as the report counts them", async () => {
+    expect(
+      (await call("GET", "/sales-dashboard/trends?from=2026-07&to=2026-08", { token: plainToken }))
+        .status,
+    ).toBe(403);
+    for (const query of [
+      "from=2026-7&to=2026-08",
+      "from=2026-09&to=2026-08",
+      "from=2020-01&to=2026-08",
+    ]) {
+      const res = await call("GET", `/sales-dashboard/trends?${query}`, { token: grantedToken });
+      expect(res.status).toBe(400);
+    }
+
+    const res = await call("GET", "/sales-dashboard/trends?from=2024-06&to=2026-08", {
+      token: grantedToken,
+    });
+    expect(res.status).toBe(200);
+    type Point = { key: string; units: number; sharePct: number | null; goalUnits: number | null };
+    const trends = res.json as {
+      from: string;
+      months: Array<{ month: string; partial: boolean; rows: Point[]; total: Point }>;
+    };
+    // Nothing is kept before the order history's first month, so the range starts there.
+    expect(trends.from).toBe("2025-01");
+    expect(trends.months).toHaveLength(20);
+    const byMonth = new Map(trends.months.map((m) => [m.month, m]));
+    const lima = (month: string) => byMonth.get(month)?.rows.find((r) => r.key === "lima");
+    // The same numbers the report gives for those months.
+    expect(lima("2026-07")).toMatchObject({ units: 2, sharePct: 6.67 });
+    expect(lima("2026-08")).toMatchObject({ units: 5, sharePct: 12.5, goalUnits: 128 });
+    expect(byMonth.get("2026-08")).toMatchObject({ partial: false, total: { units: 6 } });
+    expect(byMonth.get("2025-08")?.total.units).toBe(2);
+  });
+
   it("keeps the holiday list an admin's, and takes holidays out of business days", async () => {
     const thanksgiving = { day: "2026-11-26", label: "Thanksgiving" };
     expect(

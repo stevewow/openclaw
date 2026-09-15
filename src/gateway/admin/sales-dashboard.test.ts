@@ -8,6 +8,7 @@ import {
   type SalesGoal,
 } from "./sales-dashboard.js";
 import type { SalesMarket } from "./sales-markets.js";
+import { monthsBetween } from "./sales-trends.js";
 
 /**
  * The dashboard's arithmetic, pinned to the sheet it replaces. The August 2026
@@ -391,5 +392,18 @@ describe("new clients", () => {
     );
     expect(aYearAndADay.events.map((e) => e.kind)).toEqual(["returning"]);
     expect(oneYearBefore("2028-02-29")).toBe("2027-02-28");
+  });
+});
+
+describe("chart months", () => {
+  it("lists every month in a range, across a new year", () => {
+    expect(monthsBetween("2025-11", "2026-02")).toEqual([
+      "2025-11",
+      "2025-12",
+      "2026-01",
+      "2026-02",
+    ]);
+    expect(monthsBetween("2026-08", "2026-08")).toEqual(["2026-08"]);
+    expect(monthsBetween("2026-09", "2026-08")).toEqual([]);
   });
 });

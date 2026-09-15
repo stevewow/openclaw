@@ -21,6 +21,7 @@ import {
 } from "./sales-dashboard.js";
 import {
   addSalesMarket,
+  isMonthKey,
   listSalesListings,
   listSalesMarkets,
   SalesInputError,
@@ -29,6 +30,7 @@ import {
   suggestSalesMarkets,
 } from "./sales-markets.js";
 import { getSalesSync, refreshSalesData, type SalesSweepDeps } from "./sales-orders.js";
+import { getSalesTrends } from "./sales-trends.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
 
@@ -123,6 +125,19 @@ export async function handleSalesAdminRequest(
     }
     const dashboard = await getSalesDashboard({ year, month, now });
     sendJson(res, 200, { ...dashboard, canEdit: ctx.isAdmin });
+    return true;
+  }
+
+  if (subPath === "/sales-dashboard/trends" && method === "GET") {
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    if (!isMonthKey(from) || !isMonthKey(to) || from > to) {
+      sendJson(res, 400, { error: "from and to must be months, YYYY-MM, from first" });
+      return true;
+    }
+    await guarded(res, async () => {
+      sendJson(res, 200, await getSalesTrends({ from, to, now }));
+    });
     return true;
   }
 
