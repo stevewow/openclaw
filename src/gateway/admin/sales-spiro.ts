@@ -10,6 +10,18 @@
 
 export type SpiroCall = (name: string, args: Record<string, unknown>) => Promise<unknown>;
 
+/**
+ * Order statuses, as the cache stores them (lower case), that mean the shoot is
+ * done and the order can no longer be cancelled out from under the numbers.
+ * Everything before — pending, confirmed, rescheduled, in progress — is not yet
+ * secured; cancelled never is.
+ */
+export const COMPLETED_ORDER_STATUSES: readonly string[] = [
+  "appointmentcompleted",
+  "editing",
+  "delivered",
+];
+
 export type SpiroFailure = "rate_limited" | "timeout" | "not_found" | "other";
 
 export class SpiroReadError extends Error {

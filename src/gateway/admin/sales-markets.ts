@@ -11,6 +11,7 @@
 // month, and are what market share divides that month's shoots by.
 
 import { regionKey, regionLabel } from "./focus-regions.js";
+import { COMPLETED_ORDER_STATUSES } from "./sales-spiro.js";
 import { getAdminDb } from "./user-store.js";
 
 export const UNASSIGNED_MARKET = "unassigned";
@@ -169,7 +170,7 @@ export async function setSalesMarketRemoval(
   return (await listSalesMarkets()).find((m) => m.key === key) ?? null;
 }
 
-/** Service areas with paid orders since `since` that are not on the market list. */
+/** Service areas with completed orders placed since `since` that are not on the market list. */
 export async function suggestSalesMarkets(
   since: string,
 ): Promise<Array<{ key: string; label: string; orders: number }>> {
@@ -178,6 +179,7 @@ export async function suggestSalesMarkets(
     .innerJoin("admin_sales_companies as c", "c.company_id", "o.company_id")
     .select((eb) => ["c.service_area", eb.fn.countAll<number>().as("orders")])
     .where("o.total_cents", ">", 0)
+    .where("o.status", "in", [...COMPLETED_ORDER_STATUSES])
     .where("o.order_day", ">=", since)
     .where("c.service_area", "is not", null)
     .groupBy("c.service_area")

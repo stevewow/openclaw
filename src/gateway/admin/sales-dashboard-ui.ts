@@ -90,7 +90,9 @@ function salesPageMarkup(): string {
               <p class="text-muted" style="font-size:0.85rem;margin:0">
                 Each market's goals against what it has booked — units, revenue and average order value (ASP) for the
                 month and the year so far — where the month and the year are trending, and market share of new listings.
-                Every order placed counts except $0 orders, in the market of the client's company in Spiro.
+                An order counts once its shoot is done (editing or delivered in Spiro), on the day of the shoot, in the
+                market of the client's company. Orders still waiting on their appointment, and cancelled or $0 orders,
+                do not count — new clients included.
               </p>
               <p class="sd-sync" id="sd-sync"></p>
             </div>
@@ -364,6 +366,11 @@ export const SALES_DASHBOARD_COMPONENT_JS = `
       parts.push(esc('Orders read from Spiro ' + sdAgo(s.refreshedAt) + ', back to ' + sdDate(s.coveredFrom) + '. They refresh every 2 hours.'));
       if(s.coveredFrom > r.year + '-01-01'){
         parts.push('<span class="sd-warn">' + esc('Older orders are still being read, so totals before ' + sdDate(s.coveredFrom) + ' are incomplete.') + '</span>');
+      }
+      if(!s.shootsCoveredFrom || s.shootsCoveredFrom > r.year + '-01-01'){
+        parts.push('<span class="sd-warn">' + esc(s.shootsCoveredFrom
+          ? 'Shoot dates are still being read back from ' + sdDate(s.shootsCoveredFrom) + '. Until they are, earlier completed orders count on the day they were placed.'
+          : 'Shoot dates have not been read yet, so for now completed orders count on the day they were placed.') + '</span>');
       }
     }
     if(!(sdData.markets || []).length){

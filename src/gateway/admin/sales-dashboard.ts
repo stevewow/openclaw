@@ -1,10 +1,13 @@
 // The sales dashboard: each market's goals against what it has booked, for a
 // month and the year to it, with the pace the month and the year are on.
 //
-// What counts (reconciled against the August 2026 sheet to within 1%): every
-// order placed in the period whose total is above $0, in the market of the
-// order's company — Spiro's service area on that company. Cancelled orders are
-// $0 in Spiro, so the $0 scrub drops them too.
+// What counts (Steve, 2026-09-15): a completed order — its shoot is done, so it
+// is editing or delivered in Spiro — whose total is above $0, on the day of its
+// shoot, in the market of the order's company (Spiro's service area on that
+// company). An order still waiting on its appointment can be cancelled, so it
+// counts nowhere until the shoot happens. An order whose appointments have not
+// been read yet counts on the day it was placed. The August 2026 sheet, which
+// counted every order placed, was reconciled to within 1% under that older rule.
 //
 // Markets are one list for every month (see sales-markets.ts). An order from a
 // market that is not tracked in its month counts under "Other markets", so the
@@ -55,6 +58,7 @@ import {
   wholeIn,
 } from "./sales-markets.js";
 import { getSalesSync, type SalesSync } from "./sales-orders.js";
+import { COMPLETED_ORDER_STATUSES } from "./sales-spiro.js";
 import { getAdminDb } from "./user-store.js";
 
 const TOTAL_GOAL_LABEL = "Company total";
@@ -582,11 +586,21 @@ export async function getSalesDashboard(params: {
   const through = minYmd(yesterday, monthEnd(year, month));
   const db = getAdminDb();
 
+  // Each order's shoot day: the day of its first completed appointment.
+  const shootDays = db
+    .selectFrom("admin_sales_appointments")
+    .select((eb) => ["order_id", eb.fn.min<string>("arrival_day").as("shoot_day")])
+    .where("status", "=", "completed")
+    .groupBy("order_id");
+  // A shoot never comes before its order, so an order placed after the last day
+  // counted cannot have been shot by it.
   const rows = await db
     .selectFrom("admin_sales_orders as o")
     .leftJoin("admin_sales_companies as c", "c.company_id", "o.company_id")
-    .select(["o.order_day", "o.agent_id", "o.total_cents", "c.service_area"])
+    .leftJoin(shootDays.as("s"), "s.order_id", "o.order_id")
+    .select(["o.order_day", "s.shoot_day", "o.agent_id", "o.total_cents", "c.service_area"])
     .where("o.total_cents", ">", 0)
+    .where("o.status", "in", [...COMPLETED_ORDER_STATUSES])
     .where("o.order_day", ">=", floor ? minYmd(floor, earliest) : earliest)
     .where("o.order_day", "<=", through)
     .execute();
@@ -594,9 +608,10 @@ export async function getSalesDashboard(params: {
   const paid: PaidOrder[] = [];
   for (const row of rows) {
     const market = marketOf(row.service_area);
-    orders.push({ day: row.order_day, marketKey: market.key, totalCents: row.total_cents });
+    const day = row.shoot_day ?? row.order_day;
+    orders.push({ day, marketKey: market.key, totalCents: row.total_cents });
     if (row.agent_id) {
-      paid.push({ agentId: row.agent_id, day: row.order_day, marketKey: market.key });
+      paid.push({ agentId: row.agent_id, day, marketKey: market.key });
     }
   }
   const markets = await listSalesMarkets();
@@ -613,10 +628,10 @@ export async function getSalesDashboard(params: {
       return null;
     }
     priorPaid ??= db
-      .selectFrom("admin_sales_agent_history")
-      .select(["agent_id", "had_paid"])
+      .selectFrom("admin_sales_client_history")
+      .select(["agent_id", "had_completed"])
       .execute()
-      .then((history) => new Map(history.map((h) => [h.agent_id, h.had_paid === 1])));
+      .then((history) => new Map(history.map((h) => [h.agent_id, h.had_completed === 1])));
     return classifyClients(paid, await priorPaid, {
       from: `${y}-01-01`,
       to: minYmd(through, `${y}-12-31`),
@@ -655,7 +670,11 @@ export async function getSalesDashboard(params: {
       month: m,
       monthStart: prior.monthStart,
       throughDay: prior.throughDay,
-      complete: sync.coveredFrom !== null && sync.coveredFrom <= periodStart,
+      complete:
+        sync.coveredFrom !== null &&
+        sync.coveredFrom <= periodStart &&
+        sync.shootsCoveredFrom !== null &&
+        sync.shootsCoveredFrom <= periodStart,
       mtd: { rows: prior.mtd.rows.map(compareRow), total: compareRow(prior.mtd.total) },
       ytd: { rows: prior.ytd.rows.map(compareRow), total: compareRow(prior.ytd.total) },
     };

@@ -1103,14 +1103,6 @@ type SalesCompaniesTable = {
   checked_at: number;
 };
 
-/** Whether an agent had a paid order before the order cache's floor. */
-type SalesAgentHistoryTable = {
-  agent_id: string;
-  floor: string;
-  had_paid: number;
-  checked_at: number;
-};
-
 type SalesSyncTable = {
   id: string;
   /** January 1 of the year before the first read; the cache reaches back to it. */
@@ -1153,6 +1145,24 @@ type SalesMarketsTable = {
   created_by: string | null;
   created_at: number;
   updated_at: number;
+};
+
+type SalesClientHistoryTable = {
+  agent_id: string;
+  /** The floor the question was asked up to. */
+  floor: string;
+  /** 1 when the agent had a completed order above $0 before the floor. */
+  had_completed: number;
+  checked_at: number;
+};
+
+type SalesAppointmentsTable = {
+  appointment_id: string;
+  order_id: string;
+  /** YYYY-MM-DD the arrival window starts, in the account's timezone. */
+  arrival_day: string;
+  /** Lower case: completed, confirmed, cancelled, … */
+  status: string;
 };
 
 type SalesListingsTable = {
@@ -1243,12 +1253,13 @@ export type AdminDb = {
   admin_brokerage_order_sync: BrokerageOrderSyncTable;
   admin_sales_orders: SalesOrdersTable;
   admin_sales_companies: SalesCompaniesTable;
-  admin_sales_agent_history: SalesAgentHistoryTable;
   admin_sales_sync: SalesSyncTable;
   admin_sales_goals: SalesGoalsTable;
   admin_sales_holidays: SalesHolidaysTable;
   admin_sales_markets: SalesMarketsTable;
   admin_sales_listings: SalesListingsTable;
+  admin_sales_client_history: SalesClientHistoryTable;
+  admin_sales_appointments: SalesAppointmentsTable;
   admin_lead_events: LeadEventsTable;
   admin_lead_playbooks: LeadPlaybooksTable;
   admin_lead_settings: LeadSettingsTable;
@@ -2244,7 +2255,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
     );
 
     -- Sales dashboard. Orders are every Spiro order from the floor on, replaced
-    -- a span of days at a time; companies give each its market; agent history
+    -- a span of days at a time; companies give each its market; client history
     -- is the one fact per agent new clients need from before the floor.
     CREATE TABLE IF NOT EXISTS admin_sales_orders (
       order_id TEXT PRIMARY KEY,
@@ -2264,12 +2275,26 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       service_area TEXT,
       checked_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS admin_sales_agent_history (
+    -- Whether an agent had a completed order before the floor. Replaces
+    -- admin_sales_agent_history, which asked about any order above $0.
+    CREATE TABLE IF NOT EXISTS admin_sales_client_history (
       agent_id TEXT PRIMARY KEY,
       floor TEXT NOT NULL,
-      had_paid INTEGER NOT NULL,
+      had_completed INTEGER NOT NULL,
       checked_at INTEGER NOT NULL
     );
+    -- Appointments, for the day each order's shoot happened; replaced a span of
+    -- arrival days at a time like the orders.
+    CREATE TABLE IF NOT EXISTS admin_sales_appointments (
+      appointment_id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      arrival_day TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_sales_appointments_day
+      ON admin_sales_appointments(arrival_day);
+    CREATE INDEX IF NOT EXISTS admin_sales_appointments_order
+      ON admin_sales_appointments(status, order_id);
     CREATE TABLE IF NOT EXISTS admin_sales_sync (
       id TEXT PRIMARY KEY,
       history_floor TEXT NOT NULL,

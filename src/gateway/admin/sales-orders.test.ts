@@ -10,6 +10,7 @@ const sales = await import("./sales-orders.js");
 const dashboard = await import("./sales-dashboard.js");
 const salesMarkets = await import("./sales-markets.js");
 const { callSpiro } = await import("./sales-spiro.js");
+const { toAppointmentRow } = await import("./sales-appointments.js");
 const { getAdminDb } = await import("./user-store.js");
 
 /**
@@ -39,6 +40,8 @@ type Fixture = {
   agent: string;
   company: string;
   status?: string;
+  /** The day its shoot was completed; a delivered order is shot the day it is placed unless given. */
+  shot?: string;
 };
 
 const ORDERS: Fixture[] = [
@@ -47,6 +50,24 @@ const ORDERS: Fixture[] = [
   { orderId: "o-sep-b", day: "2026-09-11", total: 180, agent: "agent-b", company: CLEVELAND_CO },
   { orderId: "o-2025-c", day: "2025-03-05", total: 200, agent: "agent-c", company: CHARLOTTE_CO },
   { orderId: "o-jul-c", day: "2026-07-01", total: 150, agent: "agent-c", company: CHARLOTTE_CO },
+  // Placed at the end of August and shot in September: a September order.
+  {
+    orderId: "o-aug-c",
+    day: "2026-08-29",
+    shot: "2026-09-02",
+    total: 400,
+    agent: "agent-c",
+    company: CHARLOTTE_CO,
+  },
+  // Booked but not shot: it can still be cancelled, so it counts nowhere yet.
+  {
+    orderId: "o-sep-e",
+    day: "2026-09-09",
+    total: 220,
+    agent: "agent-e",
+    company: CHARLOTTE_CO,
+    status: "confirmed",
+  },
   {
     orderId: "o-sep-d",
     day: "2026-09-12",
@@ -58,6 +79,10 @@ const ORDERS: Fixture[] = [
 ];
 
 let fixtures: Fixture[] = ORDERS;
+
+function shootDay(f: Fixture): string | null {
+  return f.shot ?? ((f.status ?? "delivered") === "delivered" ? f.day : null);
+}
 
 /** The MCP envelope around a Spiro reply. */
 function envelope(payload: unknown): unknown {
@@ -102,6 +127,26 @@ function fakeSpiro(opts: { failOn?: string; timeoutOn?: string } = {}) {
       return envelope({
         data,
         meta: { hasMoreData: false, resultSetAsOf: "2026-09-14T18:00:00Z" },
+      });
+    }
+    if (name === "search_spiro_appointments") {
+      const day = String(args.arrivalWindowStartFrom).slice(0, 10);
+      // Shaped like a live appointment row, trimmed to what matters here.
+      const data = fixtures
+        .filter((f) => shootDay(f) === day)
+        .map((f) => ({
+          appointmentId: `ap-${f.orderId}`,
+          orderId: f.orderId,
+          order: { orderId: f.orderId, isAdditionalAppointment: false },
+          events: {
+            arrivalWindowStart: `${day}T09:00:00-04:00`,
+            completedAt: `${day}T10:02:11.5-04:00`,
+          },
+          status: "Completed",
+        }));
+      return envelope({
+        data,
+        meta: { currentPage: args.page, pageSize: 100, hasNextPage: false },
       });
     }
     if (name === "get_spiro_company") {
@@ -185,6 +230,8 @@ describe("planning a read", () => {
       ordersRead: 0,
       error: null,
       running: false,
+      shootsCoveredFrom: null,
+      shootsCoveredTo: null,
     };
     expect(sales.needsSalesRefresh({ ...base, refreshedAt: null, attemptedAt: null }, NOW)).toBe(
       true,
@@ -224,6 +271,32 @@ describe("talking to Spiro", () => {
     expect(slept).toEqual([65_000]);
     expect(io.calls).toBe(2);
   });
+
+  it("reads the shoot day off an appointment's arrival window", () => {
+    // Trimmed from a live row, 2026-09-15: an extra appointment hung off a paid order.
+    const live = {
+      appointmentId: "4f21891d-5b0b-4439-ab79-2babbaba046d",
+      orderId: "f354735e-3af3-4372-ee6f-08df0b2de0e3",
+      order: {
+        orderId: "f354735e-3af3-4372-ee6f-08df0b2de0e3",
+        parentOrderId: "5e71b181-6f9a-4fde-27de-08df091c9191",
+        isAdditionalAppointment: true,
+      },
+      events: {
+        arrivalWindowStart: "2026-09-10T08:30:00-04:00",
+        checkInAt: "2026-09-10T08:46:56.5858872-04:00",
+        completedAt: "2026-09-10T08:57:47.0237106-04:00",
+      },
+      status: "Completed",
+    };
+    expect(toAppointmentRow(live)).toEqual({
+      appointment_id: "4f21891d-5b0b-4439-ab79-2babbaba046d",
+      order_id: "f354735e-3af3-4372-ee6f-08df0b2de0e3",
+      arrival_day: "2026-09-10",
+      status: "completed",
+    });
+    expect(toAppointmentRow({ ...live, events: {} })).toBeNull();
+  });
 });
 
 describe("reading orders", () => {
@@ -260,10 +333,12 @@ describe("reading orders", () => {
     expect(sync.error).toContain("boom");
     expect([...(await cachedOrders()).keys()].toSorted()).toEqual([
       "o-aug-a",
+      "o-aug-c",
       "o-jul-c",
       "o-sep-a",
       "o-sep-b",
       "o-sep-d",
+      "o-sep-e",
     ]);
   });
 
@@ -280,9 +355,25 @@ describe("reading orders", () => {
     expect(sync).toMatchObject({
       coveredFrom: "2025-01-01",
       coveredTo: "2026-09-14",
+      shootsCoveredFrom: "2025-01-01",
+      shootsCoveredTo: "2026-09-14",
       error: null,
       running: false,
     });
+    expect(result.appointmentsRead).toBe(6);
+    const shoot = await getAdminDb()
+      .selectFrom("admin_sales_appointments")
+      .selectAll()
+      .where("order_id", "=", "o-aug-c")
+      .execute();
+    expect(shoot).toEqual([
+      {
+        appointment_id: "ap-o-aug-c",
+        order_id: "o-aug-c",
+        arrival_day: "2026-09-02",
+        status: "completed",
+      },
+    ]);
     expect((await cachedOrders()).has("o-2025-c")).toBe(true);
 
     // The week holding Sep 11 timed out at 500 rows and answered at 100.
@@ -311,15 +402,29 @@ describe("reading orders", () => {
       spiro.calls.filter((c) => c.name === "get_spiro_company").map((c) => c.args.companyId),
     ).toEqual([CLEVELAND_CO]);
 
-    // Agents A and B first paid this year, so Spiro is asked about their past, in
-    // two spans back to 2020 each. C paid in 2025 and needs no asking.
+    // Agents A and B first completed an order this year, so Spiro is asked about
+    // their past: two spans back to 2020, delivered then editing orders in each.
+    // C completed one in 2025 and needs no asking; E's order is not shot yet.
     const summaries = spiro.calls.filter((c) => c.name === "summarize_spiro_reporting_orders");
     expect(
       summaries.map((c) => String(c.args.agentId)).toSorted((a, b) => a.localeCompare(b)),
-    ).toEqual(["agent-a", "agent-a", "agent-b", "agent-b"]);
+    ).toEqual([
+      "agent-a",
+      "agent-a",
+      "agent-a",
+      "agent-a",
+      "agent-b",
+      "agent-b",
+      "agent-b",
+      "agent-b",
+    ]);
+    const newest = { agentId: "agent-b", from: "2022-01-01", to: "2024-12-31", span: "year" };
+    const oldest = { agentId: "agent-b", from: "2020-01-01", to: "2021-12-31", span: "year" };
     expect(summaries.filter((c) => c.args.agentId === "agent-b").map((c) => c.args)).toEqual([
-      { agentId: "agent-b", from: "2022-01-01", to: "2024-12-31", span: "year" },
-      { agentId: "agent-b", from: "2020-01-01", to: "2021-12-31", span: "year" },
+      { ...newest, status: "delivered" },
+      { ...newest, status: "editing" },
+      { ...oldest, status: "delivered" },
+      { ...oldest, status: "editing" },
     ]);
 
     // Only markets on the list get a row of their own.
@@ -331,17 +436,19 @@ describe("reading orders", () => {
     expect(dash.months).toEqual({ min: "2025-01", max: "2026-09" });
     expect(dash.report.clientsPending).toBe(0);
     const month = new Map(dash.report.mtd.rows.map((r) => [r.label, r]));
+    // Charlotte's September: Sep 10's order, and the August order shot on Sep 2.
+    // The confirmed order waiting on its shoot is not in it.
     expect(month.get("Charlotte")?.actual).toEqual({
-      units: 1,
-      revenueCents: 30000,
-      aspCents: 30000,
+      units: 2,
+      revenueCents: 70000,
+      aspCents: 35000,
     });
     // The cancelled $0 order is not a unit.
     expect(month.get("Cleveland")?.actual.units).toBe(1);
     expect(month.get("Cleveland")?.newClients).toEqual({ first: 1, returning: 0 });
     expect(month.get("Charlotte")?.newClients).toEqual({ first: 0, returning: 0 });
     const year = new Map(dash.report.ytd.rows.map((r) => [r.label, r]));
-    expect(year.get("Charlotte")?.actual.units).toBe(3);
+    expect(year.get("Charlotte")?.actual.units).toBe(4);
     // A's first-ever order was in August; C came back in July after 16 months.
     expect(year.get("Charlotte")?.newClients).toEqual({ first: 1, returning: 1 });
   });
@@ -372,7 +479,18 @@ describe("reading orders", () => {
     expect(orders.get("o-sep-a")).toMatchObject({ total_cents: 0, status: "cancelled" });
     expect(orders.has("o-sep-b")).toBe(false);
     expect(orders.has("o-2025-c")).toBe(true);
+    // The cancelled order's shoot never happened after all.
+    const shoots = await getAdminDb()
+      .selectFrom("admin_sales_appointments")
+      .select("order_id")
+      .where("order_id", "=", "o-sep-a")
+      .execute();
+    expect(shoots).toEqual([]);
     // What Spiro already said about client history and companies is kept.
-    expect(spiro.calls.filter((c) => c.name !== "search_spiro_reporting_orders")).toEqual([]);
+    expect(
+      spiro.calls.filter(
+        (c) => c.name !== "search_spiro_reporting_orders" && c.name !== "search_spiro_appointments",
+      ),
+    ).toEqual([]);
   });
 });

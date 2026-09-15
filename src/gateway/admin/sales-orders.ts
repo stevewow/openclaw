@@ -13,12 +13,19 @@
 // the trailing 45 days, where edits and cancellations land, and the current year
 // once a week.
 //
-// After the orders: the service area of any company not seen before (that is
-// the market), then the older order history new clients are judged against
-// (sales-clients.ts).
+// After the orders: appointments over the same days, planned the same way under
+// their own sync row, for the day each order's shoot happened
+// (sales-appointments.ts); then the service area of any company not seen before
+// (that is the market); then the older order history new clients are judged
+// against (sales-clients.ts).
 
 import { callTool } from "../../../extensions/spiro/api.js";
 import { accountToday } from "./brokerage-orders.js";
+import {
+  APPOINTMENT_SYNC_ID,
+  readAppointmentSpan,
+  storeAppointmentSpan,
+} from "./sales-appointments.js";
 import { addDays, dayCount, maxYmd, minYmd } from "./sales-calendar.js";
 import { CLIENT_PROBES_PER_RUN, resolveClientHistory } from "./sales-clients.js";
 import {
@@ -232,12 +239,13 @@ export async function readSpan(
 
 // ── Storing ─────────────────────────────────────────────────────────────────
 
-async function loadCoverage(now: number): Promise<Coverage> {
+/** A sync row's coverage, created empty the first time. Appointments take the orders' floor. */
+async function loadCoverage(id: string, now: number, floor?: string): Promise<Coverage> {
   const db = getAdminDb();
   const row = await db
     .selectFrom("admin_sales_sync")
     .selectAll()
-    .where("id", "=", SYNC_ID)
+    .where("id", "=", id)
     .executeTakeFirst();
   if (row) {
     return {
@@ -247,12 +255,12 @@ async function loadCoverage(now: number): Promise<Coverage> {
       yearReadAt: row.year_read_at,
     };
   }
-  const floor = `${Number(accountToday(now).slice(0, 4)) - 1}-01-01`;
+  const historyFloor = floor ?? `${Number(accountToday(now).slice(0, 4)) - 1}-01-01`;
   await db
     .insertInto("admin_sales_sync")
     .values({
-      id: SYNC_ID,
-      history_floor: floor,
+      id,
+      history_floor: historyFloor,
       covered_from: null,
       covered_to: null,
       year_read_at: null,
@@ -263,7 +271,15 @@ async function loadCoverage(now: number): Promise<Coverage> {
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
-  return { historyFloor: floor, coveredFrom: null, coveredTo: null, yearReadAt: null };
+  return { historyFloor, coveredFrom: null, coveredTo: null, yearReadAt: null };
+}
+
+async function markYearRead(id: string, now: number): Promise<void> {
+  await getAdminDb()
+    .updateTable("admin_sales_sync")
+    .set({ year_read_at: now })
+    .where("id", "=", id)
+    .execute();
 }
 
 /** Replace a span's orders with what was just read, and extend coverage with it. */
@@ -413,6 +429,7 @@ export type SalesSweepDeps = {
 
 export type SalesSweepResult = {
   ordersRead: number;
+  appointmentsRead: number;
   spans: SweepSpan[];
   companiesLookedUp: number;
   clientsChecked: number;
@@ -425,7 +442,7 @@ async function sweep(deps: SalesSweepDeps): Promise<SalesSweepResult> {
   const now = deps.now ?? Date.now();
   const today = accountToday(now);
   const db = getAdminDb();
-  let coverage = await loadCoverage(now);
+  let coverage = await loadCoverage(SYNC_ID, now);
   await db
     .updateTable("admin_sales_sync")
     .set({ attempted_at: now })
@@ -444,11 +461,22 @@ async function sweep(deps: SalesSweepDeps): Promise<SalesSweepResult> {
       // A finished backfill has read this year as well as a yearly re-read does.
       if (span.kind !== "recent") {
         coverage = { ...coverage, yearReadAt: now };
-        await db
-          .updateTable("admin_sales_sync")
-          .set({ year_read_at: now })
-          .where("id", "=", SYNC_ID)
-          .execute();
+        await markYearRead(SYNC_ID, now);
+      }
+    }
+    const shoots = await loadCoverage(APPOINTMENT_SYNC_ID, now, coverage.historyFloor);
+    let appointmentsRead = 0;
+    for (const span of planSpans(shoots, today, now)) {
+      for (const chunk of chunksNewestFirst(span.from, span.to)) {
+        const rows = await readAppointmentSpan(io, chunk.from, chunk.to);
+        const next = extendCoverage(shoots, chunk.from, chunk.to);
+        await storeAppointmentSpan(chunk.from, chunk.to, rows, next);
+        Object.assign(shoots, next);
+        appointmentsRead += rows.length;
+      }
+      if (span.kind !== "recent") {
+        shoots.yearReadAt = now;
+        await markYearRead(APPOINTMENT_SYNC_ID, now);
       }
     }
     const companiesLookedUp = await fillCompanies(io, now);
@@ -463,6 +491,7 @@ async function sweep(deps: SalesSweepDeps): Promise<SalesSweepResult> {
     });
     return {
       ordersRead,
+      appointmentsRead,
       spans,
       companiesLookedUp,
       clientsChecked: clients.checked,
@@ -502,15 +531,22 @@ export type SalesSync = {
   ordersRead: number;
   error: string | null;
   running: boolean;
+  /** The days whose appointments, and so shoot days, have been read. */
+  shootsCoveredFrom: string | null;
+  shootsCoveredTo: string | null;
 };
 
 export async function getSalesSync(): Promise<SalesSync> {
-  const row = await getAdminDb()
+  const rows = await getAdminDb()
     .selectFrom("admin_sales_sync")
     .selectAll()
-    .where("id", "=", SYNC_ID)
-    .executeTakeFirst();
+    .where("id", "in", [SYNC_ID, APPOINTMENT_SYNC_ID])
+    .execute();
+  const row = rows.find((r) => r.id === SYNC_ID);
+  const shoots = rows.find((r) => r.id === APPOINTMENT_SYNC_ID);
   return {
+    shootsCoveredFrom: shoots?.covered_from ?? null,
+    shootsCoveredTo: shoots?.covered_to ?? null,
     historyFloor: row?.history_floor ?? null,
     coveredFrom: row?.covered_from ?? null,
     coveredTo: row?.covered_to ?? null,

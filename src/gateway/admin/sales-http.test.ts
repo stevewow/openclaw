@@ -336,19 +336,22 @@ describe("sales dashboard routes", () => {
   it("keeps new listings an admin's, and turns them into market share and comparisons", async () => {
     const db = userStore.getAdminDb();
     const now = Date.now();
+    const synced = {
+      history_floor: "2025-01-01",
+      covered_from: "2025-01-01",
+      covered_to: "2026-09-14",
+      year_read_at: now,
+      refreshed_at: now,
+      attempted_at: now,
+      orders_read: 0,
+      error: null,
+    };
     await db
       .insertInto("admin_sales_sync")
-      .values({
-        id: "orders",
-        history_floor: "2025-01-01",
-        covered_from: "2025-01-01",
-        covered_to: "2026-09-14",
-        year_read_at: now,
-        refreshed_at: now,
-        attempted_at: now,
-        orders_read: 0,
-        error: null,
-      })
+      .values([
+        { id: "orders", ...synced },
+        { id: "appointments", ...synced },
+      ])
       .execute();
     await db
       .insertInto("admin_sales_companies")
@@ -362,14 +365,20 @@ describe("sales dashboard routes", () => {
         },
       ])
       .execute();
-    const order = (id: string, day: string, company: string, cents: number) => ({
+    const order = (
+      id: string,
+      day: string,
+      company: string,
+      cents: number,
+      status = "delivered",
+    ) => ({
       order_id: id,
       order_day: day,
       agent_id: null,
       agent_name: null,
       company_id: company,
       company_name: null,
-      status: "delivered",
+      status,
       total_cents: cents,
     });
     await db
@@ -384,6 +393,27 @@ describe("sales dashboard routes", () => {
         order("j2", "2026-07-03", "c-lima", 20000),
         order("y1", "2025-08-12", "c-lima", 15000),
         order("y2", "2025-08-13", "c-lima", 15000),
+        // Booked for August but not shot: not counted anywhere.
+        order("c1", "2026-08-07", "c-lima", 20000, "confirmed"),
+        // Placed in July, shot in August after a cancelled first appointment.
+        order("x1", "2026-07-30", "c-lima", 20000),
+      ])
+      .execute();
+    await db
+      .insertInto("admin_sales_appointments")
+      .values([
+        {
+          appointment_id: "ap-x1-a",
+          order_id: "x1",
+          arrival_day: "2026-07-31",
+          status: "cancelled",
+        },
+        {
+          appointment_id: "ap-x1-b",
+          order_id: "x1",
+          arrival_day: "2026-08-01",
+          status: "completed",
+        },
       ])
       .execute();
 
@@ -421,15 +451,16 @@ describe("sales dashboard routes", () => {
 
     const { report, compare } = await dashboard("2026-08");
     const lima = report.mtd.rows.find((r) => r.key === "lima");
-    expect(lima?.actual.units).toBe(4);
-    expect(lima?.share).toEqual({ listings: 40, pct: 10 });
+    // Four shot the day they were placed, plus July's order shot on Aug 1.
+    expect(lima?.actual.units).toBe(5);
+    expect(lima?.share).toEqual({ listings: 40, pct: 12.5 });
     expect(report.mtd.rows.at(-1)).toMatchObject({ label: "Other markets", actual: { units: 1 } });
-    expect(report.mtd.total.actual.units).toBe(5);
-    // July and August: 6 units over 70 listings.
+    expect(report.mtd.total.actual.units).toBe(6);
+    // July and August: 7 units over 70 listings.
     expect(report.ytd.rows.find((r) => r.key === "lima")?.share).toEqual({
       listings: 70,
-      units: 6,
-      pct: 8.57,
+      units: 7,
+      pct: 10,
     });
 
     // August is finished, so it compares with the whole of July and of August 2025.
