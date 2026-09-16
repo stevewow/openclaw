@@ -687,6 +687,32 @@ describe("past due accounts — assigned worklist", () => {
     expect(note.status).toBe(403);
   });
 
+  it("opens the outreach scripts on an account once it is assigned, and not before", async () => {
+    // Someone working their own queue needs the agreed wording as much as a
+    // manager does, so the account gate — not the admin flag — is what guards it.
+    const token = await grantPastDue();
+    const before = await call("GET", `/financials/accounts/${ACCOUNT}/script?templateId=whatever`, {
+      token,
+    });
+    expect(before.status).toBe(403);
+
+    await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {
+      token: adminToken,
+      body: { assignedTo: plainId },
+    });
+    const after = await call("GET", `/financials/accounts/${ACCOUNT}/script?templateId=whatever`, {
+      token,
+    });
+    // Past the gate: the script itself is missing, which is a 404, not a 403.
+    expect(after.status).toBe(404);
+
+    // Still only their own account.
+    expect(
+      (await call("GET", `/financials/accounts/${OTHER}/script?templateId=whatever`, { token }))
+        .status,
+    ).toBe(403);
+  });
+
   it("refuses a granted user assigning work — that stays with admins", async () => {
     const token = await grantPastDue();
     const res = await call("PUT", `/financials/accounts/${ACCOUNT}/assign`, {

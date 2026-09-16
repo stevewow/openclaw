@@ -1342,6 +1342,72 @@ ${SALES_DASHBOARD_COMPONENT_JS}
       '<div data-pd-contact-list>' + portalContactList(contacts, viewer) + '</div>';
   }
 
+  // ── Outreach scripts ───────────────────────────────────────────────────────
+  // The same scripts the admin drawer offers. Someone working their own queue
+  // needs the agreed wording and the right numbers as much as a manager does,
+  // so an assigned account carries them here too; only writing them stays
+  // admin-side.
+  var portalScripts = null; // cached for the session — a short list that rarely moves
+
+  async function loadPortalScripts(){
+    if (portalScripts) return portalScripts;
+    // The queue grant is what opens this endpoint, so the viewer of this panel
+    // already has it. If the read fails anyway the panel still draws: a missing
+    // script list must not cost someone the contact log under it.
+    var r = await api('GET', '/financials/templates');
+    portalScripts = (r.ok && r.data.templates) || [];
+    return portalScripts;
+  }
+
+  /** Whether a script's bucket tags suit the account being looked at. */
+  function portalScriptFits(t, bucket){
+    return !t.buckets || !t.buckets.length || (!!bucket && t.buckets.indexOf(bucket) !== -1);
+  }
+
+  /** Active scripts, the ones tagged for this account's age offered first. */
+  function portalScriptOptions(scripts, bucket){
+    var ordered = (scripts || []).filter(function(t){ return t.active !== false; });
+    ordered = ordered.slice().sort(function(a, b){
+      return (portalScriptFits(b, bucket) ? 1 : 0) - (portalScriptFits(a, bucket) ? 1 : 0);
+    });
+    return ordered.map(function(t){
+      var tags = t.buckets && t.buckets.length ? ' (' + t.buckets.join(', ') + ')' : '';
+      return '<option value="' + esc(t.id) + '">' + esc(t.title + tags) + '</option>';
+    }).join('');
+  }
+
+  /**
+   * Names any merge field the account could not fill. The server leaves such a
+   * field visible in the text rather than blanking it, and this says so out
+   * loud, so nobody sends a draft with {{plan_down}} still in it.
+   */
+  function portalScriptWarning(unresolved){
+    var missing = unresolved || [];
+    if (!missing.length) return '';
+    return 'Unknown merge field' + (missing.length === 1 ? '' : 's') + ' left in the text: ' +
+      missing.map(function(f){ return '{{' + f + '}}'; }).join(', ');
+  }
+
+  function portalScriptBlock(accountKey, scripts, bucket){
+    var head = '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Outreach script</div>';
+    var options = portalScriptOptions(scripts, bucket);
+    if (!options){
+      return head + '<div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">' +
+        'No scripts have been written yet.</div>';
+    }
+    return head +
+      '<div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;margin:0.35rem 0">' +
+        '<select data-pd-script-select="' + esc(accountKey) + '" style="flex:1 1 12rem;font-size:0.82rem;padding:0.3rem 0.4rem">' +
+          '<option value="">Pick a script…</option>' + options + '</select>' +
+        '<button type="button" class="btn btn-sm" data-pd-script-copy disabled>Copy</button>' +
+      '</div>' +
+      '<div data-pd-script-out style="display:none">' +
+        '<div data-pd-script-warn style="display:none;font-size:0.76rem;color:#b5473b;margin-bottom:0.3rem"></div>' +
+        '<div data-pd-script-subject style="display:none;font-weight:600;font-size:0.82rem;margin-bottom:0.25rem"></div>' +
+        '<textarea data-pd-script-body rows="8" style="width:100%;resize:vertical;font-family:inherit;font-size:0.82rem"></textarea>' +
+      '</div>';
+  }
+
   // ── Account history ────────────────────────────────────────────────────────
   // Stage moves, handoffs, promises, logged contacts and notes are separate
   // records with separate lifetimes; the server merges them on read so the
@@ -1379,14 +1445,17 @@ ${SALES_DASHBOARD_COMPONENT_JS}
 
   async function renderPortalPastDueDetail(accountKey, panel){
     panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem;padding:0.5rem 0">Loading…</div>';
-    // The account and its contact log are independent reads; asking for both at
-    // once keeps opening a card one round trip rather than two.
-    var both = await Promise.all([
+    // The account, its contact log and the script list are independent reads;
+    // asking for them at once keeps opening a card one round trip rather than
+    // three.
+    var loaded = await Promise.all([
       api('GET', '/financials/accounts/' + encodeURIComponent(accountKey)),
-      api('GET', '/financials/accounts/' + encodeURIComponent(accountKey) + '/contacts')
+      api('GET', '/financials/accounts/' + encodeURIComponent(accountKey) + '/contacts'),
+      loadPortalScripts()
     ]);
-    var r = both[0];
-    var rc = both[1];
+    var r = loaded[0];
+    var rc = loaded[1];
+    var scripts = loaded[2];
     if (!r.ok){ panel.innerHTML = '<div class="text-muted" style="font-size:0.8rem">Could not load this account.</div>'; return; }
     var c = r.data.case || {};
     if (rc.ok && rc.data.channels) portalContactChannels = rc.data.channels;
@@ -1415,6 +1484,7 @@ ${SALES_DASHBOARD_COMPONENT_JS}
       '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Past-due invoices</div>' +
       '<div class="table-wrap"><table style="font-size:0.8rem"><thead><tr><th>Reference</th><th>Invoiced</th><th>Paid</th><th>Outstanding</th><th>Due</th><th>Days</th></tr></thead><tbody>' +
       (invoices || '<tr><td colspan="6" class="empty-state">No past-due invoices.</td></tr>') + '</tbody></table></div>' +
+      portalScriptBlock(accountKey, scripts, queued ? queued.bucket : null) +
       portalContactBlock(accountKey, (rc.ok && rc.data.contacts) || [], portalPastDueViewer(),
         queued ? queued.lastContact : null) +
       '<div style="margin-top:0.7rem;font-weight:700;font-size:0.85rem">Notes</div>' +
@@ -1429,6 +1499,49 @@ ${SALES_DASHBOARD_COMPONENT_JS}
   }
 
   function bindPortalPastDueDetail(accountKey, panel){
+    // Scripts are bound per panel rather than by id: several accounts can be
+    // open at once and each one keeps its own draft.
+    var scriptSel = panel.querySelector('[data-pd-script-select]');
+    if (scriptSel){
+      var scriptOut = panel.querySelector('[data-pd-script-out]');
+      var scriptCopy = panel.querySelector('[data-pd-script-copy]');
+      var scriptSubject = panel.querySelector('[data-pd-script-subject]');
+      var scriptBody = panel.querySelector('[data-pd-script-body]');
+      var scriptWarn = panel.querySelector('[data-pd-script-warn]');
+      scriptSel.addEventListener('change', async function(){
+        if (!scriptSel.value){
+          scriptOut.style.display = 'none';
+          scriptCopy.disabled = true;
+          return;
+        }
+        // Filled in server-side, so the balance in the script is the balance the
+        // queue is showing rather than a number the browser formatted itself.
+        var res = await api('GET', '/financials/accounts/' + encodeURIComponent(accountKey) +
+          '/script?templateId=' + encodeURIComponent(scriptSel.value));
+        if (!res.ok){ alert((res.data && res.data.error) || 'Could not build that script.'); return; }
+        scriptOut.style.display = '';
+        scriptCopy.disabled = false;
+        scriptSubject.style.display = res.data.subject ? '' : 'none';
+        scriptSubject.textContent = res.data.subject ? 'Subject: ' + res.data.subject : '';
+        scriptBody.value = res.data.body || '';
+        var warning = portalScriptWarning(res.data.unresolved);
+        scriptWarn.style.display = warning ? '' : 'none';
+        scriptWarn.textContent = warning;
+      });
+      scriptCopy.addEventListener('click', async function(){
+        var subject = scriptSubject.style.display === 'none' ? '' : scriptSubject.textContent + '\\n\\n';
+        try {
+          await navigator.clipboard.writeText(subject + scriptBody.value);
+          scriptCopy.textContent = 'Copied';
+        } catch (err){
+          // Clipboard access needs a secure context; selecting the text still works.
+          scriptBody.select();
+          scriptCopy.textContent = 'Press ⌘/Ctrl+C';
+        }
+        setTimeout(function(){ scriptCopy.textContent = 'Copy'; }, 2000);
+      });
+    }
+
     var contactForm = panel.querySelector('[data-pd-contact-form]');
     if (contactForm) contactForm.addEventListener('submit', async function(e){
       e.preventDefault();

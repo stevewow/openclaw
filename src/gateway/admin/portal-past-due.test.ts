@@ -47,6 +47,14 @@ type ContactLike = {
   createdByName?: string | null;
 };
 
+type ScriptLike = {
+  id: string;
+  title: string;
+  kind?: string;
+  buckets?: string[];
+  active?: boolean;
+};
+
 type ApiCall = { method: string; path: string; body: unknown };
 
 type Deps = {
@@ -106,6 +114,8 @@ function loadPortalPastDue(deps: Partial<Deps> & { apiResult?: unknown } = {}) {
       portalPastDueCard, portalSetPastDueStage, portalPromiseBroken, portalPromiseNote,
       portalPromiseBlock, portalEscalationBlock, portalTimelineRow,
       portalContactRow, portalContactList, portalContactHint, portalContactBlock,
+      portalScriptFits, portalScriptOptions, portalScriptWarning, portalScriptBlock,
+      loadPortalScripts,
       seed: (accounts, owner) => { portalPastDueAccounts = accounts; portalEscalationOwner = owner; },
       seedChannels: (channels) => { portalContactChannels = channels; },
     };`,
@@ -143,6 +153,11 @@ function loadPortalPastDue(deps: Partial<Deps> & { apiResult?: unknown } = {}) {
       viewer: { id: string | null; isAdmin?: boolean },
       last: { at: number; source: string; byName?: string | null } | null,
     ) => string;
+    portalScriptFits: (t: ScriptLike, bucket: string | null) => boolean;
+    portalScriptOptions: (scripts: ScriptLike[], bucket: string | null) => string;
+    portalScriptWarning: (unresolved: string[] | undefined) => string;
+    portalScriptBlock: (accountKey: string, scripts: ScriptLike[], bucket: string | null) => string;
+    loadPortalScripts: () => Promise<ScriptLike[]>;
     seed: (accounts: AccountLike[], owner: { id: string; name: string } | null) => void;
     seedChannels: (channels: Array<{ key: string; label: string }>) => void;
   };
@@ -458,5 +473,78 @@ describe("portal collections queue — contact log", () => {
     expect(html).toContain('<option value="voicemail">Voicemail</option>');
     expect(html).toContain("Log contact");
     expect(html).toContain("Nobody has contacted this account yet.");
+  });
+});
+
+describe("portal collections queue — outreach scripts", () => {
+  const scripts: ScriptLike[] = [
+    { id: "t-late", title: "Final demand", buckets: ["90+"] },
+    { id: "t-any", title: "First reminder", buckets: [] },
+    { id: "t-mid", title: "Second call", buckets: ["60-89"] },
+    { id: "t-off", title: "Retired wording", buckets: [], active: false },
+  ];
+
+  it("treats an untagged script as suiting any account, and a tagged one as suiting its bucket", () => {
+    const { model } = loadPortalPastDue();
+    expect(model.portalScriptFits({ id: "t-any", title: "x", buckets: [] }, "60-89")).toBe(true);
+    expect(model.portalScriptFits({ id: "t-mid", title: "x", buckets: ["60-89"] }, "60-89")).toBe(
+      true,
+    );
+    expect(model.portalScriptFits({ id: "t-mid", title: "x", buckets: ["60-89"] }, "90+")).toBe(
+      false,
+    );
+    expect(model.portalScriptFits({ id: "t-mid", title: "x", buckets: ["60-89"] }, null)).toBe(
+      false,
+    );
+  });
+
+  it("offers the scripts tagged for this account's age first and leaves retired ones out", () => {
+    const { model } = loadPortalPastDue();
+    const html = model.portalScriptOptions(scripts, "60-89");
+    expect(html).not.toContain("Retired wording");
+    expect(html.indexOf("Second call")).toBeLessThan(html.indexOf("Final demand"));
+    expect(html).toContain('<option value="t-any">First reminder</option>');
+    expect(html).toContain("Second call (60-89)");
+  });
+
+  it("gives an assigned account the picker, keyed to that account", () => {
+    const { model } = loadPortalPastDue();
+    const html = model.portalScriptBlock("acct-1", scripts, "60-89");
+    expect(html).toContain('data-pd-script-select="acct-1"');
+    expect(html).toContain("data-pd-script-body");
+    expect(html).toContain("data-pd-script-copy");
+    expect(html).toContain("Outreach script");
+  });
+
+  it("says nothing has been written rather than offering an empty picker", () => {
+    const { model } = loadPortalPastDue();
+    const html = model.portalScriptBlock("acct-1", [], "60-89");
+    expect(html).not.toContain("data-pd-script-select");
+    expect(html).toContain("No scripts have been written yet.");
+  });
+
+  it("names the merge fields the account could not fill", () => {
+    const { model } = loadPortalPastDue();
+    expect(model.portalScriptWarning([])).toBe("");
+    expect(model.portalScriptWarning(undefined)).toBe("");
+    expect(model.portalScriptWarning(["plan_down"])).toContain("Unknown merge field left");
+    const both = model.portalScriptWarning(["plan_down", "plan_months"]);
+    expect(both).toContain("Unknown merge fields left");
+    expect(both).toContain("{{plan_down}}");
+    expect(both).toContain("{{plan_months}}");
+  });
+
+  it("reads the script list once and reuses it for the next account opened", async () => {
+    const { model, calls } = loadPortalPastDue({ apiResult: { templates: scripts } });
+    expect(await model.loadPortalScripts()).toHaveLength(scripts.length);
+    await model.loadPortalScripts();
+    expect(calls.filter((c) => c.path === "/financials/templates")).toHaveLength(1);
+  });
+
+  it("falls back to no scripts when the list cannot be read, rather than throwing", async () => {
+    const { model } = loadPortalPastDue({
+      api: async () => ({ ok: false, status: 403, data: { error: "forbidden" } }),
+    });
+    expect(await model.loadPortalScripts()).toEqual([]);
   });
 });
