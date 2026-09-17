@@ -1281,7 +1281,13 @@ export async function handleAdminHttpRequest(
   }
 
   // Sales dashboard: goals against booked units, revenue and ASP per market.
-  if (await handleSalesAdminRequest(subPath, req, res, { actorName: viewerName, isAdmin })) {
+  if (
+    await handleSalesAdminRequest(subPath, req, res, {
+      actorName: viewerName,
+      userId: sessionUser.id,
+      isAdmin,
+    })
+  ) {
     return true;
   }
 

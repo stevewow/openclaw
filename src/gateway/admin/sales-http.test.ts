@@ -135,6 +135,53 @@ describe("sales dashboard routes", () => {
     expect(admin.json.canEdit).toBe(true);
   });
 
+  it("lets a viewer set the market the page opens on, without an admin", async () => {
+    // The whole point of the default is that the person who wants it can set
+    // it, so this deliberately uses the granted, non-admin token.
+    const before = await call("GET", "/sales-dashboard?month=2026-08", { token: grantedToken });
+    expect(before.json.prefs).toEqual({});
+
+    const saved = await call("PUT", "/sales-dashboard/preferences", {
+      token: grantedToken,
+      body: { "sales.defaultMarket": "charlotte" },
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.json.prefs).toEqual({ "sales.defaultMarket": "charlotte" });
+
+    const after = await call("GET", "/sales-dashboard?month=2026-08", { token: grantedToken });
+    expect(after.json.prefs).toEqual({ "sales.defaultMarket": "charlotte" });
+
+    // An admin looking at the same page sees their own, which is nothing yet.
+    const admin = await call("GET", "/sales-dashboard?month=2026-08", { token: superToken });
+    expect(admin.json.prefs).toEqual({});
+  });
+
+  it("clears a default rather than storing an empty one", async () => {
+    await call("PUT", "/sales-dashboard/preferences", {
+      token: grantedToken,
+      body: { "sales.defaultMarket": "toledo" },
+    });
+    const cleared = await call("PUT", "/sales-dashboard/preferences", {
+      token: grantedToken,
+      body: { "sales.defaultMarket": null },
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.json.prefs).toEqual({});
+  });
+
+  it("refuses a preference it does not know", async () => {
+    const res = await call("PUT", "/sales-dashboard/preferences", {
+      token: grantedToken,
+      body: { "sales.somethingElse": "x" },
+    });
+    expect(res.status).toBe(400);
+    const wrongType = await call("PUT", "/sales-dashboard/preferences", {
+      token: grantedToken,
+      body: { "sales.defaultMarket": 7 },
+    });
+    expect(wrongType.status).toBe(400);
+  });
+
   it("refuses a month it cannot read", async () => {
     for (const month of ["2026-13", "August", "2026-8"]) {
       const res = await call("GET", `/sales-dashboard?month=${month}`, { token: superToken });

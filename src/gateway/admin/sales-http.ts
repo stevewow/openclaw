@@ -31,11 +31,14 @@ import {
 } from "./sales-markets.js";
 import { getSalesSync, refreshSalesData, type SalesSweepDeps } from "./sales-orders.js";
 import { getSalesTrends } from "./sales-trends.js";
+import { getUserPrefs, isUserPrefKey, setUserPref } from "./user-prefs-store.js";
 
 const MAX_BODY_BYTES = 128 * 1024;
 
 export type SalesRequestContext = {
   actorName: string;
+  /** Whose preferences to read and write. Their own, always — never another's. */
+  userId: string;
   /** Only an admin may change markets, goals, listings or holidays. */
   isAdmin: boolean;
 };
@@ -124,7 +127,43 @@ export async function handleSalesAdminRequest(
       return true;
     }
     const dashboard = await getSalesDashboard({ year, month, now });
-    sendJson(res, 200, { ...dashboard, canEdit: ctx.isAdmin });
+    // The viewer's own choices ride along with the report rather than costing a
+    // second round trip, so the page can open straight onto their market
+    // instead of rendering every market and then switching.
+    sendJson(res, 200, {
+      ...dashboard,
+      canEdit: ctx.isAdmin,
+      prefs: await getUserPrefs(ctx.userId),
+    });
+    return true;
+  }
+
+  // PUT /sales-dashboard/preferences — this viewer's own defaults.
+  //
+  // Not admin-gated: a preference changes nothing but what the person who set
+  // it sees first, and the whole point is that they set it themselves.
+  if (subPath === "/sales-dashboard/preferences" && method === "PUT") {
+    const data = await readObject(req, res);
+    if (!data) {
+      return true;
+    }
+    const entries = Object.entries(data);
+    const unknown = entries.filter(([key]) => !isUserPrefKey(key)).map(([key]) => key);
+    if (unknown.length > 0) {
+      sendJson(res, 400, { error: `unknown preference: ${unknown.join(", ")}` });
+      return true;
+    }
+    for (const [key, value] of entries) {
+      if (!isUserPrefKey(key)) {
+        continue;
+      }
+      if (value !== null && typeof value !== "string") {
+        sendJson(res, 400, { error: `${key} must be a string or null` });
+        return true;
+      }
+      await setUserPref(ctx.userId, key, value);
+    }
+    sendJson(res, 200, { prefs: await getUserPrefs(ctx.userId) });
     return true;
   }
 

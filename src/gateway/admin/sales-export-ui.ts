@@ -24,7 +24,9 @@ export const SALES_EXPORT_CSS = `
     body.sd-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body.sd-print .sidebar, body.sd-print .sidebar-backdrop, body.sd-print .impersonation-banner, body.sd-print .topbar,
     body.sd-print .sd-head-card, body.sd-print .sd-tabs, body.sd-print .sdt-filters, body.sd-print .modal-backdrop,
-    body.sd-print .sdt-tip, body.sd-print .sdt-table-toggle summary { display: none !important; }
+    body.sd-print .sdt-tip, body.sd-print .sdt-table-toggle summary,
+    body.sd-print .sd-seg, body.sd-print .sd-more { display: none !important; }
+    body.sd-print .sd-switch { justify-content: flex-end; }
     body.sd-print .app, body.sd-print .main, body.sd-print .page-scroll, body.sd-print #page-sales-dashboard {
       display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; background: #fff !important;
     }
@@ -35,7 +37,7 @@ export const SALES_EXPORT_CSS = `
     body.sd-print .card { margin-bottom: 0.45rem; border: 1px solid #dbdbdb; box-shadow: none !important; }
     body.sd-print tr, body.sd-print .sd-card-head, body.sd-print .sd-days { break-inside: avoid; page-break-inside: avoid; }
     body.sd-print .sd-card-head { break-after: avoid; page-break-after: avoid; }
-    body.sd-print .sd-kpis { grid-template-columns: repeat(7, 1fr); gap: 0.35rem; margin-bottom: 0.45rem; }
+    body.sd-print .sd-kpis { grid-template-columns: repeat(5, 1fr); gap: 0.35rem; margin-bottom: 0.45rem; }
     body.sd-print .sd-kpi { padding: 0.35rem 0.5rem; box-shadow: none; break-inside: avoid; }
     body.sd-print .sd-kpi-value { font-size: 13pt; }
     body.sd-print .sd-card-head, body.sd-print .sd-days, body.sd-print .sd-card-foot { padding: 0.3rem 0.5rem; }
@@ -111,8 +113,9 @@ export const SALES_EXPORT_COMPONENT_JS = `
 
   function sdReportCsvRows(){
     var r = sdData.report;
-    var rows = [['Sales Dashboard', sdMonthName(sdData.monthKey), 'Completed shoots, on the shoot day, through ' + sdDate(r.throughDay)], []];
-    var month = r.mtd.rows.concat([r.mtd.total]);
+    var rows = [['Sales Dashboard', sdMonthName(sdData.monthKey), sdMarketLabel(),
+      'Completed shoots, on the shoot day, through ' + sdDate(r.throughDay)], []];
+    var month = sdScopeRows('mtd');
     rows.push(['Month to date']);
     rows.push(['Market', 'Units', 'Unit goal', 'Units % to goal', 'Per-day goal', 'Revenue ($)', 'Revenue goal ($)', 'Revenue % to goal',
       'ASP ($)', 'ASP goal ($)', 'ASP % to goal', 'New clients: first-ever', 'New clients: returning', 'New listings', 'Market share %']);
@@ -136,7 +139,7 @@ export const SALES_EXPORT_COMPONENT_JS = `
     rows.push(['Market', 'Units', 'Units goal to date', 'Units % to goal', 'Units year-end trend', 'Units % of year goal',
       'Revenue ($)', 'Revenue goal to date ($)', 'Revenue % to goal', 'Revenue year-end trend ($)', 'Revenue % of year goal',
       'ASP ($)', 'ASP % to goal', 'New clients: first-ever', 'New clients: returning', 'New listings', 'Market share %']);
-    r.ytd.rows.concat([r.ytd.total]).forEach(function(row){
+    sdScopeRows('ytd').forEach(function(row){
       var g = sdHasGoal(row.annualGoal);
       var nc = row.newClients;
       rows.push([row.label, sdCsvNum(row.actual.units), g ? sdCsvNum(row.goalToDate.units) : '', sdCsvNum(row.pct.units),
@@ -148,8 +151,10 @@ export const SALES_EXPORT_COMPONENT_JS = `
     });
     var c = sdComparison();
     if(c){
-      sdCompareCsv(rows, sdMonthName(sdData.monthKey) + ' to date vs ' + sdPeriod(c), r.mtd.rows, r.mtd.total, c.mtd.rows, c.mtd.total);
-      if(sdCompare === 'yoy') sdCompareCsv(rows, r.year + ' to date vs ' + sdYearPeriod(c), r.ytd.rows, r.ytd.total, c.ytd.rows, c.ytd.total);
+      sdCompareCsv(rows, sdMonthName(sdData.monthKey) + ' to date vs ' + sdPeriod(c),
+        sdFilterRows(r.mtd.rows), r.mtd.total, sdFilterRows(c.mtd.rows), c.mtd.total);
+      if(sdCompare === 'yoy') sdCompareCsv(rows, r.year + ' to date vs ' + sdYearPeriod(c),
+        sdFilterRows(r.ytd.rows), r.ytd.total, sdFilterRows(c.ytd.rows), c.ytd.total);
     }
     return rows;
   }
@@ -163,7 +168,7 @@ export const SALES_EXPORT_COMPONENT_JS = `
       sdDownloadCsv('sales-chart-' + sdtState.metric + '-' + range.from + '-to-' + range.to + '.csv', chartRows);
       return;
     }
-    sdDownloadCsv('sales-dashboard-' + sdData.monthKey + '.csv', sdReportCsvRows());
+    sdDownloadCsv('sales-dashboard-' + sdData.monthKey + (sdMarket ? '-' + sdMarket : '') + '.csv', sdReportCsvRows());
   }
 
   // ── Print ──
@@ -172,7 +177,9 @@ export const SALES_EXPORT_COMPONENT_JS = `
     if(!head || !sdData) return;
     var trends = sdView === 'trends';
     var title = document.createElement('h1');
-    title.textContent = trends ? 'Sales Dashboard · ' + sdEl('sdt-title').textContent : 'Sales Dashboard · ' + sdMonthName(sdData.monthKey);
+    title.textContent = trends
+      ? 'Sales Dashboard · ' + sdEl('sdt-title').textContent
+      : 'Sales Dashboard · ' + sdMonthName(sdData.monthKey) + ' · ' + sdMarketLabel();
     var detail = document.createElement('p');
     var parts = ['Completed shoots, on the day of the shoot'];
     if(!trends){

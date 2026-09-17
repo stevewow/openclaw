@@ -318,6 +318,21 @@ export const SALES_TRENDS_COMPONENT_JS = `
     sdtLoad();
   }
 
+  /**
+   * Follow the page's market filter.
+   *
+   * Called when someone changes the market up in the header, so switching from
+   * Report to Charts cannot quietly change which market is on screen. "All
+   * markets" leaves the Charts tab on whatever it was showing for the company,
+   * since side-by-side small multiples are a chart-only way of saying "all".
+   */
+  function sdtSetShow(marketKey){
+    if(!sdEl('sdt-show')) return;
+    var next = marketKey || 'total';
+    if(sdtState.show === next) return;
+    sdtSet({ show: next });
+  }
+
   function sdtMessage(text){
     var el = sdEl('sdt-msg');
     el.classList.toggle('hidden', !text);
