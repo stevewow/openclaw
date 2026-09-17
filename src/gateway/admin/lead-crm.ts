@@ -35,6 +35,7 @@ import {
   type SearchPersonHit,
   searchOrganizations,
 } from "../../../extensions/pipedrive/api.js";
+import { leadPhotoSrc } from "./lead-email-render.js";
 import { localDay, readLeadEmailSettings } from "./lead-notify.js";
 import { getPlaybook } from "./lead-playbooks-store.js";
 import type { LeadPlaybook } from "./lead-playbooks.js";
@@ -363,6 +364,17 @@ export function activityNote(lead: Lead, playbook: LeadPlaybook | null): string 
     }
   }
   out.push(noteFacts(facts));
+
+  // The listing photo, inline. Live-checked against the real account: Pipedrive
+  // keeps <img> with src, alt and width in an activity note (it drops the
+  // surrounding <figure> but not the image), so the rep sees the house in the
+  // activity without opening anything.
+  const photoSrc = leadPhotoSrc(lead);
+  if (photoSrc) {
+    out.push(
+      `<p><img src="${escapeHtml(photoSrc)}" alt="${escapeHtml(lead.name?.trim() || "Listing")}" width="360" /></p>`,
+    );
+  }
 
   if (lead.message?.trim()) {
     out.push(

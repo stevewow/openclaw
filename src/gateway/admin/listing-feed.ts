@@ -93,6 +93,25 @@ function str(value: unknown): string | null {
 }
 
 /**
+ * A photo off the feed.
+ *
+ * `primary_photo` arrives as a bare URL string and `photos[]` as an array of
+ * them; earlier code here read `.href` off both, which is undefined on a
+ * string, so every row stored a null thumbnail. Objects are still accepted in
+ * case the shape ever grows one. The `photos[]` copies are served over plain
+ * http while `primary_photo` is https, and an http image is blocked in an email
+ * client and in the CRM, so the scheme is forced up.
+ */
+function photoUrl(raw: unknown): string | null {
+  const href =
+    typeof raw === "object" && raw !== null ? str((raw as Record<string, unknown>).href) : str(raw);
+  if (!href) {
+    return null;
+  }
+  return href.startsWith("http://") ? `https://${href.slice("http://".length)}` : href;
+}
+
+/**
  * The feed's `href` is sometimes a path and sometimes absolute. A VA clicks
  * this, so it has to be a link either way.
  */
@@ -130,7 +149,6 @@ export function parseListing(raw: unknown): FeedListing | null {
   const listDate = str(row.list_date);
   const listedAt = listDate ? Date.parse(listDate) : Number.NaN;
   const photos = Array.isArray(row.photos) ? row.photos : [];
-  const primary = (row.primary_photo ?? photos[0] ?? {}) as Record<string, unknown>;
 
   return {
     propertyId,
@@ -148,7 +166,7 @@ export function parseListing(raw: unknown): FeedListing | null {
     sqft: num(row.sqft),
     photoCount: num(row.photo_count) ?? photos.length,
     href: absoluteHref(row.href, "www.realtor.com"),
-    photoUrl: str(primary.href),
+    photoUrl: photoUrl(row.primary_photo) ?? photoUrl(photos[0]),
     agentName: str(agent.name),
     agentOffice: str(agent.office),
     agentFeedId: str(agent.fulfillment_id),

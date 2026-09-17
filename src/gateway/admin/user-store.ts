@@ -827,6 +827,14 @@ type LeadsTable = {
   /** JSON object of every other answer, verbatim. */
   fields: string;
   /**
+   * A picture of what the lead is about, when the source had one — today the
+   * listing photo off a New Listings row. Stored on the lead rather than looked
+   * up from the listing, because the dispatch email and the CRM note are
+   * written once and must keep showing what was sent even after the listing
+   * ages out of the queue.
+   */
+  photo_url: string | null;
+  /**
    * Which lead-magnet playbook it came in on, resolved at intake and stored
    * rather than re-matched on read: the match rules will be tuned as forms are
    * renamed, and a lead worked under one opener must not silently acquire
@@ -1183,6 +1191,7 @@ type LeadDigestLogTable = {
 
 export type AdminDb = {
   admin_users: UsersTable;
+  admin_user_prefs: UserPrefsTable;
   admin_sessions: SessionsTable;
   admin_user_permissions: PermissionsTable;
   admin_resources: ResourcesTable;
@@ -1339,6 +1348,18 @@ export function getAdminDb(): Kysely<AdminDb> {
   return dbInstance;
 }
 
+/**
+ * One person's choice about a page — which market the sales dashboard opens on,
+ * and so forth. Server-side rather than in the browser so it follows them to
+ * their phone and survives a cleared cache.
+ */
+type UserPrefsTable = {
+  user_id: string;
+  key: string;
+  value: string;
+  updated_at: number;
+};
+
 function initSchema(db: import("node:sqlite").DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS admin_users (
@@ -1352,6 +1373,13 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       last_login_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS admin_user_prefs (
+      user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, key)
     );
     CREATE TABLE IF NOT EXISTS admin_sessions (
       token TEXT PRIMARY KEY,
@@ -2091,6 +2119,7 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
         CHECK(status IN ('new','contacted','qualified','won','lost')),
       page_url TEXT,
       fields TEXT NOT NULL DEFAULT '{}',
+      photo_url TEXT,
       playbook_key TEXT,
       notified_at INTEGER,
       notify_error TEXT,
@@ -2509,6 +2538,8 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       ["crm_activity_id", "INTEGER"],
       ["crm_synced_at", "INTEGER"],
       ["crm_error", "TEXT"],
+      // The listing thumbnail shipped after the queue did; older leads have none.
+      ["photo_url", "TEXT"],
     ] as const) {
       if (!leadColumns.some((c) => c.name === name)) {
         db.exec(`ALTER TABLE admin_leads ADD COLUMN ${name} ${type}`);

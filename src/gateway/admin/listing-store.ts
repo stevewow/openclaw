@@ -328,10 +328,21 @@ export async function sweepListings(
       for (const listing of fresh) {
         const existing = await db
           .selectFrom("admin_listings")
-          .select("id")
+          .select(["id", "photo_url"])
           .where("property_id", "=", listing.propertyId)
           .executeTakeFirst();
         if (existing) {
+          // A sweep never rewrites a row someone may already have worked, with
+          // one exception: a thumbnail it never managed to store. Rows swept
+          // before the feed's photo field was read correctly have none, and the
+          // picture is what makes the card worth looking at.
+          if (!existing.photo_url && listing.photoUrl) {
+            await db
+              .updateTable("admin_listings")
+              .set({ photo_url: listing.photoUrl, updated_at: now })
+              .where("id", "=", existing.id)
+              .execute();
+          }
           continue;
         }
         const known =

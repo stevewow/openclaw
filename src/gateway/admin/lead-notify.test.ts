@@ -58,6 +58,7 @@ describe("dispatching a lead", () => {
   it("emails the territory owner and marks the lead sent", async () => {
     const lead = await store.createLead({
       name: "Dana Reyes",
+      photoUrl: null,
       email: "dana@brokerage.com",
       phone: "(614) 555-0111",
       marketRaw: "Columbus",
@@ -106,6 +107,57 @@ describe("dispatching a lead", () => {
     expect(rec.sent[0].textBody).not.toContain("/admin#leads");
     // Replying is still the way to act on it.
     expect(rec.sent[0].textBody).toContain("Reply to this email");
+  });
+
+  it("shows the house on a lead that came off a listing, linked to the listing", async () => {
+    // The picture is how the owner knows what the call is about before they
+    // read a word of it, so it has to survive the render, not just the store.
+    const lead = await store.createLead({
+      name: "Dana Reyes",
+      email: "dana@brokerage.com",
+      ownerName: "Chris Voge",
+      ownerEmail: "chris@example.com",
+      territoryKey: "columbus",
+      photoUrl: "https://ap.rdcpix.com/x.jpg",
+      fields: [
+        { label: "Listing address", value: "139 Oakland Ave, Findlay, OH" },
+        { label: "Listing link", value: "https://www.realtor.com/139-Oakland-Ave" },
+      ],
+    });
+    const rec = recorder();
+    await notify.dispatchLead(lead, {
+      config: CONFIG,
+      mailer: rec.mailer,
+      settings,
+      logger: quiet,
+    });
+
+    expect(rec.sent[0].htmlBody).toContain('<img src="https://ap.rdcpix.com/x.jpg"');
+    // Clicking it goes to the listing, not to the bare image.
+    expect(rec.sent[0].htmlBody).toContain('href="https://www.realtor.com/139-Oakland-Ave"');
+    // The text part cannot show it, so it says where it is instead.
+    expect(rec.sent[0].textBody).toContain("Photo: https://ap.rdcpix.com/x.jpg");
+  });
+
+  it("drops a photo that is not https rather than sending a broken frame", async () => {
+    const lead = await store.createLead({
+      name: "Plain Http",
+      email: "http@x.com",
+      ownerName: "Chris Voge",
+      ownerEmail: "chris@example.com",
+      territoryKey: "columbus",
+      photoUrl: "http://ap.rdcpix.com/x.jpg",
+    });
+    const rec = recorder();
+    await notify.dispatchLead(lead, {
+      config: CONFIG,
+      mailer: rec.mailer,
+      settings,
+      logger: quiet,
+    });
+
+    expect(rec.sent[0].htmlBody).not.toContain("ap.rdcpix.com");
+    expect(rec.sent[0].textBody).not.toContain("Photo:");
   });
 
   it("sends an unrouted lead to the fallback address and says so in the email", async () => {

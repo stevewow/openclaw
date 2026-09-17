@@ -205,6 +205,7 @@ export async function handleListingAdminRequest(
       company: str(data.company) ?? listing.agentOffice,
       message: str(data.message),
       marketRaw: territory?.label ?? listing.marketLabel,
+      photoUrl: listing.photoUrl,
       territoryKey: territory?.key ?? null,
       ownerName: territory?.ownerName ?? null,
       ownerEmail: territory?.ownerEmail ?? null,

@@ -29,7 +29,10 @@ function feedRow(over: Record<string, unknown> = {}): Record<string, unknown> {
     sqft: 1680,
     photo_count: 24,
     href: "/realestateandhomes-detail/139-Oakland-Ave",
-    primary_photo: { href: "https://ap.rdcpix.com/x.jpg" },
+    // A bare URL string, which is what the live feed sends. It was an object
+    // here once, and that fixture is the reason a real sweep stored no photos.
+    primary_photo: "https://ap.rdcpix.com/x.jpg",
+    photos: ["http://ap.rdcpix.com/x.jpg", "http://ap.rdcpix.com/y.jpg"],
     advertisers: [
       {
         fulfillment_id: "616250",
@@ -64,6 +67,28 @@ describe("reading a listing off the feed", () => {
     expect(listing?.listedAt).toBe(Date.parse("2026-09-14T15:43:04.000000Z"));
     // A VA clicks this, so a path has to become a link.
     expect(listing?.href).toBe("https://www.realtor.com/realestateandhomes-detail/139-Oakland-Ave");
+  });
+
+  it("reads the thumbnail off a bare primary_photo URL", () => {
+    expect(parseListing(feedRow())?.photoUrl).toBe("https://ap.rdcpix.com/x.jpg");
+  });
+
+  it("still reads a primary_photo that arrives as an object", () => {
+    const listing = parseListing(
+      feedRow({ primary_photo: { href: "https://ap.rdcpix.com/o.jpg" } }),
+    );
+    expect(listing?.photoUrl).toBe("https://ap.rdcpix.com/o.jpg");
+  });
+
+  it("falls back to the first photo, forced to https so mail and the CRM load it", () => {
+    // photos[] is served over plain http; an http image is blocked in an email
+    // client and in Pipedrive, so it has to be upgraded rather than passed on.
+    const listing = parseListing(feedRow({ primary_photo: null }));
+    expect(listing?.photoUrl).toBe("https://ap.rdcpix.com/x.jpg");
+  });
+
+  it("has no thumbnail when the row carries no photos at all", () => {
+    expect(parseListing(feedRow({ primary_photo: null, photos: [] }))?.photoUrl).toBeNull();
   });
 
   it("takes the seller's agent, not whoever is listed first", () => {
@@ -238,5 +263,40 @@ describe("the listing queue", () => {
     const open = await store.listListings({ queueStatus: "all" });
     const dates = open.map((l) => l.listedAt ?? 0);
     expect(dates).toEqual(dates.toSorted((a, b) => b - a));
+  });
+
+  it("fills in a thumbnail it never managed to store, and leaves one it has alone", async () => {
+    // Rows swept before the feed's photo field was read correctly have no
+    // picture, which is most of what makes a card worth looking at. A later
+    // sweep is allowed to fill that one gap and nothing else.
+    const sweepWith = (at: number, photoUrl: string | null) =>
+      store.sweepListings(MARKETS, {
+        now: at,
+        spiroCall: noSpiroOrders,
+        fetchMarket: async (market) => ({
+          listings:
+            market.key === "findlay"
+              ? [listingAt("p-findlay-photo", "2026-09-14T16:00:00Z", { photoUrl })]
+              : [],
+          creditsRemaining: 200,
+        }),
+      });
+
+    await sweepWith(now + 300_000, null);
+    const blank = (await store.listListings({ queueStatus: "all" })).find(
+      (l) => l.propertyId === "p-findlay-photo",
+    );
+    expect(blank?.photoUrl).toBeNull();
+
+    const filled = await sweepWith(now + 360_000, "https://ap.rdcpix.com/late.jpg");
+    // Backfilling is not re-filing: the row is not counted as newly added.
+    expect(filled.added).toBe(0);
+    const after = await store.getListing(blank?.id ?? "");
+    expect(after?.photoUrl).toBe("https://ap.rdcpix.com/late.jpg");
+
+    // A row that already has one keeps it, even when the feed sends another.
+    await sweepWith(now + 420_000, "https://ap.rdcpix.com/different.jpg");
+    const kept = await store.getListing(blank?.id ?? "");
+    expect(kept?.photoUrl).toBe("https://ap.rdcpix.com/late.jpg");
   });
 });

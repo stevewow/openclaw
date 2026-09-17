@@ -111,6 +111,7 @@ function previewLead(): Lead {
     source: "framer",
     formName: "Preview",
     submissionId: null,
+    photoUrl: null,
     name: "Dana Reyes",
     email: "dana@example.com",
     phone: "(614) 555-0111",

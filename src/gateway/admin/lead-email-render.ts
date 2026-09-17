@@ -85,6 +85,18 @@ export function leadDetailRows(lead: Lead): Row[] {
 }
 
 /**
+ * The lead's picture, if it is safe to put in an <img src>.
+ *
+ * Only https is allowed through. The URL comes from a third-party feed, and a
+ * plain-http image is blocked by mail clients and by the CRM anyway, so
+ * anything else is dropped rather than rendered as a broken frame.
+ */
+export function leadPhotoSrc(lead: Lead): string | null {
+  const url = lead.photoUrl?.trim();
+  return url && url.toLowerCase().startsWith("https://") ? url : null;
+}
+
+/**
  * How to work this one, for the source it came in on.
  *
  * Only the matching playbook is rendered. An owner reading this on a phone
@@ -123,6 +135,10 @@ export function renderLeadEmailText(view: LeadEmailView): string {
     "",
     ...leadDetailRows(lead).map((r) => `${r.label}: ${r.value}`),
   ];
+  const photoSrc = leadPhotoSrc(lead);
+  if (photoSrc) {
+    lines.push(`Photo: ${photoSrc}`);
+  }
   if (lead.message?.trim()) {
     lines.push("", "What they wrote:", lead.message.trim());
   }
@@ -211,6 +227,21 @@ export function renderLeadEmailHtml(view: LeadEmailView): string {
 <tr><td style="padding:12px 16px;font-size:13px;color:#7a5c00;line-height:1.5"><strong>No territory owner matched this market.</strong> Please pick it up or reassign it in the Hub.</td></tr>
 </table></td></tr>`;
 
+  // The house itself, on a lead that came off a listing. It is the fastest way
+  // to know what the call is about, so it sits above the details rather than
+  // under them, and it is a link because a thumbnail is not enough to price a
+  // shoot from.
+  const photoSrc = leadPhotoSrc(lead);
+  // Clicking it opens the listing when the lead carries one, so the picture is
+  // the way into the research rather than a dead end.
+  const photoHref =
+    lead.fields.find((f) => /^https?:\/\/\S+$/i.test(f.value.trim()))?.value.trim() ?? photoSrc;
+  const photo = photoSrc
+    ? `<tr><td style="padding:0 0 18px">
+<a href="${escapeHtml(photoHref ?? photoSrc)}" style="text-decoration:none"><img src="${escapeHtml(photoSrc)}" alt="${escapeHtml(leadDisplayName(lead))}" width="552" style="display:block;width:100%;max-width:552px;height:auto;border:1px solid ${HAIRLINE};border-radius:12px" /></a>
+</td></tr>`
+    : "";
+
   const preheader = [leadDisplayName(lead), leadMarketLabel(lead), lead.phone ?? lead.email ?? ""]
     .filter(Boolean)
     .join(" · ");
@@ -235,6 +266,7 @@ ${brandHeaderHtml(view.logoUrl)}
 </td></tr>
 
 <tr><td style="padding:10px 0 18px;font-size:19px;font-weight:700;color:${INK};line-height:1.35">${escapeHtml(leadDisplayName(lead))}</td></tr>
+${photo}
 
 <tr><td style="padding:0 0 4px;border-top:1px solid ${HAIRLINE}"></td></tr>
 <tr><td style="padding:10px 0 0">

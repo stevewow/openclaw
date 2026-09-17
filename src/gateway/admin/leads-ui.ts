@@ -36,6 +36,7 @@ export const LEADS_CSS = `
   .ld-crm-ok a { color: #15803d; font-weight: 600; font-size: 0.78rem; text-decoration: none; }
   .ld-crm-ok a:hover { text-decoration: underline; }
 
+  .ld-photo { display: block; width: 100%; max-height: 14rem; object-fit: cover; border: 1px solid var(--hairline); border-radius: 10px; margin-bottom: 0.9rem; background: #f1f1f1; }
   .ld-facts { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 0.35rem 0.9rem; font-size: 0.82rem; margin-bottom: 1rem; }
   .ld-facts dt { color: var(--text-muted); white-space: nowrap; }
   .ld-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
@@ -229,6 +230,7 @@ export const LEAD_DETAIL_MODAL = `
 <div id="ld-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:680px">
     <div class="modal-title"><span id="ld-modal-ref" class="ld-ref"></span> <span id="ld-modal-who"></span></div>
+    <div id="ld-modal-photo"></div>
     <dl class="ld-facts" id="ld-modal-facts"></dl>
     <div id="ld-modal-message-wrap" class="hidden">
       <label>What they wrote</label>
@@ -586,6 +588,14 @@ export const LEADS_COMPONENT_JS = `
         : esc(v));
     });
     document.getElementById('ld-modal-facts').innerHTML = facts;
+
+    // The house, on a lead that came off a listing. indexOf rather than a regex
+    // for the reason spelled out above.
+    var photo = (l.photoUrl || '').trim();
+    document.getElementById('ld-modal-photo').innerHTML =
+      photo.indexOf('https://') === 0
+        ? '<img class="ld-photo" src="' + esc(photo) + '" alt="" loading="lazy" />'
+        : '';
 
     document.getElementById('ld-modal-message-wrap').classList.toggle('hidden', !l.message);
     document.getElementById('ld-modal-message').textContent = l.message || '';

@@ -169,6 +169,30 @@ describe("filing a lead in Pipedrive", () => {
     expect(note).toContain("Two listings next week.<br />Call after 4.");
   });
 
+  it("puts the listing photo in the note as a picture, not a link", async () => {
+    // Live-checked against the real account: Pipedrive keeps <img> with src,
+    // alt and width in an activity note, so the rep sees the house without
+    // opening anything.
+    const lead = await newLead({ photoUrl: "https://ap.rdcpix.com/x.jpg" });
+    const { client, recorded } = makeClient();
+    await crm.syncLeadToCrm(lead, { client, playbook: PLAYBOOK });
+    const note = String(recorded.find((r) => r.call === "createActivity")?.params.note);
+
+    expect(note).toContain('<img src="https://ap.rdcpix.com/x.jpg"');
+    // The contact facts still come first; the picture follows them.
+    expect(note.indexOf("Brokerage:")).toBeLessThan(note.indexOf("<img"));
+  });
+
+  it("refuses to put a non-https photo in the note", async () => {
+    const lead = await newLead({ photoUrl: "javascript:alert(1)" });
+    const { client, recorded } = makeClient();
+    await crm.syncLeadToCrm(lead, { client, playbook: PLAYBOOK });
+    const note = String(recorded.find((r) => r.call === "createActivity")?.params.note);
+
+    expect(note).not.toContain("<img");
+    expect(note).not.toContain("javascript:");
+  });
+
   it("escapes what the lead itself supplied", async () => {
     const lead = await newLead({ company: "Comey & Shepherd", name: "<script>x</script> Dana" });
     const { client, recorded } = makeClient();
