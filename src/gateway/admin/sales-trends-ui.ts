@@ -18,6 +18,8 @@
 // escapes and no backslashes in its comments, and no dollar sign followed by an
 // open brace.
 
+import { infoTip } from "./info-tip.js";
+
 export const SALES_TRENDS_CSS = `
   #sd-view-trends { --sdt-series-1: #2a78d6; --sdt-series-2: #eb6834; --sdt-goal: #8a8a8a; }
   .sdt-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem 0.9rem; margin: 0 0 0.9rem; }
@@ -109,7 +111,7 @@ export const SALES_TRENDS_MARKUP = `
 
           <div class="card sd-card">
             <div class="sd-card-head">
-              <div class="sd-card-title" id="sdt-title">Charts</div>
+              <div class="sd-card-title"><span id="sdt-title">Charts</span>${infoTip("<p>Each point is that month's figure as the Report tab counts it: completed shoots, on the day of the shoot. A hollow point or pale column is the month so far, through yesterday; its goal and last year are whole months.</p>", { label: "How the chart is counted" })}</div>
               <div class="sdt-legend" id="sdt-legend"></div>
             </div>
             <div class="sdt-body" id="sdt-body">
@@ -121,7 +123,6 @@ export const SALES_TRENDS_MARKUP = `
               <summary>Show the numbers</summary>
               <div class="sd-table-wrap"><table class="sd-table" id="sdt-table"></table></div>
             </details>
-            <div class="sd-card-foot">Each point is that month's figure as the Report tab counts it: completed shoots, on the day of the shoot. A hollow point or pale column is the month so far, through yesterday; its goal and last year are whole months.</div>
           </div>
         </div>`;
 

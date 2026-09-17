@@ -11,6 +11,7 @@
 // The article body is edited through the rich-text surface in kb-editor-ui.ts;
 // this module only hands it markdown on open and takes markdown back on save.
 
+import { infoTip } from "./info-tip.js";
 import { KB_EDITOR_CSS, KB_EDITOR_JS, KB_EDITOR_MARKUP } from "./kb-editor-ui.js";
 
 export const KB_CSS = `
@@ -48,14 +49,14 @@ export const KB_MARKUP = `
       <!-- Help Center: help articles and the categories they are filed in -->
       <div id="page-kb" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">Help Center</div>
-          <p class="text-muted" style="font-size:0.85rem;margin:0">
-            Help articles for clients. An article stays a draft — invisible outside this page — until you publish it.
-            File articles in categories to group them, and use ↑ / ↓ to set the order they are read in.
-          </p>
-          <p class="text-muted" style="font-size:0.85rem;margin:0.5rem 0 0">
-            Not sure what to write next? <a href="#kb-searches">Help Insights</a> lists what clients looked for and could not find, and how the articles you have already published are landing.
-          </p>
+          <div style="font-weight:700">Help Center${infoTip(
+            `<p>Help articles for clients. An article stays a draft — invisible outside this page — until you
+               publish it. File articles in categories to group them, and use ↑ / ↓ to set the order they are read
+               in.</p>
+             <p>Not sure what to write next? <a href="#kb-searches">Help Insights</a> lists what clients looked for
+               and could not find, and how the articles you have already published are landing.</p>`,
+            { label: "About the Help Center" },
+          )}</div>
         </div>
         <div class="kb-cols">
           <div class="card">

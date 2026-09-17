@@ -8,6 +8,7 @@
 // regex escapes and no backslashes in its comments. It also must not contain a
 // dollar sign followed by an open brace.
 
+import { infoTip, infoTipSlot } from "./info-tip.js";
 import { SALES_EXPORT_COMPONENT_JS, SALES_EXPORT_CSS } from "./sales-export-ui.js";
 import {
   SALES_TRENDS_COMPONENT_JS,
@@ -20,6 +21,8 @@ const SALES_DASHBOARD_CORE_CSS = `
   .sd-head-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
   .sd-head-actions input[type=month], .sd-head-actions select { width: auto; max-width: 11rem; }
   .sd-sync { color: var(--text-muted); font-size: 0.8rem; margin: 0.5rem 0 0; }
+  /* Nothing to warn about: no gap under the heading either. */
+  .sd-sync:empty { display: none; }
   .sd-warn { color: var(--warning); font-weight: 600; }
   .sd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 0.75rem; margin-bottom: 1.15rem; }
   .sd-kpi { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 0.8rem 0.95rem; box-shadow: var(--shadow); }
@@ -36,7 +39,6 @@ const SALES_DASHBOARD_CORE_CSS = `
   .sd-card-sub { border-top: 1px solid var(--hairline); }
   .sd-card-title { font-weight: 700; }
   .sd-card-note { color: var(--text-muted); font-size: 0.78rem; }
-  .sd-card-foot { color: var(--text-muted); font-size: 0.78rem; padding: 0.6rem 1.1rem; }
   .sd-legend { display: flex; gap: 0.4rem 0.9rem; flex-wrap: wrap; color: var(--text-muted); font-size: 0.76rem; }
   .sd-days { display: flex; gap: 0.4rem 1.4rem; flex-wrap: wrap; padding: 0.6rem 1.1rem; border-bottom: 1px solid var(--hairline); color: var(--text-muted); font-size: 0.8rem; }
   .sd-days b { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -123,20 +125,31 @@ const PACE_LEGEND = `<div class="sd-legend">
               <span class="sd-pace sd-pace-behind"><span class="sd-pace-icon" aria-hidden="true">▼</span>Behind</span>
             </div>`;
 
+/**
+ * What the page is, what counts, and how fresh it is — behind the "i" beside
+ * the heading rather than as a banner over the numbers.
+ *
+ * The last paragraph is filled in by `sdRenderSync` as each read lands. Only
+ * routine status goes there; a warning (orders still being read, a failed
+ * read, no markets set up) stays on the page, where it cannot be missed.
+ */
+const SALES_DASHBOARD_ABOUT = infoTip(
+  `<p>Each market's goals against what it has booked — units, revenue and average order value (ASP) for the
+     month and the year so far — where the month and the year are trending, and market share of new listings.</p>
+   <p>An order counts once its shoot is done (editing or delivered in Spiro), on the day of the shoot, in the
+     market of the client's company. Orders still waiting on their appointment, and cancelled or $0 orders,
+     do not count — new clients included.</p>
+   <p id="sd-sync-detail"></p>`,
+  { label: "About the sales dashboard" },
+);
+
 function salesPageMarkup(): string {
   return `
         <div class="sd-print-head" id="sd-print-head"></div>
         <div class="card sd-head-card">
           <div class="sd-head">
             <div style="flex:1;min-width:min(16rem,100%)">
-              <div style="font-weight:700;margin-bottom:0.35rem">Sales Dashboard</div>
-              <p class="text-muted" style="font-size:0.85rem;margin:0">
-                Each market's goals against what it has booked — units, revenue and average order value (ASP) for the
-                month and the year so far — where the month and the year are trending, and market share of new listings.
-                An order counts once its shoot is done (editing or delivered in Spiro), on the day of the shoot, in the
-                market of the client's company. Orders still waiting on their appointment, and cancelled or $0 orders,
-                do not count — new clients included.
-              </p>
+              <div style="font-weight:700">Sales Dashboard${SALES_DASHBOARD_ABOUT}</div>
               <p class="sd-sync" id="sd-sync"></p>
             </div>
             <div class="sd-head-actions">
@@ -175,7 +188,7 @@ function salesPageMarkup(): string {
 
         <div class="card sd-card" id="sd-score-card">
           <div class="sd-card-head">
-            <div class="sd-card-title" id="sd-score-title">Units</div>
+            <div class="sd-card-title"><span id="sd-score-title">Units</span>${infoTipSlot("sd-score-about", { label: "How this metric is counted" })}</div>
             <div class="sd-card-note" id="sd-score-note"></div>
           </div>
           <div class="sd-switch">
@@ -184,7 +197,6 @@ function salesPageMarkup(): string {
             <div class="sd-switch-note" id="sd-score-days"></div>
           </div>
           <div class="sd-table-wrap"><table class="sd-table" id="sd-score"></table></div>
-          <div class="sd-card-foot" id="sd-score-foot"></div>
         </div>
 
         <div class="sd-more">
@@ -196,7 +208,7 @@ function salesPageMarkup(): string {
         <div id="sd-everything" class="hidden">
         <div class="card sd-card hidden" id="sd-cmp-card">
           <div class="sd-card-head">
-            <div class="sd-card-title" id="sd-cmp-title">Compared</div>
+            <div class="sd-card-title"><span id="sd-cmp-title">Compared</span>${infoTip("<p>The earlier period is counted as far into its month as this one is, so the 1st through the 14th is compared with the 1st through the 14th. Market share changes are in percentage points.</p>", { label: "How the comparison is counted" })}</div>
             <div class="sd-card-note" id="sd-cmp-note"></div>
           </div>
           <div class="sd-table-wrap"><table class="sd-table" id="sd-cmp-mtd"></table></div>
@@ -204,13 +216,11 @@ function salesPageMarkup(): string {
             <div class="sd-card-head sd-card-sub"><div class="sd-card-title" id="sd-cmp-ytd-title">Year to date</div></div>
             <div class="sd-table-wrap"><table class="sd-table" id="sd-cmp-ytd"></table></div>
           </div>
-          <div class="sd-card-foot">The earlier period is counted as far into its month as this one is, so the 1st through the 14th is compared with the 1st through the 14th. Market share changes are in percentage points.</div>
         </div>
 
         <div class="card sd-card">
           <div class="sd-card-head">
-            <div class="sd-card-title" id="sd-mtd-title">Month to date</div>
-            <div class="sd-card-note">Per-day goal is the unit goal ÷ business days in the month, rounded up. Market share is units ÷ the month's new listings.</div>
+            <div class="sd-card-title"><span id="sd-mtd-title">Month to date</span>${infoTip("<p>Per-day goal is the unit goal ÷ business days in the month, rounded up. Market share is units ÷ the month's new listings.</p>", { label: "How month to date is counted" })}</div>
           </div>
           <div class="sd-days" id="sd-days"></div>
           <div class="sd-table-wrap"><table class="sd-table" id="sd-mtd"></table></div>
@@ -218,20 +228,18 @@ function salesPageMarkup(): string {
 
         <div class="card sd-card">
           <div class="sd-card-head">
-            <div class="sd-card-title">End-of-month trend</div>
+            <div class="sd-card-title">End-of-month trend${infoTip("<p>Month to date ÷ business days completed × business days in the month, against the month's goal.</p>", { label: "How the trend is worked out" })}</div>
             ${PACE_LEGEND}
           </div>
           <div class="sd-table-wrap"><table class="sd-table" id="sd-eom"></table></div>
-          <div class="sd-card-foot">Month to date ÷ business days completed × business days in the month, against the month's goal.</div>
         </div>
 
         <div class="card sd-card">
           <div class="sd-card-head">
-            <div class="sd-card-title" id="sd-ytd-title">Year to date</div>
+            <div class="sd-card-title"><span id="sd-ytd-title">Year to date</span>${infoTip("<p>Goal to date is every earlier month's goal plus this month's, prorated by business days completed. Year-end trend carries the pace so far to the last business day of the year, against the year's goal. Market share counts only the months with new listings entered.</p>", { label: "How year to date is counted" })}</div>
             ${PACE_LEGEND}
           </div>
           <div class="sd-table-wrap"><table class="sd-table" id="sd-ytd"></table></div>
-          <div class="sd-card-foot">Goal to date is every earlier month's goal plus this month's, prorated by business days completed. Year-end trend carries the pace so far to the last business day of the year, against the year's goal. Market share counts only the months with new listings entered.</div>
         </div>
         </div>
         </div>
@@ -443,38 +451,46 @@ const SALES_DASHBOARD_CORE_JS = `
     }, 20000);
   }
 
+  // Two audiences, two places. Routine status — how fresh the read is, which
+  // checks are still running — goes in the describer behind the heading's "i",
+  // because it answers a question rather than asking for anything. Anything a
+  // reader has to act on, or that makes a number on screen wrong, stays on the
+  // page in plain sight.
   function sdRenderSync(){
     var s = sdData.sync || {};
     var r = sdData.report;
-    var parts = [];
+    var alerts = [];
+    var notes = [];
     if(!s.coveredTo){
-      parts.push(esc('Spiro orders have not been read yet. Press Refresh: the first read goes back to January ' +
+      alerts.push(esc('Spiro orders have not been read yet. Press Refresh: the first read goes back to January ' +
         (s.historyFloor ? s.historyFloor.slice(0, 4) : 'of last year') + ', this month first, and takes a while.'));
     } else {
-      parts.push(esc('Orders read from Spiro ' + sdAgo(s.refreshedAt) + ', back to ' + sdDate(s.coveredFrom) + '. They refresh every 2 hours.'));
+      notes.push(esc('Orders read from Spiro ' + sdAgo(s.refreshedAt) + ', back to ' + sdDate(s.coveredFrom) + '. They refresh every 2 hours.'));
       if(s.coveredFrom > r.year + '-01-01'){
-        parts.push('<span class="sd-warn">' + esc('Older orders are still being read, so totals before ' + sdDate(s.coveredFrom) + ' are incomplete.') + '</span>');
+        alerts.push('<span class="sd-warn">' + esc('Older orders are still being read, so totals before ' + sdDate(s.coveredFrom) + ' are incomplete.') + '</span>');
       }
       if(!s.shootsCoveredFrom || s.shootsCoveredFrom > r.year + '-01-01'){
-        parts.push('<span class="sd-warn">' + esc(s.shootsCoveredFrom
+        alerts.push('<span class="sd-warn">' + esc(s.shootsCoveredFrom
           ? 'Shoot dates are still being read back from ' + sdDate(s.shootsCoveredFrom) + '. Until they are, earlier completed orders count on the day they were placed.'
           : 'Shoot dates have not been read yet, so for now completed orders count on the day they were placed.') + '</span>');
       }
     }
     if(!(sdData.markets || []).length){
-      parts.push('<span class="sd-warn">' + esc(sdData.canEdit
+      alerts.push('<span class="sd-warn">' + esc(sdData.canEdit
         ? 'No markets are set up yet, so every order counts under Other markets. Add them under Markets.'
         : 'No markets are set up yet, so every order counts under Other markets.') + '</span>');
     }
     if(r.clientsPending > 0){
-      parts.push(esc('New clients are still being checked against older order history for ' + r.clientsPending +
+      notes.push(esc('New clients are still being checked against older order history for ' + r.clientsPending +
         (r.clientsPending === 1 ? ' agent.' : ' agents.')));
     }
     if(s.error && (!s.refreshedAt || (s.attemptedAt || 0) > s.refreshedAt)){
-      parts.push('<span class="sd-warn">' + esc('The last read failed ' + sdAgo(s.attemptedAt) + ': ' + s.error) + '</span>');
+      alerts.push('<span class="sd-warn">' + esc('The last read failed ' + sdAgo(s.attemptedAt) + ': ' + s.error) + '</span>');
     }
-    if(s.running) parts.push('<span class="sd-warn">Reading now…</span>');
-    sdEl('sd-sync').innerHTML = parts.join(' ');
+    if(s.running) alerts.push('<span class="sd-warn">Reading now…</span>');
+    sdEl('sd-sync').innerHTML = alerts.join(' ');
+    var detail = sdEl('sd-sync-detail');
+    if(detail) detail.innerHTML = notes.join(' ');
   }
 
   // ── Comparisons ──
@@ -939,7 +955,7 @@ const SALES_DASHBOARD_CORE_JS = `
     sdEl('sd-score-days').textContent = sdPeriod === 'year'
       ? bd.yearCompleted + ' of ' + bd.year + ' business days'
       : bd.monthCompleted + ' of ' + bd.month + ' business days';
-    sdEl('sd-score-foot').textContent = spec.foot;
+    sdEl('sd-score-about').textContent = spec.foot;
 
     var periodKey = sdPeriodKey();
     var rows = sdScopeRows(periodKey);

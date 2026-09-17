@@ -16,6 +16,7 @@ import {
   BROKERAGES_PORTAL_MARKUP,
 } from "./brokerages-ui.js";
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
+import { INFO_TIP_COMPONENT_JS, INFO_TIP_CSS, infoTipSlot } from "./info-tip.js";
 import {
   LEADS_COMPONENT_JS,
   LEADS_CSS,
@@ -205,6 +206,7 @@ ${LOGIN_CLIENT_NOTE_CSS}
   .pt-view-btn { background: none; border: none; border-radius: calc(var(--radius) - 3px); padding: 0.35rem 0.7rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); cursor: pointer; font-family: inherit; transition: background 0.1s, color 0.1s; }
   .pt-view-btn:hover { color: var(--text); }
   .pt-view-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+${INFO_TIP_CSS}
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
@@ -688,6 +690,7 @@ ${SALES_DASHBOARD_MODALS}
     const data = await r.json().catch(() => ({}));
     return { ok: r.ok, status: r.status, data };
   }
+${INFO_TIP_COMPONENT_JS}
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
@@ -936,7 +939,7 @@ ${SALES_DASHBOARD_COMPONENT_JS}
         '<div class="report-view" data-view="market" style="display:none">' +
           '<div class="card" style="margin-bottom:1rem;padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">' +
             '<label style="font-size:0.8rem;font-weight:600">Metric <select id="prt-market-metric"></select></label>' +
-            '<span class="text-muted" id="prt-market-note" style="font-size:0.78rem"></span>' +
+            '${infoTipSlot("prt-market-note", { label: "What this metric means" })}' +
             '<span class="text-muted" id="prt-market-refreshed" style="font-size:0.78rem;margin-left:auto"></span>' +
           '</div>' +
           '<div class="card hidden" id="prt-market-warning" style="margin-bottom:1rem;border-left:3px solid #d97706"></div>' +

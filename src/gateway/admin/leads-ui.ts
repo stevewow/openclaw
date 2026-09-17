@@ -9,6 +9,8 @@
 // place that decides the second half of that sentence. Splitting them across
 // modules would put the explanation of a column somewhere other than the column.
 
+import { infoTip } from "./info-tip.js";
+
 export const LEADS_CSS = `
   .ld-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   .ld-search { flex: 1 1 12rem; min-width: 9rem; max-width: 24rem; padding: 0.4rem 0.65rem; font-size: 0.82rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
@@ -102,12 +104,12 @@ export function leadsQueueMarkup(opts: { canManage: boolean }): string {
         <div class="card" style="margin-bottom:1rem">
           <div class="ld-head">
             <div style="flex:1;min-width:0">
-              <div style="font-weight:700;margin-bottom:0.35rem">Leads</div>
-              <p class="text-muted" style="font-size:0.85rem;margin:0">
-                Every enquiry the website forms send and every one taken over the phone, in one place.
-                Each is emailed to whoever owns that market the moment it arrives, and filed in Pipedrive
-                with the first follow-up already on their list — ${routingNote}
-              </p>
+              <div style="font-weight:700">Leads${infoTip(
+                `<p>Every enquiry the website forms send and every one taken over the phone, in one place.
+                   Each is emailed to whoever owns that market the moment it arrives, and filed in Pipedrive
+                   with the first follow-up already on their list — ${routingNote}</p>`,
+                { label: "About the lead queue" },
+              )}</div>
             </div>
             ${addButton}
           </div>
@@ -151,12 +153,12 @@ ${leadsQueueMarkup({ canManage: true })}
         <div class="card" style="margin-bottom:1rem">
           <div class="ld-head">
             <div style="flex:1;min-width:0">
-              <div style="font-weight:700;margin-bottom:0.35rem">Lead Routing</div>
-              <p class="text-muted" style="font-size:0.85rem;margin:0">
-                Who gets told about a new lead, market by market. A market with no address here cannot be
-                emailed — its leads fall to the fallback address and wait in the queue. Aliases catch the other
-                spellings a website form might send for the same place.
-              </p>
+              <div style="font-weight:700">Lead Routing${infoTip(
+                `<p>Who gets told about a new lead, market by market. A market with no address here cannot be
+                   emailed — its leads fall to the fallback address and wait in the queue. Aliases catch the other
+                   spellings a website form might send for the same place.</p>`,
+                { label: "About lead routing" },
+              )}</div>
             </div>
             <button type="button" class="btn btn-primary" id="ld-terr-new">＋ Add a market</button>
           </div>
@@ -178,13 +180,13 @@ export const LEAD_PLAYBOOKS_MARKUP = `
         <div class="card" style="margin-bottom:1rem">
           <div class="ld-head">
             <div style="flex:1;min-width:0">
-              <div style="font-weight:700;margin-bottom:0.35rem">Outreach Notes</div>
-              <p class="text-muted" style="font-size:0.85rem;margin:0">
-                What the territory owner is told to say, by the source the lead came in on. Each note carries the
-                signal, an opener, a soft close and a cadence — only the matching one is sent, so an owner reading
-                the email on their phone gets one script rather than a choice of three. Edits apply to the next
-                lead that arrives; emails already sent are unchanged.
-              </p>
+              <div style="font-weight:700">Outreach Notes${infoTip(
+                `<p>What the territory owner is told to say, by the source the lead came in on. Each note carries the
+                   signal, an opener, a soft close and a cadence — only the matching one is sent, so an owner reading
+                   the email on their phone gets one script rather than a choice of three.</p>
+                 <p>Edits apply to the next lead that arrives; emails already sent are unchanged.</p>`,
+                { label: "About outreach notes" },
+              )}</div>
             </div>
             <button type="button" class="btn btn-primary" id="ld-pb-new">＋ Add a source</button>
           </div>

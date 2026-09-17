@@ -6,6 +6,8 @@
 // regex escapes and no backslashes in its comments. It also must not contain a
 // dollar sign followed by an open brace.
 
+import { infoTip } from "./info-tip.js";
+
 export const BROKERAGES_CSS = `
   .brk-head { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
   .brk-head-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
@@ -59,13 +61,14 @@ function brokeragesPageMarkup(): string {
         <div class="card" style="margin-bottom:1rem">
           <div class="brk-head">
             <div style="flex:1;min-width:min(16rem,100%)">
-              <div style="font-weight:700;margin-bottom:0.35rem">Brokerage Partnerships</div>
-              <p class="text-muted" style="font-size:0.85rem;margin:0">
-                The brokerages we have an agreement with, and the ones we want to sign next. Each one links
-                every Spiro company that belongs to it — most brokerages have one per office — so its order
-                count and revenue are the whole brokerage's this year. Open one to set its order page, keep its
-                contract and other documents, and note what was agreed.
-              </p>
+              <div style="font-weight:700">Brokerage Partnerships${infoTip(
+                `<p>The brokerages we have an agreement with, and the ones we want to sign next. Each one links
+                   every Spiro company that belongs to it — most brokerages have one per office — so its order
+                   count and revenue are the whole brokerage's this year.</p>
+                 <p>Open one to set its order page, keep its contract and other documents, and note what was
+                   agreed.</p>`,
+                { label: "About brokerage partnerships" },
+              )}</div>
               <p class="brk-sync" id="brk-sync"></p>
             </div>
             <div class="brk-head-actions">

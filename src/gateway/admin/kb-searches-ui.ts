@@ -11,6 +11,8 @@
 // terms say what the help center is for. Rolling them into one "top searches"
 // table would hide the first two behind the third.
 
+import { infoTip } from "./info-tip.js";
+
 export const KB_SEARCHES_CSS = `
   .kbs-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   /* Every select in the SPA is width:100% by default, which would eat the row. */
@@ -49,12 +51,12 @@ export const KB_SEARCHES_MARKUP = `
       <!-- Help insights: the help center's gaps and how its articles land -->
       <div id="page-kb-searches" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">Help Insights</div>
-          <p class="text-muted" style="font-size:0.85rem;margin:0">
-            What clients searched for in the <a href="/help" target="_blank" rel="noopener">Help Center</a>, and how the
-            articles they found are doing. Nothing here identifies anyone — only what was typed, what was opened,
-            and which buttons were pressed.
-          </p>
+          <div style="font-weight:700">Help Insights${infoTip(
+            `<p>What clients searched for in the <a href="/help" target="_blank" rel="noopener">Help Center</a>, and
+               how the articles they found are doing. Nothing here identifies anyone — only what was typed, what was
+               opened, and which buttons were pressed.</p>`,
+            { label: "About Help Insights" },
+          )}</div>
         </div>
 
         <div class="kbs-bar">

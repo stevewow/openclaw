@@ -8,6 +8,8 @@
 // The option lists are not repeated here: every filter is built from what
 // GET /api/admin/feedback returns, so the page cannot drift from the store.
 
+import { infoTip } from "./info-tip.js";
+
 export const FEEDBACK_CSS = `
   .fb-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   .fb-search { flex: 1 1 12rem; min-width: 9rem; max-width: 24rem; padding: 0.4rem 0.65rem; font-size: 0.82rem; font-family: inherit; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
@@ -50,11 +52,11 @@ export const FEEDBACK_MARKUP = `
   <div class="card" style="margin-bottom:1rem">
     <div class="fb-head">
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;margin-bottom:0.35rem">Feedback</div>
-        <p class="text-muted" style="font-size:0.85rem;margin:0">
-          What the team and our clients told us. Anyone can file feedback from the public form —
-          share <code>/feedback</code> with whoever needs it, or use the button to open it yourself.
-        </p>
+        <div style="font-weight:700">Feedback${infoTip(
+          `<p>What the team and our clients told us. Anyone can file feedback from the public form —
+             share <code>/feedback</code> with whoever needs it, or use the button to open it yourself.</p>`,
+          { label: "About feedback" },
+        )}</div>
       </div>
       <button type="button" class="btn btn-primary" id="fb-new">＋ Submit feedback</button>
     </div>

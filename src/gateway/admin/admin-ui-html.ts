@@ -22,6 +22,7 @@ import {
   FEEDBACK_MODALS,
 } from "./feedback-ui.js";
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
+import { infoTip, INFO_TIP_COMPONENT_JS, INFO_TIP_CSS, infoTipSlot } from "./info-tip.js";
 import { KB_SEARCHES_COMPONENT_JS, KB_SEARCHES_CSS, KB_SEARCHES_MARKUP } from "./kb-searches-ui.js";
 import { KB_COMPONENT_JS, KB_CSS, KB_MARKUP, KB_MODALS } from "./kb-ui.js";
 import {
@@ -532,6 +533,7 @@ ${LOGIN_CLIENT_NOTE_CSS}
   .task-tag { padding: 0.12rem 0.4rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; font-size: 0.65rem; font-weight: 500; color: var(--text-muted); }
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
+${INFO_TIP_CSS}
 ${TASK_LIST_CSS}
 ${KB_CSS}
 ${KB_SEARCHES_CSS}
@@ -1154,7 +1156,7 @@ ${HUB_BASE_CSS}
         <div class="card" style="margin-bottom:1rem">
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div class="form-group" style="margin:0">
-              <label>Metric</label>
+              <label>Metric${infoTipSlot("market-note", { label: "What this metric means" })}</label>
               <select id="market-metric"></select>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
@@ -1162,7 +1164,6 @@ ${HUB_BASE_CSS}
               <button class="btn btn-ghost btn-sm admin-only" id="market-refresh-btn">↻ Refresh now</button>
             </div>
           </div>
-          <div class="text-muted" style="font-size:0.8rem;margin-top:0.5rem" id="market-note"></div>
         </div>
         <!-- The feed trails the calendar by a month or two, so the report says
              how old it is before it says anything else. -->
@@ -1177,8 +1178,10 @@ ${HUB_BASE_CSS}
         <div class="card" style="margin-bottom:1rem">
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div>
-              <div style="font-weight:700">Pipedrive Cleanup</div>
-              <div class="text-muted" style="font-size:0.85rem">Verify each suggested change. Approved items become a worklist for anyone you grant this report to.</div>
+              <div style="font-weight:700">Pipedrive Cleanup${infoTip(
+                "<p>Verify each suggested change. Approved items become a worklist for anyone you grant this report to.</p>",
+                { label: "About Pipedrive Cleanup" },
+              )}</div>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:1rem;flex-wrap:wrap" id="pdc-stats"></div>
           </div>
@@ -1293,8 +1296,10 @@ ${HUB_BASE_CSS}
         <div id="churn-bds-row" class="card churn-bds-row hidden" style="margin-bottom:1rem"></div>
         <div id="churn-tiles" class="stats-grid"></div>
         <div id="churn-meta" class="card" style="margin-bottom:1.5rem"></div>
-        <div style="margin-bottom:0.25rem;font-weight:700">Outreach Queue — recoverable agents by priority</div>
-        <div class="text-muted" style="font-size:0.85rem;margin-bottom:0.5rem">Annualised revenue at risk, decayed by how cold the lead is. The top of the list is the most important call of the day.</div>
+        <div style="margin-bottom:0.5rem;font-weight:700">Outreach Queue — recoverable agents by priority${infoTip(
+          "<p>Annualised revenue at risk, decayed by how cold the lead is. The top of the list is the most important call of the day.</p>",
+          { label: "About the outreach queue" },
+        )}</div>
         <div id="churn-hidden-bar"></div>
         <div id="churn-queue-table" style="margin-bottom:1.5rem"></div>
         <div style="margin-bottom:0.5rem;font-weight:700">Revenue Retention — rolling 12-month</div>
@@ -1357,8 +1362,10 @@ ${HUB_BASE_CSS}
       <!-- Support: Departments management page -->
       <div id="page-departments" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">Departments</div>
-          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">Tickets are assigned to a department and (once email is configured) emailed to its address. Edit names and addresses here — no redeploy needed.</p>
+          <div style="font-weight:700;margin-bottom:1rem">Departments${infoTip(
+            "<p>Tickets are assigned to a department and (once email is configured) emailed to its address. Edit names and addresses here — no redeploy needed.</p>",
+            { label: "About departments" },
+          )}</div>
           <div class="table-wrap" style="margin-bottom:1rem">
             <table>
               <thead><tr><th>Department</th><th>Key</th><th>Email address</th><th style="width:1%"></th></tr></thead>
@@ -1385,12 +1392,13 @@ ${FEEDBACK_MARKUP}
       <!-- Request Types: the categories offered on the public intake form -->
       <div id="page-categories" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">Request Types</div>
-          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">
-            The options a client picks from on the intake form. Add or edit them here and the form updates immediately — no redeploy.
-            Each type can ask its own follow-up question and route to its own department.
-            Use ↑ / ↓ to set the order clients see them in.
-          </p>
+          <div style="font-weight:700;margin-bottom:1rem">Request Types${infoTip(
+            `<p>The options a client picks from on the intake form. Add or edit them here and the form updates
+               immediately — no redeploy.</p>
+             <p>Each type can ask its own follow-up question and route to its own department. Use ↑ / ↓ to set the
+               order clients see them in.</p>`,
+            { label: "About request types" },
+          )}</div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Request type</th><th>Follow-up question</th><th>Routes to</th><th>On form</th><th style="width:1%"></th></tr></thead>
@@ -1404,10 +1412,10 @@ ${FEEDBACK_MARKUP}
       <!-- Intake form preview: the live public form, embedded as clients see it -->
       <div id="page-form-preview" class="page hidden">
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">Intake Form</div>
-          <p class="text-muted" style="font-size:0.85rem;margin:0 0 1rem">
-            Exactly what a client sees — this is the live form, not a mockup. Edits on the Request Types page show up here on refresh.
-          </p>
+          <div style="font-weight:700;margin-bottom:1rem">Intake Form${infoTip(
+            "<p>Exactly what a client sees — this is the live form, not a mockup. Edits on the Request Types page show up here on refresh.</p>",
+            { label: "About the intake form preview" },
+          )}</div>
           <div class="form-group" style="max-width:640px">
             <label>Link for the Spiro delivery-page button</label>
             <div class="flex gap-2" style="align-items:center">
@@ -1421,10 +1429,12 @@ ${FEEDBACK_MARKUP}
           </div>
         </div>
         <div class="card" style="margin-bottom:1rem">
-          <div style="font-weight:700;margin-bottom:0.35rem">🧪 Test mode</div>
-          <p class="text-muted" style="font-size:0.85rem;margin:0 0 0.75rem">
-            Submit the form below as a <strong>test ticket</strong> to show the team the flow. The department email is diverted to the address you choose (no real desk is emailed), the ticket is numbered <code>TEST-####</code>, and it's kept out of the live stats.
-          </p>
+          <div style="font-weight:700;margin-bottom:0.75rem">🧪 Test mode${infoTip(
+            `<p>Submit the form below as a <strong>test ticket</strong> to show the team the flow. The department
+               email is diverted to the address you choose (no real desk is emailed), the ticket is numbered
+               <code>TEST-####</code>, and it's kept out of the live stats.</p>`,
+            { label: "About test mode" },
+          )}</div>
           <div class="flex gap-2" style="align-items:flex-end;flex-wrap:wrap">
             <div class="form-group" style="flex:1;min-width:220px;margin:0">
               <label>Send test notifications to</label>
@@ -1450,18 +1460,19 @@ ${FEEDBACK_MARKUP}
         <div class="card" style="margin-bottom:1rem">
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div>
-              <div style="font-weight:700;font-size:1rem">Past Due Accounts</div>
-              <div class="text-muted" style="font-size:0.8rem;max-width:700px;margin-top:0.15rem">
-                Unpaid Spiro invoices <strong>45 or more days past due</strong>, grouped by payee and staged against
-                the collections policy. Anything newer than 45 days is left out entirely — it sits before the first
-                billing email, so no figure on this page counts it.
-                Outstanding is what is still owed (invoice total less payments and credits). An account holding a
-                partially paid invoice is flagged <strong>Review</strong>: a plan, dispute or short payment sits behind
-                the balance, so read it before taking the next collections step. Assign an account to hand it to
-                someone — it then shows up in their queue to work. Record what a client promises and by when;
-                once that date passes with nothing resolved the account is flagged <strong>Promise broken</strong>.
-                Escalating hands the account to whoever owns the final letter and emails them.
-              </div>
+              <div style="font-weight:700;font-size:1rem">Past Due Accounts${infoTip(
+                `<p>Unpaid Spiro invoices <strong>45 or more days past due</strong>, grouped by payee and staged
+                   against the collections policy. Anything newer than 45 days is left out entirely — it sits before
+                   the first billing email, so no figure on this page counts it.</p>
+                 <p>Outstanding is what is still owed (invoice total less payments and credits). An account holding a
+                   partially paid invoice is flagged <strong>Review</strong>: a plan, dispute or short payment sits
+                   behind the balance, so read it before taking the next collections step.</p>
+                 <p>Assign an account to hand it to someone — it then shows up in their queue to work. Record what a
+                   client promises and by when; once that date passes with nothing resolved the account is flagged
+                   <strong>Promise broken</strong>. Escalating hands the account to whoever owns the final letter and
+                   emails them.</p>`,
+                { label: "About past due accounts" },
+              )}</div>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
               <span class="text-muted" id="fin-refreshed-at" style="font-size:0.8rem"></span>
@@ -1528,12 +1539,12 @@ ${FEEDBACK_MARKUP}
         <div class="card" style="margin-bottom:1rem">
           <div class="flex items-center gap-2" style="flex-wrap:wrap">
             <div>
-              <div style="font-weight:700;font-size:1rem">Cleveland Investment</div>
-              <div class="text-muted" style="font-size:0.8rem;max-width:700px;margin-top:0.15rem">
-                Cumulative revenue (Spiro orders delivered by John Kickham &amp; Brandon Kralovic) vs cumulative
-                cost (payroll + 10% editing). Dashed segments project forward on the revenue trend to estimate
-                when weekly revenue covers weekly cost, and when total revenue repays total investment.
-              </div>
+              <div style="font-weight:700;font-size:1rem">Cleveland Investment${infoTip(
+                `<p>Cumulative revenue (Spiro orders delivered by John Kickham &amp; Brandon Kralovic) vs cumulative
+                   cost (payroll + 10% editing). Dashed segments project forward on the revenue trend to estimate
+                   when weekly revenue covers weekly cost, and when total revenue repays total investment.</p>`,
+                { label: "About the Cleveland investment chart" },
+              )}</div>
             </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
               <span class="text-muted" id="cle-refreshed-at" style="font-size:0.8rem"></span>
@@ -3747,6 +3758,7 @@ ${FEEDBACK_MODALS}
     el.textContent = 'Last refreshed: ' + new Date(latest.refreshedAt).toLocaleString();
   }
 
+${INFO_TIP_COMPONENT_JS}
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}

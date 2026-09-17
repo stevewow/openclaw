@@ -10,6 +10,8 @@
 // The inline JS below lives in a template literal, which eats backslashes: no
 // regex escapes and no backslashes in its comments.
 
+import { infoTip } from "./info-tip.js";
+
 export const LISTINGS_CSS = `
   .lst-head { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
   .lst-head-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
@@ -57,14 +59,14 @@ export function listingsQueueMarkup(opts: { canSweep: boolean }): string {
         <div class="card" style="margin-bottom:1rem">
           <div class="lst-head">
             <div style="flex:1;min-width:min(16rem,100%)">
-              <div style="font-weight:700;margin-bottom:0.35rem">New Listings</div>
-              <p class="text-muted" style="font-size:0.85rem;margin:0">
-                Houses that went on the market in our markets in the last day, and who listed them.
-                Research one, and if the agent is worth a call send it to whoever owns that market — it
-                becomes a lead, they get the email, and the follow-up lands in Pipedrive. A house we already
-                have a Spiro order for from the last 90 days moves to Already our order, so nobody
-                prospects a client about their own shoot.
-              </p>
+              <div style="font-weight:700">New Listings${infoTip(
+                `<p>Houses that went on the market in our markets in the last day, and who listed them.
+                   Research one, and if the agent is worth a call send it to whoever owns that market — it
+                   becomes a lead, they get the email, and the follow-up lands in Pipedrive.</p>
+                 <p>A house we already have a Spiro order for from the last 90 days moves to Already our order, so
+                   nobody prospects a client about their own shoot.</p>`,
+                { label: "About new listings" },
+              )}</div>
               <p class="lst-sweep" id="lst-sweep-note" style="margin:0.5rem 0 0"></p>
             </div>
             <div class="lst-head-actions">

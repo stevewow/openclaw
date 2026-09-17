@@ -40,7 +40,7 @@ export const SALES_EXPORT_CSS = `
     body.sd-print .sd-kpis { grid-template-columns: repeat(5, 1fr); gap: 0.35rem; margin-bottom: 0.45rem; }
     body.sd-print .sd-kpi { padding: 0.35rem 0.5rem; box-shadow: none; break-inside: avoid; }
     body.sd-print .sd-kpi-value { font-size: 13pt; }
-    body.sd-print .sd-card-head, body.sd-print .sd-days, body.sd-print .sd-card-foot { padding: 0.3rem 0.5rem; }
+    body.sd-print .sd-card-head, body.sd-print .sd-days { padding: 0.3rem 0.5rem; }
     body.sd-print .sd-table-wrap { overflow: visible !important; }
     /* Small enough for the widest table, year to date, to fit a landscape page. */
     body.sd-print table.sd-table { font-size: 6.6pt; }
