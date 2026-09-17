@@ -65,6 +65,11 @@ export const PORTAL_FEATURES = [
   // The stored value stays `knowledge-base`: it is written into every
   // existing grant row, and renaming a label must not revoke anybody's access.
   { value: "knowledge-base", label: "Help Center" },
+  // The sales coach and the guide it answers from. One grant covers both:
+  // the coach is only worth having if you can read what it quoted, and the
+  // guide is what everyone client-facing is supposed to be working from
+  // anyway. Editing the guide stays an admin's.
+  { value: "sales-coach", label: "Sales Coach & Guide" },
 ] as const;
 
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["value"];

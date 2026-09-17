@@ -488,6 +488,8 @@ describe("the Navigation editor", () => {
       "leads",
       "listings",
       "brokerages",
+      "coach",
+      "guide",
       "resources",
       "account",
     ]);

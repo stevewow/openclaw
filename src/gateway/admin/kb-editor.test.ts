@@ -135,7 +135,10 @@ describe("the editing surface back to markdown", () => {
   it("drops a tag neither side understands instead of storing it", () => {
     const kb = mountEditor();
     expect(kb.toMd('<p>plain <span style="color:red">red</span></p>')).toBe("plain red");
-    expect(kb.toMd("<table><tr><td>cell</td></tr></table>")).toBe("cell");
+    // A table used to be one of these. It is not any more — the sales guide's
+    // pricing lives in tables, so both directions learned them; see the guide
+    // suite below. Something genuinely unknown still unwraps to its text.
+    expect(kb.toMd("<figure><figcaption>cap</figcaption></figure>")).toBe("cap");
   });
 
   it("escapes characters that would be read back as syntax", () => {
@@ -273,5 +276,83 @@ describe("the video preview", () => {
     for (const url of urls) {
       expect(kb.embed(url), url).toBe(videoEmbedUrl(url));
     }
+  });
+});
+
+/**
+ * The guide moved into the Hub with pricing tables and two-deep objection
+ * scripts in it, and the editor is what sales leadership edits it through. Both
+ * shapes had to be taught to the round trip; these pin them, because the way
+ * this fails is silent — a staffer opens a product, fixes a typo, saves, and
+ * the price list is gone.
+ */
+describe("what the sales guide needs", () => {
+  const PRICING = [
+    "| SQ. FT. | STANDARD PRICE |",
+    "| --- | --- |",
+    "| 0 - 2,000 | $160 |",
+    "| 2,001 - 3,500 | $175 |",
+    "| 7,501+ | $325 |",
+  ].join("\n");
+
+  it("shows a pricing table as a table", () => {
+    const kb = mountEditor();
+    const html = kb.toHtml(PRICING);
+    expect(html).toContain("<table>");
+    expect(html).toContain("<th>SQ. FT.</th>");
+    expect(html).toContain("<td>2,001 - 3,500</td>");
+    expect(html).toContain("<td>$175</td>");
+  });
+
+  it("gives the pricing table back unchanged when nothing was edited", () => {
+    const kb = mountEditor();
+    expect(kb.roundTrip(PRICING)).toBe(PRICING);
+  });
+
+  it("keeps an objection and the line to say back to it on separate levels", () => {
+    const kb = mountEditor();
+    const md = [
+      '- "I can get cheaper photos"',
+      '  - "You definitely can - what most agents find is consistency matters more."',
+      '  - "This is your first impression online."',
+      '- "I already use someone else"',
+      '  - "That\'s great - how has that been going for you?"',
+    ].join("\n");
+    const html = kb.toHtml(md);
+    // The reply belongs inside the objection's own item, not after it.
+    expect(html).toContain("<ul><li>");
+    expect(html.indexOf("<ul><li>")).toBeLessThan(html.indexOf("cheaper"));
+    expect(html).toMatch(/<li>[^<]*cheaper[^<]*<ul>/);
+    expect(kb.roundTrip(md)).toBe(md);
+  });
+
+  it("does not disturb a flat list", () => {
+    const kb = mountEditor();
+    const md = ["- Every listing (baseline service)", "- Agents who want repeatable quality"].join(
+      "\n",
+    );
+    expect(kb.toHtml(md)).toBe(
+      "<ul><li>Every listing (baseline service)</li><li>Agents who want repeatable quality</li></ul>",
+    );
+    expect(kb.roundTrip(md)).toBe(md);
+  });
+
+  it("survives a whole product entry", () => {
+    const kb = mountEditor();
+    const md = [
+      "**DESCRIPTION**",
+      "",
+      "Professional HDR photography without limits on the number of images.",
+      "",
+      "**PRICING**",
+      "",
+      PRICING,
+      "",
+      "**OBJECTIONS**",
+      "",
+      '- "Not needed"',
+      '  - "Totally fair - this is a simple way to show the property from above."',
+    ].join("\n");
+    expect(kb.roundTrip(md)).toBe(md);
   });
 });

@@ -22,3 +22,19 @@ paragraph over the numbers.
   hiding them would cost a click mid-task.
 - The body is trusted markup written here, not user input. Split it into `<p>`
   elements rather than one wall of text.
+
+## Business wording
+
+What the team says to clients — product pricing, positioning, objection
+responses, call scripts, collections wording, outreach notes — is data, not
+code. It changes far more often than the code around it, and the people who own
+it do not deploy.
+
+- New wording goes in a store with a seed module beside it: `coach-guide-seed.ts`
+  → `admin_guide_sections`, the way `lead-playbooks.ts` and `past-due-policy.ts`
+  already work. The seed is read once, on an install whose table is empty.
+- The Hub copy is authoritative the moment it exists. Do not add a second place
+  the same sentence lives, and do not re-sync over an edit.
+- The sales coach (`coach-answer.ts`) answers out of the guide store and nothing
+  else. It must never be given a price, a discount or a policy that is not in
+  the guide — a wrong answer here is repeated to a client out loud.

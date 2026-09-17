@@ -20,6 +20,7 @@ import {
 } from "./attachment-store.js";
 import { handleBrokerageAdminRequest } from "./brokerage-http.js";
 import { ensureBrokerageOrderScheduler } from "./brokerage-orders.js";
+import { handleCoachAdminRequest } from "./coach-http.js";
 import { handleKbAdminRequest } from "./kb-http.js";
 import { handleLeadAdminRequest } from "./lead-http.js";
 import { ensureLeadDigestScheduler } from "./lead-notify.js";
@@ -1244,7 +1245,15 @@ export async function handleAdminHttpRequest(
                       // work. Clients read published articles on the public surface.
                       subPath === "/kb" || subPath.startsWith("/kb/")
                       ? ["knowledge-base"]
-                      : null;
+                      : // One grant over the coach and the guide it answers
+                        // from. Editing the guide is checked again inside
+                        // coach-http.ts, because that is an admin question.
+                        subPath === "/coach" ||
+                          subPath.startsWith("/coach/") ||
+                          subPath === "/guide" ||
+                          subPath.startsWith("/guide/")
+                        ? ["sales-coach"]
+                        : null;
     if (gatedFeatures) {
       let allowed = false;
       for (const feature of gatedFeatures) {
@@ -1262,6 +1271,11 @@ export async function handleAdminHttpRequest(
 
   // Knowledge base: its own module, dispatched once the gate above has run.
   if (await handleKbAdminRequest(subPath, req, res, { userId: sessionUser.id })) {
+    return true;
+  }
+
+  // The sales coach and the guide behind it.
+  if (await handleCoachAdminRequest(subPath, req, res, { userId: sessionUser.id, isAdmin })) {
     return true;
   }
 

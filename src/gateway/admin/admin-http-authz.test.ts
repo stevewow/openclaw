@@ -2119,3 +2119,104 @@ describe("past due — promise, escalation and the account timeline", () => {
     expect((detail.json?.case as { status: string }).status).toBe("plan");
   });
 });
+
+describe("the sales coach and its guide are gated on one grant", () => {
+  it("refuses a user with no grant", async () => {
+    await userStore.setUserPermissions(userId, []);
+    for (const path of ["/guide", "/coach/status"]) {
+      const res = await call("GET", path, { token: userToken });
+      expect(res.status, path).toBe(403);
+    }
+  });
+
+  it("refuses an ungranted user the ask route, so nothing reaches a model", async () => {
+    await userStore.setUserPermissions(userId, []);
+    const res = await call("POST", "/coach/ask", {
+      token: userToken,
+      body: { question: "What do I say?", threadId: "th-1" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("lets a granted user read the guide and ask", async () => {
+    await userStore.setUserPermissions(userId, [
+      { permissionType: "feature", value: "sales-coach" },
+    ]);
+    const guide = await call("GET", "/guide", { token: userToken });
+    expect(guide.status).toBe(200);
+    expect((guide.json?.docs as unknown[]).length).toBe(2);
+    // Reading is the grant; editing is not.
+    expect(guide.json?.canEdit).toBe(false);
+  });
+
+  it("does not let a granted non-admin rewrite what the team says", async () => {
+    await userStore.setUserPermissions(userId, [
+      { permissionType: "feature", value: "sales-coach" },
+    ]);
+    const guide = await call("GET", "/guide", { token: userToken });
+    const docId = (guide.json?.docs as Array<{ id: string }>)[0].id;
+    const sections = await call("GET", `/guide/docs/${docId}/sections`, { token: userToken });
+    const sectionId = (sections.json?.sections as Array<{ id: string }>)[0].id;
+
+    const edit = await call("PUT", `/guide/sections/${sectionId}`, {
+      token: userToken,
+      body: { bodyMd: "Everything is free." },
+    });
+    expect(edit.status).toBe(403);
+    const added = await call("POST", `/guide/docs/${docId}/sections`, {
+      token: userToken,
+      body: { heading: "Invented", bodyMd: "x" },
+    });
+    expect(added.status).toBe(403);
+    const removed = await call("DELETE", `/guide/sections/${sectionId}`, { token: userToken });
+    expect(removed.status).toBe(403);
+  });
+
+  it("lets an admin edit the guide, and the coach sees it", async () => {
+    const guide = await call("GET", "/guide", { token: adminToken });
+    expect(guide.json?.canEdit).toBe(true);
+    const docId = (guide.json?.docs as Array<{ id: string }>)[0].id;
+    const sections = await call("GET", `/guide/docs/${docId}/sections`, { token: adminToken });
+    const section = (sections.json?.sections as Array<{ id: string; heading: string }>)[0];
+
+    const edit = await call("PUT", `/guide/sections/${section.id}`, {
+      token: adminToken,
+      body: { bodyMd: "Standard price is $181." },
+    });
+    expect(edit.status).toBe(200);
+    const after = await call("GET", `/guide/docs/${docId}/sections`, { token: adminToken });
+    const updated = (after.json?.sections as Array<{ id: string; bodyMd: string }>).find(
+      (s) => s.id === section.id,
+    );
+    expect(updated?.bodyMd).toBe("Standard price is $181.");
+  });
+
+  it("asks for a question and a thread before doing anything", async () => {
+    await userStore.setUserPermissions(userId, [
+      { permissionType: "feature", value: "sales-coach" },
+    ]);
+    const noQuestion = await call("POST", "/coach/ask", {
+      token: userToken,
+      body: { threadId: "th-1" },
+    });
+    expect(noQuestion.status).toBe(400);
+    const noThread = await call("POST", "/coach/ask", {
+      token: userToken,
+      body: { question: "hi" },
+    });
+    expect(noThread.status).toBe(400);
+  });
+
+  it("keeps the usage report to admins", async () => {
+    await userStore.setUserPermissions(userId, [
+      { permissionType: "feature", value: "sales-coach" },
+    ]);
+    expect((await call("GET", "/coach/usage", { token: userToken })).status).toBe(403);
+    expect((await call("GET", "/coach/usage", { token: adminToken })).status).toBe(200);
+  });
+
+  it("still requires a session", async () => {
+    expect((await call("GET", "/guide")).status).toBe(401);
+    expect((await call("POST", "/coach/ask")).status).toBe(401);
+  });
+});

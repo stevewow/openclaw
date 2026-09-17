@@ -15,12 +15,14 @@ import {
   BROKERAGES_MARKUP,
   BROKERAGES_MODALS,
 } from "./brokerages-ui.js";
+import { COACH_COMPONENT_JS, COACH_CSS, COACH_MARKUP, COACH_WIDGET_MARKUP } from "./coach-ui.js";
 import {
   FEEDBACK_COMPONENT_JS,
   FEEDBACK_CSS,
   FEEDBACK_MARKUP,
   FEEDBACK_MODALS,
 } from "./feedback-ui.js";
+import { GUIDE_COMPONENT_JS, GUIDE_CSS, GUIDE_MARKUP } from "./guide-ui.js";
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import { infoTip, INFO_TIP_COMPONENT_JS, INFO_TIP_CSS, infoTipSlot } from "./info-tip.js";
 import { KB_SEARCHES_COMPONENT_JS, KB_SEARCHES_CSS, KB_SEARCHES_MARKUP } from "./kb-searches-ui.js";
@@ -534,6 +536,8 @@ ${LOGIN_CLIENT_NOTE_CSS}
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${INFO_TIP_CSS}
+${GUIDE_CSS}
+${COACH_CSS}
 ${TASK_LIST_CSS}
 ${KB_CSS}
 ${KB_SEARCHES_CSS}
@@ -1387,6 +1391,8 @@ ${LISTINGS_MARKUP}
 ${BROKERAGES_MARKUP}
 ${SALES_DASHBOARD_MARKUP}
 ${LEAD_PLAYBOOKS_MARKUP}
+${GUIDE_MARKUP}
+${COACH_MARKUP}
 ${FEEDBACK_MARKUP}
 
       <!-- Request Types: the categories offered on the public intake form -->
@@ -1744,6 +1750,8 @@ ${LISTING_SEND_MODAL}
 ${BROKERAGES_MODALS}
 ${SALES_DASHBOARD_MODALS}
 ${FEEDBACK_MODALS}
+
+${COACH_WIDGET_MARKUP}
 
 <div id="folder-modal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:460px">
@@ -2343,6 +2351,8 @@ ${FEEDBACK_MODALS}
     system: { el: 'page-system', title: 'System', adminOnly: true, superAdminOnly: true },
     account: { el: 'page-account', title: 'My Account', adminOnly: false, superAdminOnly: false },
     projects: { el: 'page-projects', title: 'Projects', adminOnly: false, superAdminOnly: false, feature: 'projects' },
+    coach: { el: 'page-coach', title: 'Sales Coach', adminOnly: false, superAdminOnly: false, feature: 'sales-coach' },
+    guide: { el: 'page-guide', title: 'Sales Guide', adminOnly: false, superAdminOnly: false, feature: 'sales-coach' },
     reports: { el: 'page-reports-home', title: 'Reports', adminOnly: false, superAdminOnly: false, reportAny: true },
     'report-cancellations': { el: 'page-reports', title: 'Agent Cancellation Report', adminOnly: false, superAdminOnly: false, report: 'report-cancellations' },
     'rankings-agents': { el: 'page-rankings-agents', title: 'Agent Ranking', adminOnly: false, superAdminOnly: false, report: 'rankings-agents' },
@@ -2499,6 +2509,8 @@ ${FEEDBACK_MODALS}
     if (page === 'departments') loadDepartments();
     if (page === 'categories') loadCategories();
     if (page === 'form-preview') loadFormPreview();
+    if (page === 'guide') loadGuide();
+    if (page === 'coach') coachLoadPage();
     if (page === 'kb') loadKb();
     if (page === 'kb-searches') loadKbSearches();
     if (page === 'feedback') loadFeedback();
@@ -2611,6 +2623,9 @@ ${FEEDBACK_MODALS}
     // without chat access simply gets no frame).
     const cfgRes = await api('GET', '/portal/config');
     if (cfgRes.ok) gatewayConfig = cfgRes.data;
+    // The coach's launcher only appears for someone granted it, with a key
+    // configured and a guide to answer from. It asks now that there is a session.
+    if (window.coachInit) window.coachInit();
     // Show superadmin role option only for superadmins
     const requested = parseHash().page;
     navigate(requested || firstAllowedPage());
@@ -3759,6 +3774,8 @@ ${FEEDBACK_MODALS}
   }
 
 ${INFO_TIP_COMPONENT_JS}
+${GUIDE_COMPONENT_JS}
+${COACH_COMPONENT_JS}
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}

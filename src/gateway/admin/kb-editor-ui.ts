@@ -93,10 +93,49 @@ export const KB_EDITOR_JS = `
     return out;
   }
 
+  /**
+   * One row of a pipe table into cells. A trailing or leading pipe is
+   * decoration, not an empty cell.
+   */
+  function kbTableCells(line){
+    var row = line.trim().replace(/^\\|/, '').replace(/\\|$/, '');
+    return row.split('|').map(function(c){ return c.trim(); });
+  }
+
+  function kbIsTableRule(line){
+    return /^\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?$/.test(line.trim());
+  }
+
+  /**
+   * A run of list lines into nested <ul>/<ol>.
+   *
+   * Indentation is what carries the nesting, and the guide leans on it: an
+   * objection is a bullet and the line to say back is the bullet under it. Two
+   * spaces per level, which is what this codebase writes back out.
+   */
+  function kbRenderList(items, from, depth){
+    var kind = items[from].kind;
+    var out = '<' + kind + '>';
+    var i = from;
+    while(i < items.length && items[i].depth >= depth){
+      if(items[i].depth > depth){
+        // Deeper items belong inside the <li> just opened, so the closing tag
+        // is written after the nested list rather than before it.
+        var nested = kbRenderList(items, i, items[i].depth);
+        out = out.replace(/<\\/li>$/, '') + nested.html + '</li>';
+        i = nested.next;
+        continue;
+      }
+      if(items[i].kind !== kind) break;
+      out += '<li>' + kbInlineToHtml(items[i].text) + '</li>';
+      i++;
+    }
+    return { html: out + '</' + kind + '>', next: i };
+  }
+
   function kbMdToHtml(md){
     var lines = String(md == null ? '' : md).replace(/\\r\\n?/g, '\\n').split('\\n');
     var html = [];
-    var listType = null;
     var para = [];
 
     function flushPara(){
@@ -104,26 +143,25 @@ export const KB_EDITOR_JS = `
       html.push('<p>' + kbInlineToHtml(para.join(' ')) + '</p>');
       para = [];
     }
-    function flushList(){
-      if(!listType) return;
-      html.push('</' + listType + '>');
-      listType = null;
-    }
-    function openList(kind){
-      if(listType === kind) return;
-      flushList();
-      html.push('<' + kind + '>');
-      listType = kind;
+
+    function listLine(line){
+      var m = /^(\\s*)([-*+]|\\d+[.)])\\s+(.*)$/.exec(line);
+      if(!m) return null;
+      return {
+        depth: Math.floor(m[1].replace(/\\t/g, '  ').length / 2),
+        kind: /^\\d/.test(m[2]) ? 'ol' : 'ul',
+        text: m[3]
+      };
     }
 
     for(var i=0;i<lines.length;i++){
       var line = lines[i];
       var trimmed = line.trim();
-      if(!trimmed){ flushPara(); flushList(); continue; }
+      if(!trimmed){ flushPara(); continue; }
 
       var h = /^(#{1,6})\\s+(.*)$/.exec(trimmed);
       if(h){
-        flushPara(); flushList();
+        flushPara();
         // Everything h1..h3 and deeper collapses into the two sizes the
         // toolbar can produce, so a round trip cannot invent a level.
         var tag = h[1].length <= 2 ? 'h2' : 'h3';
@@ -131,31 +169,59 @@ export const KB_EDITOR_JS = `
         continue;
       }
 
-      var ol = /^\\d+[.)]\\s+(.*)$/.exec(trimmed);
-      if(ol){
-        flushPara(); openList('ol');
-        html.push('<li>' + kbInlineToHtml(ol[1]) + '</li>');
+      // A table: a header row, a rule under it, then rows until the run ends.
+      // The guide's pricing lives in these, so losing one loses a price list.
+      if(trimmed.indexOf('|') >= 0 && i + 1 < lines.length && kbIsTableRule(lines[i+1])){
+        flushPara();
+        var head = kbTableCells(trimmed);
+        var body = [];
+        var k = i + 2;
+        while(k < lines.length && lines[k].trim().indexOf('|') >= 0 && lines[k].trim()){
+          body.push(kbTableCells(lines[k]));
+          k++;
+        }
+        var t = '<table><thead><tr>';
+        for(var c=0;c<head.length;c++) t += '<th>' + kbInlineToHtml(head[c]) + '</th>';
+        t += '</tr></thead><tbody>';
+        for(var r=0;r<body.length;r++){
+          t += '<tr>';
+          for(var c2=0;c2<head.length;c2++) t += '<td>' + kbInlineToHtml(body[r][c2] || '') + '</td>';
+          t += '</tr>';
+        }
+        html.push(t + '</tbody></table>');
+        i = k - 1;
         continue;
       }
 
-      var ul = /^[-*+]\\s+(.*)$/.exec(trimmed);
-      if(ul){
-        flushPara(); openList('ul');
-        html.push('<li>' + kbInlineToHtml(ul[1]) + '</li>');
+      var item = listLine(line);
+      if(item){
+        flushPara();
+        var items = [];
+        var n = i;
+        while(n < lines.length){
+          var next = listLine(lines[n]);
+          if(!next){
+            if(!lines[n].trim()) break;
+            break;
+          }
+          items.push(next);
+          n++;
+        }
+        html.push(kbRenderList(items, 0, items[0].depth).html);
+        i = n - 1;
         continue;
       }
 
       var bq = /^>\\s?(.*)$/.exec(trimmed);
       if(bq){
-        flushPara(); flushList();
+        flushPara();
         html.push('<blockquote>' + kbInlineToHtml(bq[1]) + '</blockquote>');
         continue;
       }
 
-      flushList();
       para.push(trimmed);
     }
-    flushPara(); flushList();
+    flushPara();
     return html.join('');
   }
 
@@ -184,6 +250,72 @@ export const KB_EDITOR_JS = `
     return out;
   }
 
+  /**
+   * A list back to markdown, nesting and all.
+   *
+   * Two spaces per level, matching what kbMdToHtml reads. A nested list sits
+   * inside its parent <li>, so the item's own text is taken from the child
+   * nodes before that list rather than from the whole subtree.
+   */
+  function kbListToMd(node, depth){
+    var tag = node.tagName.toLowerCase();
+    var items = node.querySelectorAll(':scope > li');
+    var out = [];
+    var index = 0;
+    for(var i=0;i<items.length;i++){
+      var li = items[i];
+      var nestedLists = li.querySelectorAll(':scope > ul, :scope > ol');
+      var own = document.createElement('div');
+      for(var c=0;c<li.childNodes.length;c++){
+        var child = li.childNodes[c];
+        if(child.nodeType === 1){
+          var childTag = child.tagName.toLowerCase();
+          if(childTag === 'ul' || childTag === 'ol') continue;
+        }
+        own.appendChild(child.cloneNode(true));
+      }
+      var text = kbInlineToMd(own).trim();
+      if(text){
+        index++;
+        var bullet = tag === 'ol' ? index + '. ' : '- ';
+        out.push(new Array(depth * 2 + 1).join(' ') + bullet + text);
+      }
+      for(var k=0;k<nestedLists.length;k++){
+        var nested = kbListToMd(nestedLists[k], depth + 1);
+        if(nested) out.push(nested);
+      }
+    }
+    return out.join('\\n');
+  }
+
+  /** A table back to a pipe table. An empty cell stays an empty cell. */
+  function kbTableToMd(node){
+    var rows = node.querySelectorAll('tr');
+    if(!rows.length) return '';
+    var lines = [];
+    var width = 0;
+    for(var i=0;i<rows.length;i++){
+      var cells = rows[i].querySelectorAll('th, td');
+      var values = [];
+      for(var c=0;c<cells.length;c++) values.push(kbInlineToMd(cells[c]).trim());
+      if(!values.length) continue;
+      width = Math.max(width, values.length);
+      lines.push(values);
+    }
+    if(!lines.length) return '';
+    var out = [];
+    for(var r=0;r<lines.length;r++){
+      while(lines[r].length < width) lines[r].push('');
+      out.push('| ' + lines[r].join(' | ') + ' |');
+      if(r === 0){
+        var rule = [];
+        for(var w=0;w<width;w++) rule.push('---');
+        out.push('| ' + rule.join(' | ') + ' |');
+      }
+    }
+    return out.join('\\n');
+  }
+
   function kbHtmlToMd(root){
     var blocks = [];
     function walk(parent){
@@ -199,13 +331,12 @@ export const KB_EDITOR_JS = `
         if(tag === 'h1' || tag === 'h2'){ blocks.push('## ' + kbInlineToMd(n).trim()); }
         else if(tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6'){ blocks.push('### ' + kbInlineToMd(n).trim()); }
         else if(tag === 'ul' || tag === 'ol'){
-          var items = n.querySelectorAll(':scope > li');
-          var out = [];
-          for(var j=0;j<items.length;j++){
-            var text = kbInlineToMd(items[j]).trim();
-            if(text) out.push(tag === 'ol' ? (out.length + 1) + '. ' + text : '- ' + text);
-          }
-          if(out.length) blocks.push(out.join('\\n'));
+          var list = kbListToMd(n, 0);
+          if(list) blocks.push(list);
+        }
+        else if(tag === 'table'){
+          var table = kbTableToMd(n);
+          if(table) blocks.push(table);
         }
         else if(tag === 'blockquote'){
           var q = kbInlineToMd(n).trim();

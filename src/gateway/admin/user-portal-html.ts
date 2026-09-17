@@ -15,6 +15,13 @@ import {
   BROKERAGES_MODALS,
   BROKERAGES_PORTAL_MARKUP,
 } from "./brokerages-ui.js";
+import {
+  COACH_COMPONENT_JS,
+  COACH_CSS,
+  COACH_PORTAL_MARKUP,
+  COACH_WIDGET_MARKUP,
+} from "./coach-ui.js";
+import { GUIDE_COMPONENT_JS, GUIDE_CSS, GUIDE_PORTAL_MARKUP } from "./guide-ui.js";
 import { HUB_BASE_CSS, HUB_FONT_TAGS, HUB_TOKENS_CSS } from "./hub-theme.js";
 import { INFO_TIP_COMPONENT_JS, INFO_TIP_CSS, infoTipSlot } from "./info-tip.js";
 import {
@@ -207,6 +214,8 @@ ${LOGIN_CLIENT_NOTE_CSS}
   .pt-view-btn:hover { color: var(--text); }
   .pt-view-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 ${INFO_TIP_CSS}
+${GUIDE_CSS}
+${COACH_CSS}
 ${PROJECT_CALENDAR_CSS}
 ${TASK_FEED_CSS}
 ${TASK_LIST_CSS}
@@ -430,6 +439,8 @@ ${LEADS_PORTAL_MARKUP}
 ${LISTINGS_PORTAL_MARKUP}
 ${BROKERAGES_PORTAL_MARKUP}
 ${SALES_DASHBOARD_PORTAL_MARKUP}
+${GUIDE_PORTAL_MARKUP}
+${COACH_PORTAL_MARKUP}
 
     <!-- Reports -->
     <div id="page-reports" class="page">
@@ -552,6 +563,7 @@ ${LEADS_PORTAL_MODALS}
 ${LISTING_SEND_MODAL}
 ${BROKERAGES_MODALS}
 ${SALES_DASHBOARD_MODALS}
+${COACH_WIDGET_MARKUP}
 
 <!-- Project modal -->
 <div id="pt-project-modal" class="modal-backdrop hidden">
@@ -691,6 +703,8 @@ ${SALES_DASHBOARD_MODALS}
     return { ok: r.ok, status: r.status, data };
   }
 ${INFO_TIP_COMPONENT_JS}
+${GUIDE_COMPONENT_JS}
+${COACH_COMPONENT_JS}
 ${REPORT_TABLE_COMPONENT_JS}
 ${PROJECT_CALENDAR_COMPONENT_JS}
 ${TASK_FEED_COMPONENT_JS}
@@ -738,6 +752,9 @@ ${SALES_DASHBOARD_COMPONENT_JS}
     if (page === 'reports') return anyReportGranted();
     if (page === 'resources') return canSeeResources();
     if (page === 'tasks') return hasFeature('projects');
+    // Two sections, one grant: the coach is only useful to someone who can read
+    // what it quoted, and the guide is what it quotes.
+    if (page === 'coach' || page === 'guide') return hasFeature('sales-coach');
     return hasFeature(page);
   }
 
@@ -1698,6 +1715,8 @@ ${SALES_DASHBOARD_COMPONENT_JS}
     if (page === 'listings') loadListings();
     if (page === 'brokerages') loadBrokerages();
     if (page === 'sales-dashboard') loadSalesDashboard();
+    if (page === 'guide') loadGuide();
+    if (page === 'coach') coachLoadPage();
     if (page === 'leads') {
       var wantedLead = new URLSearchParams((location.hash.split('?')[1] || '')).get('lead');
       loadLeads().then(function(){ if (wantedLead) openLeadModal(wantedLead); });
@@ -2788,6 +2807,9 @@ ${SALES_DASHBOARD_COMPONENT_JS}
 
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
+    // Same as the admin SPA: the coach's status probe is an authenticated
+    // route, so it waits for a session.
+    if (window.coachInit) window.coachInit();
     navigate(firstAllowedPage());
   }
 

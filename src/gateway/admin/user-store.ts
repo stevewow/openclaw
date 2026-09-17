@@ -696,6 +696,71 @@ type KbSearchesTable = {
  * them. The token counts are here so the running cost of the feature can be
  * read off the table it already writes to, rather than from a provider console.
  */
+/**
+ * A document in the Hub's guide — the product guide, the sales scripts.
+ *
+ * `slug` is what the coach cites and what a link into the page names, so it is
+ * stable forever; the title above it is editorial and may be renamed freely.
+ */
+type GuideDocsTable = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string | null;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+  /** Who last touched it. Null for a row still as it was seeded. */
+  updated_by: string | null;
+};
+
+/**
+ * One product, or one step of one call.
+ *
+ * `group_label` rather than `group` because GROUP is reserved in SQL. It is
+ * free text: the guide's own banding is editorial, and re-cutting it must not
+ * be a migration.
+ */
+type GuideSectionsTable = {
+  id: string;
+  doc_id: string;
+  heading: string;
+  group_label: string | null;
+  body_md: string;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+  updated_by: string | null;
+};
+
+/**
+ * What the team asked the coach, and what it said back.
+ *
+ * The opposite privacy stance to KbAsksTable, deliberately. That one records
+ * the words and never the person, because it answers the public. This is staff
+ * asking an internal coach on a work account: the user id is kept, because the
+ * useful reading later is "which of us is stuck on the Zillow objection", and
+ * because an internal feature that talks to a model should be attributable.
+ */
+type CoachAsksTable = {
+  id: string;
+  user_id: string | null;
+  /** Groups the turns of one conversation. Minted by the browser. */
+  thread_id: string;
+  question: string;
+  answer: string | null;
+  /** Closed code: answered, or why not. */
+  outcome: string;
+  /** JSON array of the section ids the answer drew on. */
+  cited: string;
+  input_tokens: number | null;
+  /** Read from the cache rather than re-billed. The point of the corpus block. */
+  cached_tokens: number | null;
+  output_tokens: number | null;
+  model: string | null;
+  created_at: number;
+};
+
 type KbAsksTable = {
   id: string;
   question: string;
@@ -1275,6 +1340,9 @@ export type AdminDb = {
   admin_lead_seq: LeadSeqTable;
   admin_lead_territories: LeadTerritoriesTable;
   admin_lead_digest_log: LeadDigestLogTable;
+  admin_guide_docs: GuideDocsTable;
+  admin_guide_sections: GuideSectionsTable;
+  admin_coach_asks: CoachAsksTable;
   // admin_kb_search (FTS5) is deliberately absent: it is a virtual table with
   // no stable column types for the query builder, and kb-store.ts reaches it
   // through a raw `sql` MATCH query instead.
@@ -2446,6 +2514,52 @@ function initSchema(db: import("node:sqlite").DatabaseSync): void {
       sent_at INTEGER NOT NULL,
       lead_count INTEGER NOT NULL
     );
+    -- The sales guide, as documents of sections. Seeded once from
+    -- coach-guide-seed.ts and edited in the Hub afterwards; the coach reads
+    -- these rows, never the seed.
+    CREATE TABLE IF NOT EXISTS admin_guide_docs (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      summary TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      updated_by TEXT REFERENCES admin_users(id) ON DELETE SET NULL
+    );
+    -- ON DELETE CASCADE: a document's sections have no meaning without it, and
+    -- the page never offers deleting one with rows under it anyway.
+    CREATE TABLE IF NOT EXISTS admin_guide_sections (
+      id TEXT PRIMARY KEY,
+      doc_id TEXT NOT NULL REFERENCES admin_guide_docs(id) ON DELETE CASCADE,
+      heading TEXT NOT NULL,
+      group_label TEXT,
+      body_md TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      updated_by TEXT REFERENCES admin_users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_guide_sections_doc
+      ON admin_guide_sections(doc_id, sort_order);
+    -- What the team asked the coach. The user is kept: this is staff on a work
+    -- account, not the anonymous public the help center answers.
+    CREATE TABLE IF NOT EXISTS admin_coach_asks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+      thread_id TEXT NOT NULL,
+      question TEXT NOT NULL,
+      answer TEXT,
+      outcome TEXT NOT NULL,
+      cited TEXT NOT NULL DEFAULT '[]',
+      input_tokens INTEGER,
+      cached_tokens INTEGER,
+      output_tokens INTEGER,
+      model TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_coach_asks_created ON admin_coach_asks(created_at);
+    CREATE INDEX IF NOT EXISTS admin_coach_asks_user ON admin_coach_asks(user_id, created_at);
   `);
   initKbSearch(db);
   migrateTicketCategoryCheck(db);
